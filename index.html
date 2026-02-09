@@ -9,10 +9,35 @@
 <body>
   <header class="header">
     <h1>Tacticlash</h1>
-    <button type="button" class="btn btn-new-game" disabled>New game</button>
+    <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
   </header>
 
   <main class="game">
+    <!-- Setup overlay: shown during New Game flow -->
+    <div class="setup" id="setup" aria-live="polite" hidden>
+      <div class="setup__step setup__step--goal" id="setup-goal">
+        <p class="setup__title">Choose capture goal</p>
+        <div class="setup__actions">
+          <button type="button" class="btn btn--goal" data-goal="10">10 captures</button>
+          <button type="button" class="btn btn--goal" data-goal="15">15 captures</button>
+        </div>
+      </div>
+      <div class="setup__step setup__step--coin" id="setup-coin" hidden>
+        <p class="setup__title">Who goes first?</p>
+        <button type="button" class="btn" id="btn-flip-coin">Flip coin</button>
+        <p class="setup__result" id="coin-result" hidden></p>
+        <button type="button" class="btn" id="btn-after-coin" hidden>Continue</button>
+      </div>
+      <div class="setup__step setup__step--place" id="setup-place" hidden>
+        <p class="setup__title" id="place-title">Player 1: Place your units</p>
+        <p class="setup__hint" id="place-hint">Click a unit below, then click an empty slot on your row.</p>
+        <div class="setup__place-actions">
+          <button type="button" class="btn btn--secondary" id="btn-place-randomly">Place all randomly</button>
+        </div>
+        <div class="setup__hand" id="placement-hand" role="list"></div>
+      </div>
+    </div>
+
     <div class="board" aria-label="Battlefield">
       <!-- Player 2 row (top); columns 0–4 left to right -->
       <div class="row row--player2" aria-label="Player 2 units">

@@ -53,10 +53,100 @@ body {
 /* Game area */
 .game {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   min-height: calc(100vh - 60px);
   padding: 1.5rem;
+  gap: 1rem;
+}
+
+/* Setup overlay (Phase 3) */
+.setup {
+  background: #252525;
+  border: 2px solid #555;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  min-width: 280px;
+}
+
+.setup__step {
+  text-align: center;
+}
+
+.setup__title {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.setup__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.setup__result {
+  margin: 1rem 0;
+  font-weight: 600;
+  color: #b8d4a8;
+}
+
+.setup__hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+.setup__place-actions {
+  margin-bottom: 0.75rem;
+}
+
+.btn--secondary {
+  background: #3a3a35;
+  border-color: #666;
+}
+
+.btn--secondary:hover {
+  background: #444;
+  border-color: #777;
+}
+
+.setup__hand {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.hand-card {
+  width: 80px;
+  min-height: 100px;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 2px solid #555;
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.hand-card:hover {
+  border-color: #888;
+}
+
+.hand-card--selected {
+  border-color: #6a9;
+  box-shadow: 0 0 0 2px rgba(102, 170, 153, 0.4);
+}
+
+.hand-card .unit-card {
+  min-height: 98px;
+  font-size: 0.65rem;
+}
+
+.hand-card .unit-card__name {
+  font-size: 0.6rem;
 }
 
 /* Board: 2 rows × 5 columns */
