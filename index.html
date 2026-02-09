@@ -9,6 +9,15 @@
 <body>
   <header class="header">
     <h1>Tacticlash</h1>
+    <div class="header__turn" id="turn-banner" hidden>
+      <span class="turn-banner__label" id="turn-label">Player 1's turn</span>
+      <span class="turn-banner__step" id="turn-step"></span>
+      <div class="turn-banner__actions" id="turn-actions">
+        <button type="button" class="btn btn--small" id="btn-move-left">Move left</button>
+        <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
+        <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
+      </div>
+    </div>
     <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
   </header>
 
@@ -38,6 +47,10 @@
       </div>
     </div>
 
+    <div class="captures" id="captures" hidden aria-label="Capture counts">
+      <span>P1 captures: <strong id="captures-p1">0</strong> / <span id="capture-goal-el">15</span></span>
+      <span>P2 captures: <strong id="captures-p2">0</strong> / <span id="capture-goal-el-2">15</span></span>
+    </div>
     <div class="board" aria-label="Battlefield">
       <!-- Player 2 row (top); columns 0–4 left to right -->
       <div class="row row--player2" aria-label="Player 2 units">
@@ -56,6 +69,10 @@
         <div class="slot" data-player="1" data-column="4" tabindex="0"></div>
       </div>
     </div>
+    <section class="game-log" id="game-log" aria-label="Game log" hidden>
+      <h2 class="game-log__title">Game log</h2>
+      <div class="game-log__entries" id="game-log-entries"></div>
+    </section>
   </main>
 
   <script src="data.js"></script>

@@ -1,5 +1,5 @@
 /**
- * Tacticlash — Phase 3: New Game & setup flow
+ * Tacticlash — Phase 4: Turn structure and action phase
  */
 
 (function () {
@@ -14,8 +14,31 @@
   const placeHint = document.getElementById('place-hint');
   const placementHand = document.getElementById('placement-hand');
   const btnNewGame = document.getElementById('btn-new-game');
+  const turnBanner = document.getElementById('turn-banner');
+  const turnLabel = document.getElementById('turn-label');
+  const turnStep = document.getElementById('turn-step');
+  const turnActions = document.getElementById('turn-actions');
+  const btnMoveLeft = document.getElementById('btn-move-left');
+  const btnMoveRight = document.getElementById('btn-move-right');
+  const btnSkipMove = document.getElementById('btn-skip-move');
+  const capturesEl = document.getElementById('captures');
+  const capturesP1 = document.getElementById('captures-p1');
+  const capturesP2 = document.getElementById('captures-p2');
+  const captureGoalEl = document.getElementById('capture-goal-el');
+  const captureGoalEl2 = document.getElementById('capture-goal-el-2');
+  const gameLogEl = document.getElementById('game-log');
+  const gameLogEntries = document.getElementById('game-log-entries');
 
   let state = getInitialState();
+
+  function log(message) {
+    if (!gameLogEntries) return;
+    const entry = document.createElement('div');
+    entry.className = 'game-log__entry';
+    entry.textContent = message;
+    gameLogEntries.appendChild(entry);
+    gameLogEntries.scrollTop = gameLogEntries.scrollHeight;
+  }
 
   function getInitialState() {
     return {
@@ -50,10 +73,10 @@
     return div.innerHTML;
   }
 
-  function createUnitCardHTML(unit, state) {
-    const faceUp = state.faceUp;
-    const damage = state.damage || 0;
-    const paralyzed = state.paralyzed || false;
+  function createUnitCardHTML(unit, cardState) {
+    const faceUp = cardState.faceUp;
+    const damage = cardState.damage || 0;
+    const paralyzed = cardState.paralyzed || false;
     const maxHP = getBaseHP(unit.class);
     const icon = CLASS_ICONS[unit.class] || '';
 
@@ -90,7 +113,7 @@
       const slots = row.querySelectorAll('.slot');
       slots.forEach(function (slot) {
         slot.innerHTML = '';
-        slot.classList.remove('slot--occupied');
+        slot.classList.remove('slot--occupied', 'slot--selectable', 'slot--selected');
       });
     });
   }
@@ -110,6 +133,39 @@
         slots[i].classList.add('slot--occupied');
       });
     });
+    if (state.phase === 'playing') highlightSlots();
+  }
+
+  function highlightSlots() {
+    document.querySelectorAll('.slot').forEach(function (slot) {
+      slot.classList.remove('slot--selectable', 'slot--selected');
+    });
+    const p = state.currentPlayer;
+    const step = state.actionStep;
+    const sel = state.selectedUnit;
+
+    if (step === 'select_unit') {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[p][c];
+        if (!cell) continue;
+        if (cell.paralyzed) continue;
+        const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
+        if (slot) slot.classList.add('slot--selectable');
+      }
+    } else if (step === 'move' && sel) {
+      const c = sel.column;
+      const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
+      if (slot) slot.classList.add('slot--selected');
+      if (c > 0) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c - 1) + '"]')?.classList.add('slot--selectable');
+      if (c < 4) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c + 1) + '"]')?.classList.add('slot--selectable');
+    } else if (step === 'attack' && sel) {
+      const opp = p === 1 ? 2 : 1;
+      for (let c = 0; c < 5; c++) {
+        if (state.board[opp][c] == null) continue;
+        const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
+        if (slot) slot.classList.add('slot--selectable');
+      }
+    }
   }
 
   function showStep(stepId) {
@@ -128,6 +184,9 @@
     state.phase = 'setup_goal';
     clearBoard();
     setupEl.hidden = false;
+    turnBanner.hidden = true;
+    capturesEl.hidden = true;
+    if (gameLogEl) gameLogEl.hidden = true;
     showStep('goal');
   }
 
@@ -183,9 +242,7 @@
     state.selectedPlacementIndex = null;
     renderBoard();
     renderPlacementStep();
-    if (hand.length === 0) {
-      finishPlacementForPlayer(player);
-    }
+    if (hand.length === 0) finishPlacementForPlayer(player);
   }
 
   function placeAllRandomly() {
@@ -223,8 +280,172 @@
     } else {
       state.phase = 'playing';
       setupEl.hidden = true;
-      renderBoard();
+      state.currentPlayer = state.firstPlayer;
+      state.capturedLastTurn = { 1: 0, 2: 0 };
+      state.p1ItemHand = [];
+      state.p2ItemHand = [];
+      state.p1Captures = 0;
+      state.p2Captures = 0;
+      state.actionStep = 'select_unit';
+      state.selectedUnit = null;
+      state.moveDone = false;
+      turnBanner.hidden = false;
+      capturesEl.hidden = false;
+      if (gameLogEl) gameLogEl.hidden = false;
+      gameLogEntries.innerHTML = '';
+      captureGoalEl.textContent = state.captureGoal;
+      captureGoalEl2.textContent = state.captureGoal;
+      startOfTurn();
     }
+  }
+
+  function startOfTurn() {
+    const p = state.currentPlayer;
+    state.actionStep = 'select_unit';
+    state.selectedUnit = null;
+    state.moveDone = false;
+
+    const reinforcedCount = state.capturedLastTurn[p] || 0;
+    runReinforcement(p);
+    drawItem(p);
+    clearParalyzed();
+    state.capturedLastTurn[p] = 0;
+
+    log("Player " + p + "'s turn.");
+    if (reinforcedCount > 0) {
+      log("Reinforcement: Player " + p + " places " + reinforcedCount + " unit(s) from the deck.");
+    }
+    log("Player " + p + " draws 1 item.");
+
+    updateCaptureDisplay();
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function runReinforcement(player) {
+    const count = state.capturedLastTurn[player] || 0;
+    const openSlots = [];
+    for (let c = 0; c < 5; c++) {
+      if (state.board[player][c] == null) openSlots.push(c);
+    }
+    for (let i = 0; i < count && state.unitDeck.length > 0 && openSlots.length > 0; i++) {
+      const unit = state.unitDeck.shift();
+      const slot = openSlots.shift();
+      state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false };
+    }
+  }
+
+  function drawItem(player) {
+    const hand = player === 1 ? state.p1ItemHand : state.p2ItemHand;
+    hand.push({ name: 'Item', id: 'item-' + Date.now() });
+  }
+
+  function clearParalyzed() {
+    [1, 2].forEach(function (player) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[player][c];
+        if (cell) cell.paralyzed = false;
+      }
+    });
+  }
+
+  function updateCaptureDisplay() {
+    capturesP1.textContent = state.p1Captures || 0;
+    capturesP2.textContent = state.p2Captures || 0;
+  }
+
+  function renderTurnUI() {
+    const p = state.currentPlayer;
+    const step = state.actionStep;
+    turnLabel.textContent = "Player " + p + "'s turn";
+
+    turnActions.hidden = true;
+    if (step === 'select_unit') {
+      turnStep.textContent = 'Select a unit to act.';
+    } else if (step === 'move') {
+      turnStep.textContent = 'Move (optional), then attack.';
+      turnActions.hidden = false;
+      const c = state.selectedUnit.column;
+      btnMoveLeft.disabled = c <= 0 || state.board[p][c - 1] == null;
+      btnMoveRight.disabled = c >= 4 || state.board[p][c + 1] == null;
+    } else if (step === 'attack') {
+      turnStep.textContent = 'Choose an enemy unit to attack.';
+    }
+  }
+
+  function onSelectUnit(player, column) {
+    const cell = state.board[player][column];
+    if (!cell || cell.paralyzed) return;
+    state.selectedUnit = { player: player, column: column };
+    cell.faceUp = true;
+    state.actionStep = 'move';
+    log("Player " + player + "'s " + cell.unit.name + " (" + cell.unit.class + ") is revealed and acts.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function doMove(direction) {
+    if (state.actionStep !== 'move' || !state.selectedUnit) return;
+    const p = state.selectedUnit.player;
+    const c = state.selectedUnit.column;
+    const next = c + (direction === 'left' ? -1 : 1);
+    if (next < 0 || next > 4) return;
+    const myCell = state.board[p][c];
+    const otherCell = state.board[p][next];
+    if (otherCell == null) return;
+    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false };
+    state.selectedUnit.column = next;
+    state.moveDone = true;
+    state.actionStep = 'attack';
+    log("Player " + p + "'s " + myCell.unit.name + " moves " + direction + " (swaps with " + otherCell.unit.name + "). " + myCell.unit.name + " is revealed.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function doSkipMove() {
+    if (state.actionStep !== 'move' || !state.selectedUnit) return;
+    const cell = state.board[state.selectedUnit.player][state.selectedUnit.column];
+    cell.faceUp = true;
+    state.actionStep = 'attack';
+    log("Player " + state.selectedUnit.player + "'s " + cell.unit.name + " does not move.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
+    const attCell = state.board[attackerPlayer][attackerCol];
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!attCell || !defCell) return;
+    const maxHP = getBaseHP(defCell.unit.class);
+    const currentDamage = defCell.damage || 0;
+    const newDamage = currentDamage + 1;
+    log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
+    defCell.faceUp = true;
+    if (newDamage >= maxHP) {
+      log(defCell.unit.name + " is captured (0/" + maxHP + " HP).");
+      state.board[defenderPlayer][defenderCol] = null;
+      if (defenderPlayer === 1) {
+        state.p2Captures = (state.p2Captures || 0) + 1;
+        state.capturedLastTurn[1] = (state.capturedLastTurn[1] || 0) + 1;
+      } else {
+        state.p1Captures = (state.p1Captures || 0) + 1;
+        state.capturedLastTurn[2] = (state.capturedLastTurn[2] || 0) + 1;
+      }
+    } else {
+      defCell.damage = newDamage;
+      log(defCell.unit.name + " takes 1 damage (" + newDamage + "/" + maxHP + " HP).");
+    }
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    updateCaptureDisplay();
+    renderBoard();
+    endTurn();
+  }
+
+  function endTurn() {
+    state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
+    startOfTurn();
   }
 
   function handlePlacementHandClick(e) {
@@ -242,6 +463,7 @@
     if (!slot) return;
     const player = parseInt(slot.getAttribute('data-player'), 10);
     const column = parseInt(slot.getAttribute('data-column'), 10);
+
     if (state.phase === 'setup_place_p1' || state.phase === 'setup_place_p2') {
       if (player !== state.placementPlayer) return;
       if (state.board[player][column] != null) return;
@@ -249,8 +471,25 @@
       placeUnit(player, column);
       return;
     }
-    if (state.phase === 'playing') {
-      console.log('Slot clicked: Player %s, Column %s', player, column);
+
+    if (state.phase !== 'playing') return;
+
+    const p = state.currentPlayer;
+    const step = state.actionStep;
+
+    if (step === 'select_unit') {
+      if (player === p && state.board[p][column] && !state.board[p][column].paralyzed) {
+        onSelectUnit(p, column);
+      }
+      return;
+    }
+
+    if (step === 'attack' && state.selectedUnit) {
+      const opp = p === 1 ? 2 : 1;
+      if (player === opp && state.board[opp][column]) {
+        resolveCombat(p, state.selectedUnit.column, opp, column);
+      }
+      return;
     }
   }
 
@@ -269,6 +508,10 @@
     btnAfterCoin.addEventListener('click', onAfterCoin);
 
     document.getElementById('btn-place-randomly').addEventListener('click', placeAllRandomly);
+
+    btnMoveLeft.addEventListener('click', function () { doMove('left'); });
+    btnMoveRight.addEventListener('click', function () { doMove('right'); });
+    btnSkipMove.addEventListener('click', doSkipMove);
 
     placementHand.addEventListener('click', handlePlacementHandClick);
     document.querySelector('.board').addEventListener('click', handleSlotClick);
