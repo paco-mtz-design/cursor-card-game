@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tacticlash</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <h1>Tacticlash</h1>
+    <button type="button" class="btn btn-new-game" disabled>New game</button>
+  </header>
+
+  <main class="game">
+    <div class="board" aria-label="Battlefield">
+      <!-- Player 2 row (top); columns 0–4 left to right -->
+      <div class="row row--player2" aria-label="Player 2 units">
+        <div class="slot" data-player="2" data-column="0" tabindex="0"></div>
+        <div class="slot" data-player="2" data-column="1" tabindex="0"></div>
+        <div class="slot" data-player="2" data-column="2" tabindex="0"></div>
+        <div class="slot" data-player="2" data-column="3" tabindex="0"></div>
+        <div class="slot" data-player="2" data-column="4" tabindex="0"></div>
+      </div>
+      <!-- Player 1 row (bottom) -->
+      <div class="row row--player1" aria-label="Player 1 units">
+        <div class="slot" data-player="1" data-column="0" tabindex="0"></div>
+        <div class="slot" data-player="1" data-column="1" tabindex="0"></div>
+        <div class="slot" data-player="1" data-column="2" tabindex="0"></div>
+        <div class="slot" data-player="1" data-column="3" tabindex="0"></div>
+        <div class="slot" data-player="1" data-column="4" tabindex="0"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="data.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
