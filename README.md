@@ -29,6 +29,9 @@ MVP plan we’re following. Phases are built in order; each is testable before m
 - `style.css` — Layout and card styling
 - `game.js` — Game logic
 - `data.js` — Character (and later item) data
+- `assets/` — Images and sprites (see `assets/README.md`)
+  - `assets/units/` — Unit card sprites (PNG; filename = character name slug, e.g. `harlund-ironhowl.png`)
+  - `assets/items/` — Item card art (for future use)
 - `Character list.csv` — Unit roster
 - `Items Deck - Technical sheet.md` — Item deck reference
 - `Tacticlash Gameplay Manual 2.1.md` — Full rules

@@ -138,6 +138,15 @@
     return div.innerHTML;
   }
 
+  /** Slug for asset filenames: "Harlund Ironhowl" -> "harlund-ironhowl" */
+  function nameToSlug(name) {
+    return String(name).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  }
+
+  function getUnitSpritePath(unit) {
+    return 'assets/units/' + nameToSlug(unit.name) + '.png';
+  }
+
   function createUnitCardHTML(unit, cardState) {
     const faceUp = cardState.faceUp;
     const damage = cardState.damage || 0;
@@ -145,10 +154,14 @@
     const maxHP = getBaseHP(unit.class);
     const icon = CLASS_ICONS[unit.class] || '';
 
+    const spritePath = getUnitSpritePath(unit);
+    const spriteImg = '<img class="unit-card__sprite" src="' + escapeHtml(spritePath) + '" alt="" role="presentation" onerror="this.classList.add(\'unit-card__sprite--missing\')">';
+
     if (!faceUp) {
       return '<div class="unit-card unit-card--face-down-soft" data-face-up="false" data-name="' +
         escapeHtml(unit.name) + '" data-class="' + unit.class + '">' +
         '<div class="unit-card__content">' +
+        spriteImg +
         '<span class="unit-card__badge unit-card__badge--face-down">Face-down</span>' +
         '<span class="unit-card__class">' + icon + ' ' + unit.class + '</span>' +
         '<span class="unit-card__name">' + escapeHtml(unit.name) + '</span>' +
@@ -166,6 +179,7 @@
     return '<div class="unit-card unit-card--face-up" data-face-up="true" data-name="' +
       escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '">' +
       '<div class="unit-card__content">' +
+      spriteImg +
       '<span class="unit-card__class">' + icon + ' ' + unit.class + '</span>' +
       '<span class="unit-card__name">' + escapeHtml(unit.name) + '</span>' +
       (markersHTML ? '<div class="unit-card__markers">' + markersHTML + '</div>' : '') +
