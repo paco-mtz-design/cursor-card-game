@@ -28,6 +28,9 @@
   const captureGoalEl2 = document.getElementById('capture-goal-el-2');
   const gameLogEl = document.getElementById('game-log');
   const gameLogEntries = document.getElementById('game-log-entries');
+  const gameOverEl = document.getElementById('game-over');
+  const gameOverMessage = document.getElementById('game-over-message');
+  const btnPass = document.getElementById('btn-pass');
 
   let state = getInitialState();
 
@@ -51,7 +54,34 @@
       board: { 1: [null, null, null, null, null], 2: [null, null, null, null, null] },
       placementPlayer: null,
       selectedPlacementIndex: null,
+      gameOver: false,
+      winner: null,
     };
+  }
+
+  function countUnits(player) {
+    let n = 0;
+    for (let c = 0; c < 5; c++) {
+      if (state.board[player][c] != null) n++;
+    }
+    return n;
+  }
+
+  function checkGameOver() {
+    if (state.p1Captures >= state.captureGoal) return 1;
+    if (state.p2Captures >= state.captureGoal) return 2;
+    if (countUnits(1) === 0) return 2;
+    if (countUnits(2) === 0) return 1;
+    return null;
+  }
+
+  function showGameOver(winner) {
+    state.gameOver = true;
+    state.winner = winner;
+    if (gameOverEl) gameOverEl.hidden = false;
+    if (gameOverMessage) gameOverMessage.textContent = "Player " + winner + " wins!";
+    if (turnBanner) turnBanner.hidden = true;
+    log("Game over — Player " + winner + " wins!");
   }
 
   function shuffle(array) {
@@ -85,6 +115,18 @@
   /** Shooter Longshot: edge-to-edge (col 0 vs 4 or 4 vs 0). */
   function isLongshot(attackerCol, defenderCol) {
     return (attackerCol === 0 && defenderCol === 4) || (attackerCol === 4 && defenderCol === 0);
+  }
+
+  function canAttack(attackerPlayer, attackerCol) {
+    const cell = state.board[attackerPlayer][attackerCol];
+    if (!cell) return false;
+    const opp = attackerPlayer === 1 ? 2 : 1;
+    const attClass = cell.unit.class;
+    for (let c = 0; c < 5; c++) {
+      if (state.board[opp][c] == null) continue;
+      if (isInRange(attackerCol, c, attClass)) return true;
+    }
+    return false;
   }
 
   function escapeHtml(text) {
@@ -211,6 +253,7 @@
     turnBanner.hidden = true;
     capturesEl.hidden = true;
     if (gameLogEl) gameLogEl.hidden = true;
+    if (gameOverEl) gameOverEl.hidden = true;
     showStep('goal');
   }
 
@@ -330,12 +373,24 @@
     state.moveDone = false;
 
     const reinforcedCount = state.capturedLastTurn[p] || 0;
+    const deckEmptyBefore = state.unitDeck.length === 0;
     runReinforcement(p);
+    if (reinforcedCount > 0 && deckEmptyBefore) {
+      log("Unit deck is empty — no reinforcement.");
+    }
     drawItem(p);
     state.capturedLastTurn[p] = 0;
 
+    var winner = checkGameOver();
+    if (winner !== null) {
+      showGameOver(winner);
+      updateCaptureDisplay();
+      renderBoard();
+      return;
+    }
+
     log("Player " + p + "'s turn.");
-    if (reinforcedCount > 0) {
+    if (reinforcedCount > 0 && !deckEmptyBefore) {
       log("Reinforcement: Player " + p + " places " + reinforcedCount + " unit(s) from the deck.");
     }
     log("Player " + p + " draws 1 item.");
@@ -381,6 +436,11 @@
     turnLabel.textContent = "Player " + p + "'s turn";
 
     turnActions.hidden = true;
+    if (btnPass) btnPass.hidden = true;
+    btnMoveLeft.hidden = false;
+    btnMoveRight.hidden = false;
+    btnSkipMove.hidden = false;
+
     if (step === 'select_unit') {
       turnStep.textContent = 'Select a unit to act.';
     } else if (step === 'move') {
@@ -390,7 +450,17 @@
       btnMoveLeft.disabled = c <= 0 || state.board[p][c - 1] == null;
       btnMoveRight.disabled = c >= 4 || state.board[p][c + 1] == null;
     } else if (step === 'attack') {
-      turnStep.textContent = 'Choose an enemy unit to attack.';
+      const canAtt = state.selectedUnit && canAttack(state.selectedUnit.player, state.selectedUnit.column);
+      if (canAtt) {
+        turnStep.textContent = 'Choose an enemy unit to attack.';
+      } else {
+        turnStep.textContent = 'No valid target — you may pass.';
+        turnActions.hidden = false;
+        btnMoveLeft.hidden = true;
+        btnMoveRight.hidden = true;
+        btnSkipMove.hidden = true;
+        if (btnPass) btnPass.hidden = false;
+      }
     }
   }
 
@@ -432,6 +502,16 @@
     log("Player " + state.selectedUnit.player + "'s " + cell.unit.name + " does not move.");
     renderTurnUI();
     renderBoard();
+  }
+
+  function doPass() {
+    if (state.actionStep !== 'attack' || !state.selectedUnit) return;
+    log("Player " + state.currentPlayer + " cannot attack — passes.");
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    renderTurnUI();
+    renderBoard();
+    endTurn();
   }
 
   function applyDamage(player, col, damageAmount, logPrefix) {
@@ -512,6 +592,15 @@
     }
 
     replaceCapturedUnitsBeforePass();
+    var winner = checkGameOver();
+    if (winner !== null) {
+      showGameOver(winner);
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      updateCaptureDisplay();
+      renderBoard();
+      return;
+    }
     state.selectedUnit = null;
     state.actionStep = 'select_unit';
     updateCaptureDisplay();
@@ -558,7 +647,7 @@
       return;
     }
 
-    if (state.phase !== 'playing') return;
+    if (state.phase !== 'playing' || state.gameOver) return;
 
     const p = state.currentPlayer;
     const step = state.actionStep;
@@ -598,9 +687,10 @@
 
     document.getElementById('btn-place-randomly').addEventListener('click', placeAllRandomly);
 
-    btnMoveLeft.addEventListener('click', function () { doMove('left'); });
-    btnMoveRight.addEventListener('click', function () { doMove('right'); });
-    btnSkipMove.addEventListener('click', doSkipMove);
+    btnMoveLeft.addEventListener('click', function () { if (!state.gameOver) doMove('left'); });
+    btnMoveRight.addEventListener('click', function () { if (!state.gameOver) doMove('right'); });
+    btnSkipMove.addEventListener('click', function () { if (!state.gameOver) doSkipMove(); });
+    if (btnPass) btnPass.addEventListener('click', function () { if (!state.gameOver) doPass(); });
 
     placementHand.addEventListener('click', handlePlacementHandClick);
     document.querySelector('.board').addEventListener('click', handleSlotClick);

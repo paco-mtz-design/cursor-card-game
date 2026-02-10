@@ -72,6 +72,21 @@ body {
   color: #e8e8e8;
 }
 
+/* Game over (Phase 6) */
+.game-over {
+  padding: 0.5rem 1rem;
+  background: #1a2e1a;
+  border: 2px solid #4a7c4a;
+  border-radius: 8px;
+}
+
+.game-over__message {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #8fcc8f;
+}
+
 /* Game log (debug) */
 .game-log {
   width: 100%;

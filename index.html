@@ -16,7 +16,11 @@
         <button type="button" class="btn btn--small" id="btn-move-left">Move left</button>
         <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
         <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
+        <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
       </div>
+    </div>
+    <div class="game-over" id="game-over" hidden aria-live="polite">
+      <p class="game-over__message" id="game-over-message"></p>
     </div>
     <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
   </header>
