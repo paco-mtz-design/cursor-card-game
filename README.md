@@ -12,8 +12,8 @@ MVP plan we’re following. Phases are built in order; each is testable before m
 | **2** | ✅ Done | **Units on the board** — Unit cards (face-down soft / face-up) with real character names and classes. Damage and status markers (e.g. Paralyzed). |
 | **3** | ✅ Done | **New game and setup flow** — Choose capture goal (10 or 15). Coin flip for first player. Shuffle unit deck, each player draws 5 and places them (manual or “Place all randomly”). |
 | **4** | ✅ Done | **Turn structure and “one unit acts”** — Reinforcement phase (replace captured units, draw 1 item). Action phase: choose 1 unit → optional move (1 slot L/R, swap) → must attack (target choice in Phase 5). End turn. |
-| **5** | Next | **Combat and range** — Enforce range (Brawler: same column; Lancer: diagonal; Shooter: 3+; Caster: any). Resolve damage, Lancer counter, Longshot, Caster paralysis. Capture at 0 HP, place markers. |
-| **6** | Pending | **Win condition and endgame** — Capture counter (10 or 15). Empty deck = no replacement. No units = lose. Can’t attack = move and pass. |
+| **5** | ✅ Done | **Combat and range** — Enforce range (Brawler: same column; Lancer: diagonal; Shooter: 3+; Caster: any). Resolve damage, Lancer counter, Longshot, Caster paralysis. Capture at 0 HP, place markers. |
+| **6** | Next | **Win condition and endgame** — Capture counter (10 or 15). Empty deck = no replacement. No units = lose. Can’t attack = move and pass. |
 | **7** | Pending | **Item hand (display only)** — Show each player’s item hand; draw 1 item per turn. No usage/effects yet. |
 
 ## Project structure

@@ -67,6 +67,26 @@
     return classType === 'Brawler' ? 2 : 1;
   }
 
+  /** Returns true if attacker at attCol can attack enemy at defCol (same row = defender row). */
+  function isInRange(attackerCol, defenderCol, attackerClass) {
+    const d = Math.abs(defenderCol - attackerCol);
+    if (attackerClass === 'Brawler') return d === 0;
+    if (attackerClass === 'Lancer') return d === 1;
+    if (attackerClass === 'Shooter') return d >= 2;
+    if (attackerClass === 'Caster') return true;
+    return false;
+  }
+
+  /** Lancer range: attacker column is diagonal to defender (defender at defCol). */
+  function isLancerCounterRange(attackerCol, defenderCol) {
+    return Math.abs(attackerCol - defenderCol) === 1;
+  }
+
+  /** Shooter Longshot: edge-to-edge (col 0 vs 4 or 4 vs 0). */
+  function isLongshot(attackerCol, defenderCol) {
+    return (attackerCol === 0 && defenderCol === 4) || (attackerCol === 4 && defenderCol === 0);
+  }
+
   function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -160,8 +180,12 @@
       if (c < 4) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c + 1) + '"]')?.classList.add('slot--selectable');
     } else if (step === 'attack' && sel) {
       const opp = p === 1 ? 2 : 1;
+      const attCell = state.board[p][sel.column];
+      if (!attCell) return;
+      const attClass = attCell.unit.class;
       for (let c = 0; c < 5; c++) {
         if (state.board[opp][c] == null) continue;
+        if (!isInRange(sel.column, c, attClass)) continue;
         const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
         if (slot) slot.classList.add('slot--selectable');
       }
@@ -308,7 +332,6 @@
     const reinforcedCount = state.capturedLastTurn[p] || 0;
     runReinforcement(p);
     drawItem(p);
-    clearParalyzed();
     state.capturedLastTurn[p] = 0;
 
     log("Player " + p + "'s turn.");
@@ -340,13 +363,11 @@
     hand.push({ name: 'Item', id: 'item-' + Date.now() });
   }
 
-  function clearParalyzed() {
-    [1, 2].forEach(function (player) {
-      for (let c = 0; c < 5; c++) {
-        const cell = state.board[player][c];
-        if (cell) cell.paralyzed = false;
-      }
-    });
+  function clearParalyzedForPlayer(player) {
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[player][c];
+      if (cell) cell.paralyzed = false;
+    }
   }
 
   function updateCaptureDisplay() {
@@ -413,29 +434,84 @@
     renderBoard();
   }
 
-  function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
-    const attCell = state.board[attackerPlayer][attackerCol];
-    const defCell = state.board[defenderPlayer][defenderCol];
-    if (!attCell || !defCell) return;
-    const maxHP = getBaseHP(defCell.unit.class);
-    const currentDamage = defCell.damage || 0;
-    const newDamage = currentDamage + 1;
-    log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
-    defCell.faceUp = true;
-    if (newDamage >= maxHP) {
-      log(defCell.unit.name + " is captured (0/" + maxHP + " HP).");
-      state.board[defenderPlayer][defenderCol] = null;
-      if (defenderPlayer === 1) {
+  function applyDamage(player, col, damageAmount, logPrefix) {
+    const cell = state.board[player][col];
+    if (!cell) return true;
+    const maxHP = getBaseHP(cell.unit.class);
+    const current = cell.damage || 0;
+    const newTotal = current + damageAmount;
+    cell.faceUp = true;
+    if (newTotal >= maxHP) {
+      log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " is captured (0/" + maxHP + " HP).");
+      state.board[player][col] = null;
+      if (player === 1) {
         state.p2Captures = (state.p2Captures || 0) + 1;
         state.capturedLastTurn[1] = (state.capturedLastTurn[1] || 0) + 1;
       } else {
         state.p1Captures = (state.p1Captures || 0) + 1;
         state.capturedLastTurn[2] = (state.capturedLastTurn[2] || 0) + 1;
       }
-    } else {
-      defCell.damage = newDamage;
-      log(defCell.unit.name + " takes 1 damage (" + newDamage + "/" + maxHP + " HP).");
+      return true;
     }
+    cell.damage = newTotal;
+    log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
+    return false;
+  }
+
+  function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
+    const attCell = state.board[attackerPlayer][attackerCol];
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!attCell || !defCell) return;
+
+    log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
+
+    let attackBlocked = false;
+
+    const colsToCheck = [];
+    if (attackerCol - 1 >= 0) colsToCheck.push(attackerCol - 1);
+    if (attackerCol + 1 <= 4) colsToCheck.push(attackerCol + 1);
+
+    let lancerCol = null;
+    for (let i = 0; i < colsToCheck.length; i++) {
+      const c = colsToCheck[i];
+      const cell = state.board[defenderPlayer][c];
+      if (!cell || cell.unit.class !== 'Lancer') continue;
+      lancerCol = c;
+      break;
+    }
+
+    if (lancerCol !== null) {
+      const lancerCell = state.board[defenderPlayer][lancerCol];
+      lancerCell.faceUp = true;
+      log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
+      const heads = Math.random() < 0.5;
+      if (heads) {
+        log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
+        attackBlocked = true;
+        applyDamage(attackerPlayer, attackerCol, 1, "");
+      } else {
+        log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+      }
+    }
+
+    if (!attackBlocked) {
+      defCell.faceUp = true;
+      log("Target revealed: Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
+
+      const damage = (attCell.unit.class === 'Shooter' && isLongshot(attackerCol, defenderCol))
+        ? 2
+        : 1;
+      if (attCell.unit.class === 'Shooter' && damage === 2) {
+        log("Longshot (edge to edge): 2 damage.");
+      }
+      const captured = applyDamage(defenderPlayer, defenderCol, damage, "");
+      if (!captured && state.board[defenderPlayer][defenderCol] && attCell.unit.class === 'Caster') {
+        state.board[defenderPlayer][defenderCol].paralyzed = true;
+        log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
+      }
+    }
+
+    replaceCapturedUnitsBeforePass();
     state.selectedUnit = null;
     state.actionStep = 'select_unit';
     updateCaptureDisplay();
@@ -443,7 +519,17 @@
     endTurn();
   }
 
+  function replaceCapturedUnitsBeforePass() {
+    const p = state.currentPlayer;
+    const count = state.capturedLastTurn[p] || 0;
+    if (count === 0) return;
+    log("Reinforcement: Player " + p + " replaces " + count + " captured unit(s) before passing turn.");
+    runReinforcement(p);
+    state.capturedLastTurn[p] = 0;
+  }
+
   function endTurn() {
+    clearParalyzedForPlayer(state.currentPlayer);
     state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
     startOfTurn();
   }
@@ -487,7 +573,10 @@
     if (step === 'attack' && state.selectedUnit) {
       const opp = p === 1 ? 2 : 1;
       if (player === opp && state.board[opp][column]) {
-        resolveCombat(p, state.selectedUnit.column, opp, column);
+        const attCell = state.board[p][state.selectedUnit.column];
+        if (attCell && isInRange(state.selectedUnit.column, column, attCell.unit.class)) {
+          resolveCombat(p, state.selectedUnit.column, opp, column);
+        }
       }
       return;
     }
