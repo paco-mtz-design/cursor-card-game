@@ -31,6 +31,9 @@
   const gameOverEl = document.getElementById('game-over');
   const gameOverMessage = document.getElementById('game-over-message');
   const btnPass = document.getElementById('btn-pass');
+  const itemHandsEl = document.getElementById('item-hands');
+  const itemHandP1El = document.getElementById('item-hand-p1');
+  const itemHandP2El = document.getElementById('item-hand-p2');
 
   let state = getInitialState();
 
@@ -195,7 +198,10 @@
         slots[i].classList.add('slot--occupied');
       });
     });
-    if (state.phase === 'playing') highlightSlots();
+    if (state.phase === 'playing') {
+      highlightSlots();
+      if (state.p1ItemHand != null) renderItemHands();
+    }
   }
 
   function highlightSlots() {
@@ -252,6 +258,7 @@
     setupEl.hidden = false;
     turnBanner.hidden = true;
     capturesEl.hidden = true;
+    if (itemHandsEl) itemHandsEl.hidden = true;
     if (gameLogEl) gameLogEl.hidden = true;
     if (gameOverEl) gameOverEl.hidden = true;
     showStep('goal');
@@ -351,6 +358,7 @@
       state.capturedLastTurn = { 1: 0, 2: 0 };
       state.p1ItemHand = [];
       state.p2ItemHand = [];
+      state.itemDeck = shuffle(buildItemDeck());
       state.p1Captures = 0;
       state.p2Captures = 0;
       state.actionStep = 'select_unit';
@@ -358,6 +366,7 @@
       state.moveDone = false;
       turnBanner.hidden = false;
       capturesEl.hidden = false;
+      if (itemHandsEl) itemHandsEl.hidden = false;
       if (gameLogEl) gameLogEl.hidden = false;
       gameLogEntries.innerHTML = '';
       captureGoalEl.textContent = state.captureGoal;
@@ -415,7 +424,10 @@
 
   function drawItem(player) {
     const hand = player === 1 ? state.p1ItemHand : state.p2ItemHand;
-    hand.push({ name: 'Item', id: 'item-' + Date.now() });
+    const name = state.itemDeck && state.itemDeck.length > 0
+      ? state.itemDeck.shift()
+      : 'Item';
+    hand.push({ name: name, id: 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) });
   }
 
   function clearParalyzedForPlayer(player) {
@@ -428,6 +440,30 @@
   function updateCaptureDisplay() {
     capturesP1.textContent = state.p1Captures || 0;
     capturesP2.textContent = state.p2Captures || 0;
+  }
+
+  function renderItemHands() {
+    if (!itemHandP1El || !itemHandP2El) return;
+    const p1Hand = state.p1ItemHand || [];
+    const p2Hand = state.p2ItemHand || [];
+    itemHandP1El.innerHTML = '';
+    itemHandP2El.innerHTML = '';
+    p1Hand.forEach(function (item) {
+      const el = document.createElement('div');
+      el.className = 'item-card';
+      el.setAttribute('role', 'listitem');
+      el.textContent = item.name;
+      el.setAttribute('aria-label', 'Item: ' + item.name);
+      itemHandP1El.appendChild(el);
+    });
+    p2Hand.forEach(function (item) {
+      const el = document.createElement('div');
+      el.className = 'item-card';
+      el.setAttribute('role', 'listitem');
+      el.textContent = item.name;
+      el.setAttribute('aria-label', 'Item: ' + item.name);
+      itemHandP2El.appendChild(el);
+    });
   }
 
   function renderTurnUI() {

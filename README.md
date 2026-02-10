@@ -14,14 +14,14 @@ MVP plan we’re following. Phases are built in order; each is testable before m
 | **4** | ✅ Done | **Turn structure and “one unit acts”** — Reinforcement phase (replace captured units, draw 1 item). Action phase: choose 1 unit → optional move (1 slot L/R, swap) → must attack (target choice in Phase 5). End turn. |
 | **5** | ✅ Done | **Combat and range** — Enforce range (Brawler: same column; Lancer: diagonal; Shooter: 3+; Caster: any). Resolve damage, Lancer counter, Longshot, Caster paralysis. Capture at 0 HP, place markers. |
 | **6** | ✅ Done | **Win condition and endgame** — Capture counter (10 or 15). Empty deck = no replacement. No units = lose. Can’t attack = move and pass. |
-| **7** | Next | **Item hand (display only)** — Show each player’s item hand; draw 1 item per turn. No usage/effects yet. |
+| **7** | ✅ Done | **Item hand (display only)** — Show each player’s item hand; draw 1 item per turn. No usage/effects yet. |
 
 ## Current state & handoff (for new chats)
 
-- **Branch:** `development` (Phases 4–6 are here; `main` has through Phase 3 or as last merged).
-- **Done through Phase 6:** Full playable loop: setup → turns → reinforcement → select unit → optional move → attack (with range, Lancer counter, Longshot, Caster paralysis) → replace captured before pass → win/loss (capture goal or no units), pass when no valid target, empty deck = no replacement. Game log and game-over banner in place.
-- **Next:** Phase 7 — show each player’s item hand (names/count); 1 item drawn per turn already in state (`p1ItemHand` / `p2ItemHand`). No item effects yet.
-- **Key files:** `game.js` (state, turn flow, combat, win check), `index.html` (board, setup, turn banner, game log, game over), `data.js` (CHARACTERS, CLASS_ICONS). Item names for Phase 7 are in `Items Deck - Technical sheet.md`.
+- **Branch:** `development` (Phases 4–7 are here; `main` has through Phase 3 or as last merged).
+- **Done through Phase 7:** Full playable loop (Phases 1–6) setup → turns → reinforcement → select unit → optional move → attack (with range, Lancer counter, Longshot, Caster paralysis) → replace captured before pass → win/loss (capture goal or no units), pass when no valid target, empty deck = no replacement. Game log and game-over banner in place.
+- **Next:** Phase 8 (or next in plan) — e.g. item usage/effects, or opponent fog of war.
+- **Key files:** `game.js` (state, turn flow, combat, win check, item deck + renderItemHands), `index.html` (board, setup, turn banner, game log, game over, item hands), `data.js` (CHARACTERS, CLASS_ICONS, ITEM_DECK_SPEC, buildItemDeck).
 
 ## Project structure
 

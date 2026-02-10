@@ -43,3 +43,43 @@ const CLASS_ICONS = {
   Shooter: '🎯',
   Caster: '🔮',
 };
+
+/**
+ * Item deck (from Items Deck - Technical sheet.md). Each entry is { name, quantity }.
+ * Used to build the shuffled item deck at game start; draw 1 per turn into item hand.
+ */
+const ITEM_DECK_SPEC = [
+  { name: 'Light Armor', quantity: 7 },
+  { name: 'Premium Light Armor', quantity: 4 },
+  { name: 'Heavy Armor', quantity: 5 },
+  { name: 'Healing Potion', quantity: 4 },
+  { name: 'Rust Spell', quantity: 3 },
+  { name: 'Earthquake Spell', quantity: 3 },
+  { name: 'Revealing Light', quantity: 3 },
+  { name: 'Disabling Net', quantity: 3 },
+  { name: 'Smoke Bomb', quantity: 2 },
+  { name: 'Critical Hit Spell', quantity: 2 },
+  { name: 'Sniper Scope', quantity: 2 },
+  { name: 'Magic Grenade', quantity: 2 },
+  { name: 'Barbed Gauntlets', quantity: 2 },
+  { name: 'Wardstone Bracelet', quantity: 2 },
+  { name: 'Teleport Boots', quantity: 2 },
+  { name: 'Elevated Ground', quantity: 3 },
+  { name: 'Reinforced Barricade', quantity: 3 },
+  { name: 'Paralyzing Vines', quantity: 2 },
+  { name: 'Divine Light', quantity: 2 },
+  { name: 'Unstable Ground', quantity: 2 },
+  { name: "Champion's Crest", quantity: 1 },
+  { name: 'Vanguard Lance', quantity: 1 },
+  { name: "Sharpshooter's Scope", quantity: 1 },
+  { name: "Archmage's Tome", quantity: 1 },
+];
+
+/** Build a flat array of item names (each repeated by quantity) for shuffling. */
+function buildItemDeck() {
+  const flat = [];
+  ITEM_DECK_SPEC.forEach(function (entry) {
+    for (let i = 0; i < entry.quantity; i++) flat.push(entry.name);
+  });
+  return flat;
+}

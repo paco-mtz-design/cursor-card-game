@@ -72,6 +72,52 @@ body {
   color: #e8e8e8;
 }
 
+/* Item hands (Phase 7) — display only */
+.item-hands {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 560px;
+}
+
+.item-hands__panel {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.75rem 1rem;
+  background: #252525;
+  border: 1px solid #444;
+  border-radius: 8px;
+}
+
+.item-hands__title {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #aaa;
+}
+
+.item-hands__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-height: 2rem;
+}
+
+.item-card {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 6px;
+  color: #e8e8e8;
+}
+
+.item-card:empty {
+  display: none;
+}
+
 /* Game over (Phase 6) */
 .game-over {
   padding: 0.5rem 1rem;
