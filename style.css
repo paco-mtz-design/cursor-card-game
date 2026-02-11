@@ -647,3 +647,8 @@ body {
   background: #5a4a2a;
   color: #ffe4a0;
 }
+
+.marker--cannot-attack {
+  background: #3a3a5a;
+  color: #c4c4e8;
+}

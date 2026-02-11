@@ -96,7 +96,7 @@ const ITEM_SPECS = {
   'Rust Spell': { type: 'single_use', effect: 'Destroy one Gear card (either yours or an opponent\'s).' },
   'Earthquake Spell': { type: 'single_use', effect: 'Destroy one Terrain card (either yours or an opponent\'s).' },
   'Revealing Light': { type: 'single_use', effect: 'Reveal one face-down enemy unit (it remains face-up).' },
-  'Disabling Net': { type: 'single_use', effect: 'The targeted enemy unit can\'t attack on their next turn.' },
+  'Disabling Net': { type: 'single_use', effect: 'The targeted enemy unit can\'t initiate an attack on their next turn (they can still be swapped with other moving units). Prevents affected Lancers from countering, as well.' },
   'Smoke Bomb': { type: 'single_use', effect: 'Flip all your units face-down, shuffle as you wish.' },
   'Critical Hit Spell': { type: 'single_use', effect: 'Makes your next attack fatal: ignoring terrain-, item-, or unit-specific effects. Range rules apply as usual.' },
   'Sniper Scope': { type: 'gear_accessory', effect: 'Attacks by Shooters or Casters equipped with this card become true strikes, ignoring terrain-, item-, or unit-specific effects.' },

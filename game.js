@@ -133,6 +133,7 @@
   function canAttack(attackerPlayer, attackerCol) {
     const cell = state.board[attackerPlayer][attackerCol];
     if (!cell) return false;
+    if (cell.cannotAttackNextTurn) return false;
     const opp = attackerPlayer === 1 ? 2 : 1;
     const attClass = cell.unit.class;
     for (let c = 0; c < 5; c++) {
@@ -161,6 +162,7 @@
     const faceUp = cardState.faceUp;
     const damage = cardState.damage || 0;
     const paralyzed = cardState.paralyzed || false;
+    const cannotAttackNextTurn = cardState.cannotAttackNextTurn || false;
     const maxHP = getBaseHP(unit.class);
     const icon = CLASS_ICONS[unit.class] || '';
 
@@ -168,11 +170,13 @@
     const spriteImg = '<img class="unit-card__sprite" src="' + escapeHtml(spritePath) + '" alt="" role="presentation" onerror="this.classList.add(\'unit-card__sprite--missing\')">';
 
     if (!faceUp) {
+      const netMarker = cannotAttackNextTurn ? '<span class="marker marker--cannot-attack">Can\'t attack</span>' : '';
       return '<div class="unit-card unit-card--face-down-soft" data-face-up="false" data-name="' +
         escapeHtml(unit.name) + '" data-class="' + unit.class + '">' +
         '<div class="unit-card__content">' +
         spriteImg +
         '<span class="unit-card__badge unit-card__badge--face-down">Face-down</span>' +
+        netMarker +
         '<span class="unit-card__class">' + icon + ' ' + unit.class + '</span>' +
         '<span class="unit-card__name">' + escapeHtml(unit.name) + '</span>' +
         '</div></div>';
@@ -184,6 +188,9 @@
     }
     if (paralyzed) {
       markersHTML += '<span class="marker marker--paralyzed">Paralyzed</span>';
+    }
+    if (cannotAttackNextTurn) {
+      markersHTML += '<span class="marker marker--cannot-attack">Can\'t attack</span>';
     }
 
     return '<div class="unit-card unit-card--face-up" data-face-up="true" data-name="' +
@@ -216,7 +223,7 @@
       cells.forEach(function (cell, i) {
         if (!cell) return;
         const unit = cell.unit;
-        const cardState = { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false };
+        const cardState = { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false, cannotAttackNextTurn: cell.cannotAttackNextTurn || false };
         const html = createUnitCardHTML(unit, cardState);
         slots[i].innerHTML = html;
         slots[i].classList.add('slot--occupied');
@@ -274,6 +281,7 @@
       const opp = p === 1 ? 2 : 1;
       const attCell = state.board[p][sel.column];
       if (!attCell) return;
+      if (attCell.cannotAttackNextTurn) return;
       const attClass = attCell.unit.class;
       for (let c = 0; c < 5; c++) {
         if (state.board[opp][c] == null) continue;
@@ -281,12 +289,30 @@
         const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
         if (slot) slot.classList.add('slot--selectable');
       }
-    } else if (step === 'use_items' && state.itemTargeting && state.itemTargeting.itemName === 'Healing Potion') {
-      for (let pl = 1; pl <= 2; pl++) {
+    } else if (step === 'use_items' && state.itemTargeting) {
+      const itemName = state.itemTargeting.itemName;
+      if (itemName === 'Healing Potion') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            const cell = state.board[pl][c];
+            if (!cell || (cell.damage || 0) < 1) continue;
+            const slot = document.querySelector('.row--player' + pl + ' .slot[data-column="' + c + '"]');
+            if (slot) slot.classList.add('slot--selectable');
+          }
+        }
+      } else if (itemName === 'Revealing Light') {
+        const opp = p === 1 ? 2 : 1;
         for (let c = 0; c < 5; c++) {
-          const cell = state.board[pl][c];
-          if (!cell || (cell.damage || 0) < 1) continue;
-          const slot = document.querySelector('.row--player' + pl + ' .slot[data-column="' + c + '"]');
+          const cell = state.board[opp][c];
+          if (!cell || cell.faceUp) continue;
+          const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
+          if (slot) slot.classList.add('slot--selectable');
+        }
+      } else if (itemName === 'Disabling Net') {
+        const opp = p === 1 ? 2 : 1;
+        for (let c = 0; c < 5; c++) {
+          if (state.board[opp][c] == null) continue;
+          const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
           if (slot) slot.classList.add('slot--selectable');
         }
       }
@@ -524,6 +550,27 @@
     return n;
   }
 
+  /** Count face-down units on the opponent's row (for Revealing Light). */
+  function countFaceDownEnemyUnits(currentPlayer) {
+    const opp = currentPlayer === 1 ? 2 : 1;
+    let n = 0;
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[opp][c];
+      if (cell && !cell.faceUp) n++;
+    }
+    return n;
+  }
+
+  /** Count enemy units (for Disabling Net). */
+  function countEnemyUnits(currentPlayer) {
+    const opp = currentPlayer === 1 ? 2 : 1;
+    let n = 0;
+    for (let c = 0; c < 5; c++) {
+      if (state.board[opp][c] != null) n++;
+    }
+    return n;
+  }
+
   function renderItemHands() {
     if (!itemHandP1El || !itemHandP2El) return;
     const p1Hand = state.p1ItemHand || [];
@@ -532,9 +579,18 @@
     const step = state.actionStep;
     const isUseItems = step === 'use_items' && !state.itemTargeting;
     const canPlayHealingPotion = isUseItems && countUnitsWithDamageAtLeast(1) > 0;
+    const canPlayRevealingLight = isUseItems && countFaceDownEnemyUnits(p) > 0;
+    const canPlayDisablingNet = isUseItems && countEnemyUnits(p) > 0;
 
     itemHandP1El.innerHTML = '';
     itemHandP2El.innerHTML = '';
+
+    function canPlaySingleUse(itemName) {
+      if (itemName === 'Healing Potion') return canPlayHealingPotion;
+      if (itemName === 'Revealing Light') return canPlayRevealingLight;
+      if (itemName === 'Disabling Net') return canPlayDisablingNet;
+      return false;
+    }
 
     function buildItemCard(item, index, isCurrentPlayer) {
       const el = document.createElement('div');
@@ -558,7 +614,7 @@
         el.appendChild(effectDiv);
       }
 
-      if (isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && item.name === 'Healing Potion' && canPlayHealingPotion) {
+      if (isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && canPlaySingleUse(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -594,7 +650,15 @@
     btnSkipMove.hidden = false;
 
     if (step === 'use_items') {
-      turnStep.textContent = state.itemTargeting ? 'Choose a unit with at least 1 damage (target for Healing Potion).' : 'Use items (optional), then continue to combat.';
+      const it = state.itemTargeting;
+      if (it) {
+        if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
+        else if (it.itemName === 'Revealing Light') turnStep.textContent = 'Choose a face-down enemy unit (Revealing Light).';
+        else if (it.itemName === 'Disabling Net') turnStep.textContent = 'Choose an enemy unit (Disabling Net).';
+        else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
+      } else {
+        turnStep.textContent = 'Use items (optional), then continue to combat.';
+      }
       turnActions.hidden = false;
       btnMoveLeft.hidden = true;
       btnMoveRight.hidden = true;
@@ -645,8 +709,8 @@
     const myCell = state.board[p][c];
     const otherCell = state.board[p][next];
     if (otherCell == null) return;
-    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false };
+    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false };
     state.selectedUnit.column = next;
     state.moveDone = true;
     state.actionStep = 'attack';
@@ -708,6 +772,50 @@
     renderBoard();
   }
 
+  function applyRevealingLight(targetPlayer, targetCol) {
+    const cell = state.board[targetPlayer][targetCol];
+    if (!cell || cell.faceUp) return;
+    const opp = state.currentPlayer === 1 ? 2 : 1;
+    if (targetPlayer !== opp) return;
+    const t = state.itemTargeting;
+    if (!t || t.itemName !== 'Revealing Light') return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[t.handIndex];
+    if (!item || item.name !== 'Revealing Light') return;
+
+    cell.faceUp = true;
+    hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(item);
+    state.itemTargeting = null;
+
+    log("Player " + state.currentPlayer + " uses Revealing Light on " + cell.unit.name + ". " + cell.unit.name + " is revealed.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function applyDisablingNet(targetPlayer, targetCol) {
+    const cell = state.board[targetPlayer][targetCol];
+    if (!cell) return;
+    const opp = state.currentPlayer === 1 ? 2 : 1;
+    if (targetPlayer !== opp) return;
+    const t = state.itemTargeting;
+    if (!t || t.itemName !== 'Disabling Net') return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[t.handIndex];
+    if (!item || item.name !== 'Disabling Net') return;
+
+    cell.cannotAttackNextTurn = true;
+    hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(item);
+    state.itemTargeting = null;
+
+    log("Player " + state.currentPlayer + " uses Disabling Net on " + cell.unit.name + ". " + cell.unit.name + " cannot attack on their next turn.");
+    renderTurnUI();
+    renderBoard();
+  }
+
   function applyDamage(player, col, damageAmount, logPrefix) {
     const cell = state.board[player][col];
     if (!cell) return true;
@@ -749,7 +857,7 @@
     for (let i = 0; i < colsToCheck.length; i++) {
       const c = colsToCheck[i];
       const cell = state.board[defenderPlayer][c];
-      if (!cell || cell.unit.class !== 'Lancer') continue;
+      if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
       lancerCol = c;
       break;
     }
@@ -813,6 +921,11 @@
 
   function endTurn() {
     clearParalyzedForPlayer(state.currentPlayer);
+    var playerWhoJustFinished = state.currentPlayer;
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[playerWhoJustFinished][c];
+      if (cell) cell.cannotAttackNextTurn = false;
+    }
     state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
     startOfTurn();
   }
@@ -846,10 +959,18 @@
     const p = state.currentPlayer;
     const step = state.actionStep;
 
-    if (step === 'use_items' && state.itemTargeting && state.itemTargeting.itemName === 'Healing Potion') {
-      const cell = state.board[player][column];
-      if (cell && (cell.damage || 0) >= 1) {
-        applyHealingPotion(player, column);
+    if (step === 'use_items' && state.itemTargeting) {
+      const itemName = state.itemTargeting.itemName;
+      if (itemName === 'Healing Potion') {
+        const cell = state.board[player][column];
+        if (cell && (cell.damage || 0) >= 1) applyHealingPotion(player, column);
+      } else if (itemName === 'Revealing Light') {
+        const opp = p === 1 ? 2 : 1;
+        const cell = state.board[player][column];
+        if (player === opp && cell && !cell.faceUp) applyRevealingLight(player, column);
+      } else if (itemName === 'Disabling Net') {
+        const opp = p === 1 ? 2 : 1;
+        if (player === opp && state.board[player][column]) applyDisablingNet(player, column);
       }
       return;
     }
@@ -863,8 +984,9 @@
 
     if (step === 'attack' && state.selectedUnit) {
       const opp = p === 1 ? 2 : 1;
+      const attCell = state.board[p][state.selectedUnit.column];
+      if (attCell && attCell.cannotAttackNextTurn) return;
       if (player === opp && state.board[opp][column]) {
-        const attCell = state.board[p][state.selectedUnit.column];
         if (attCell && isInRange(state.selectedUnit.column, column, attCell.unit.class)) {
           resolveCombat(p, state.selectedUnit.column, opp, column);
         }
@@ -882,7 +1004,8 @@
       const handIndex = parseInt(card.dataset.itemIndex, 10);
       const itemName = card.dataset.itemName;
       const player = parseInt(card.dataset.player, 10);
-      if (player !== state.currentPlayer || itemName !== 'Healing Potion') return;
+      const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'Revealing Light' || itemName === 'Disabling Net';
+      if (player !== state.currentPlayer || !singleUsePlayable) return;
       state.itemTargeting = { handIndex: handIndex, itemName: itemName };
       renderTurnUI();
       renderBoard();
