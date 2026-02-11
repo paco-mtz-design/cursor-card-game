@@ -16,7 +16,11 @@
         <button type="button" class="btn btn--small" id="btn-move-left">Move left</button>
         <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
         <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
+        <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
       </div>
+    </div>
+    <div class="game-over" id="game-over" hidden aria-live="polite">
+      <p class="game-over__message" id="game-over-message"></p>
     </div>
     <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
   </header>
@@ -51,6 +55,16 @@
       <span>P1 captures: <strong id="captures-p1">0</strong> / <span id="capture-goal-el">15</span></span>
       <span>P2 captures: <strong id="captures-p2">0</strong> / <span id="capture-goal-el-2">15</span></span>
     </div>
+    <section class="item-hands" id="item-hands" hidden aria-label="Item hands">
+      <div class="item-hands__panel">
+        <h3 class="item-hands__title">Player 1 items</h3>
+        <div class="item-hands__list" id="item-hand-p1" role="list"></div>
+      </div>
+      <div class="item-hands__panel">
+        <h3 class="item-hands__title">Player 2 items</h3>
+        <div class="item-hands__list" id="item-hand-p2" role="list"></div>
+      </div>
+    </section>
     <div class="board" aria-label="Battlefield">
       <!-- Player 2 row (top); columns 0–4 left to right -->
       <div class="row row--player2" aria-label="Player 2 units">
