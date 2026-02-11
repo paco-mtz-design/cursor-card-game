@@ -347,7 +347,7 @@
             if (slot) slot.classList.add('slot--selectable');
           }
         }
-      } else if (itemName === 'Revealing Light') {
+      } else if (itemName === 'All revealing lantern-jar') {
         const opp = p === 1 ? 2 : 1;
         for (let c = 0; c < 5; c++) {
           const cell = state.board[opp][c];
@@ -355,7 +355,7 @@
           const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
           if (slot) slot.classList.add('slot--selectable');
         }
-      } else if (itemName === 'Disabling Net') {
+      } else if (itemName === 'Tangle-Vine Bola') {
         const opp = p === 1 ? 2 : 1;
         for (let c = 0; c < 5; c++) {
           if (state.board[opp][c] == null) continue;
@@ -604,7 +604,7 @@
     return n;
   }
 
-  /** Count face-down units on the opponent's row (for Revealing Light). */
+  /** Count face-down units on the opponent's row (for All revealing lantern-jar). */
   function countFaceDownEnemyUnits(currentPlayer) {
     const opp = currentPlayer === 1 ? 2 : 1;
     let n = 0;
@@ -615,7 +615,7 @@
     return n;
   }
 
-  /** Count enemy units (for Disabling Net). */
+  /** Count enemy units (for Tangle-Vine Bola). */
   function countEnemyUnits(currentPlayer) {
     const opp = currentPlayer === 1 ? 2 : 1;
     let n = 0;
@@ -641,8 +641,8 @@
 
     function canPlaySingleUse(itemName) {
       if (itemName === 'Healing Potion') return canPlayHealingPotion;
-      if (itemName === 'Revealing Light') return canPlayRevealingLight;
-      if (itemName === 'Disabling Net') return canPlayDisablingNet;
+      if (itemName === 'All revealing lantern-jar') return canPlayRevealingLight;
+      if (itemName === 'Tangle-Vine Bola') return canPlayDisablingNet;
       return false;
     }
 
@@ -720,8 +720,8 @@
       const it = state.itemTargeting;
       if (it) {
         if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
-        else if (it.itemName === 'Revealing Light') turnStep.textContent = 'Choose a face-down enemy unit (Revealing Light).';
-        else if (it.itemName === 'Disabling Net') turnStep.textContent = 'Choose an enemy unit (Disabling Net).';
+        else if (it.itemName === 'All revealing lantern-jar') turnStep.textContent = 'Choose a face-down enemy unit (All revealing lantern-jar).';
+        else if (it.itemName === 'Tangle-Vine Bola') turnStep.textContent = 'Choose an enemy unit (Tangle-Vine Bola).';
         else if (ARMOR_ITEM_NAMES.indexOf(it.itemName) !== -1) {
           var ac = getArmorAllowedClasses(it.itemName);
           turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
@@ -848,10 +848,10 @@
     const opp = state.currentPlayer === 1 ? 2 : 1;
     if (targetPlayer !== opp) return;
     const t = state.itemTargeting;
-    if (!t || t.itemName !== 'Revealing Light') return;
+    if (!t || t.itemName !== 'All revealing lantern-jar') return;
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     const item = hand[t.handIndex];
-    if (!item || item.name !== 'Revealing Light') return;
+    if (!item || item.name !== 'All revealing lantern-jar') return;
 
     cell.faceUp = true;
     hand.splice(t.handIndex, 1);
@@ -859,7 +859,7 @@
     state.itemDiscard.push(item);
     state.itemTargeting = null;
 
-    log("Player " + state.currentPlayer + " uses Revealing Light on " + cell.unit.name + ". " + cell.unit.name + " is revealed.");
+    log("Player " + state.currentPlayer + " uses All revealing lantern-jar on " + cell.unit.name + ". " + cell.unit.name + " is revealed.");
     renderTurnUI();
     renderBoard();
   }
@@ -870,10 +870,10 @@
     const opp = state.currentPlayer === 1 ? 2 : 1;
     if (targetPlayer !== opp) return;
     const t = state.itemTargeting;
-    if (!t || t.itemName !== 'Disabling Net') return;
+    if (!t || t.itemName !== 'Tangle-Vine Bola') return;
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     const item = hand[t.handIndex];
-    if (!item || item.name !== 'Disabling Net') return;
+    if (!item || item.name !== 'Tangle-Vine Bola') return;
 
     cell.cannotAttackNextTurn = true;
     hand.splice(t.handIndex, 1);
@@ -881,7 +881,7 @@
     state.itemDiscard.push(item);
     state.itemTargeting = null;
 
-    log("Player " + state.currentPlayer + " uses Disabling Net on " + cell.unit.name + ". " + cell.unit.name + " cannot attack on their next turn.");
+    log("Player " + state.currentPlayer + " uses Tangle-Vine Bola on " + cell.unit.name + ". " + cell.unit.name + " cannot attack on their next turn.");
     renderTurnUI();
     renderBoard();
   }
@@ -1068,11 +1068,11 @@
       if (itemName === 'Healing Potion') {
         const cell = state.board[player][column];
         if (cell && (cell.damage || 0) >= 1) applyHealingPotion(player, column);
-      } else if (itemName === 'Revealing Light') {
+      } else if (itemName === 'All revealing lantern-jar') {
         const opp = p === 1 ? 2 : 1;
         const cell = state.board[player][column];
         if (player === opp && cell && !cell.faceUp) applyRevealingLight(player, column);
-      } else if (itemName === 'Disabling Net') {
+      } else if (itemName === 'Tangle-Vine Bola') {
         const opp = p === 1 ? 2 : 1;
         if (player === opp && state.board[player][column]) applyDisablingNet(player, column);
       } else if (ARMOR_ITEM_NAMES.indexOf(itemName) !== -1) {
@@ -1112,7 +1112,7 @@
       const itemName = card.dataset.itemName;
       const player = parseInt(card.dataset.player, 10);
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
-      const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'Revealing Light' || itemName === 'Disabling Net';
+      const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'All revealing lantern-jar' || itemName === 'Tangle-Vine Bola';
       const armorPlayable = spec && spec.type === 'gear_armor' && countValidArmorTargets(itemName) > 0;
       if (player !== state.currentPlayer || (!singleUsePlayable && !armorPlayable)) return;
       state.itemTargeting = { handIndex: handIndex, itemName: itemName };
