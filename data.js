@@ -89,9 +89,9 @@ function buildItemDeck() {
  * Used for expand-to-read and to decide if an item is playable (e.g. single-use).
  */
 const ITEM_SPECS = {
-  'Light Armor': { type: 'gear_armor', effect: 'Usable exclusively by Lancers, Shooters and Casters. Add +1 HP to the equipping unit.' },
-  'Premium Light Armor': { type: 'gear_armor', effect: 'Usable exclusively by Lancers, Shooters and Casters. Add +2 HP to the equipping unit.' },
-  'Heavy Armor': { type: 'gear_armor', effect: 'Usable exclusively by Brawlers. Add +1 HP to the equipping unit.' },
+  'Light Armor': { type: 'gear_armor', effect: 'Usable exclusively by Lancers, Shooters and Casters. Add +1 HP to the equipping unit.', allowedClasses: ['Lancer', 'Shooter', 'Caster'], hpBonus: 1 },
+  'Premium Light Armor': { type: 'gear_armor', effect: 'Usable exclusively by Lancers, Shooters and Casters. Add +2 HP to the equipping unit.', allowedClasses: ['Lancer', 'Shooter', 'Caster'], hpBonus: 2 },
+  'Heavy Armor': { type: 'gear_armor', effect: 'Usable exclusively by Brawlers. Add +1 HP to the equipping unit.', allowedClasses: ['Brawler'], hpBonus: 1 },
   'Healing Potion': { type: 'single_use', effect: 'The targeted unit recovers 1 HP.' },
   'Rust Spell': { type: 'single_use', effect: 'Destroy one Gear card (either yours or an opponent\'s).' },
   'Earthquake Spell': { type: 'single_use', effect: 'Destroy one Terrain card (either yours or an opponent\'s).' },

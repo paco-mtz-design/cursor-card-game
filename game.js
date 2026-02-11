@@ -110,6 +110,48 @@
     return classType === 'Brawler' ? 2 : 1;
   }
 
+  function getArmorHPBonus(armorName) {
+    if (!armorName || typeof ITEM_SPECS === 'undefined') return 0;
+    const spec = ITEM_SPECS[armorName];
+    return spec && spec.type === 'gear_armor' && spec.hpBonus != null ? spec.hpBonus : 0;
+  }
+
+  function getArmorAllowedClasses(armorName) {
+    if (!armorName || typeof ITEM_SPECS === 'undefined') return [];
+    const spec = ITEM_SPECS[armorName];
+    return spec && spec.type === 'gear_armor' && Array.isArray(spec.allowedClasses) ? spec.allowedClasses : [];
+  }
+
+  function getMaxHP(cell) {
+    if (!cell || !cell.unit) return 0;
+    const base = getBaseHP(cell.unit.class);
+    const bonus = cell.gear ? getArmorHPBonus(cell.gear.name) : 0;
+    return base + bonus;
+  }
+
+  function getMaxHPWithGear(unitClass, armorName) {
+    return getBaseHP(unitClass) + getArmorHPBonus(armorName);
+  }
+
+  function canEquipArmor(cell, armorName) {
+    if (!cell || !cell.unit || !armorName) return false;
+    const allowed = getArmorAllowedClasses(armorName);
+    if (allowed.indexOf(cell.unit.class) === -1) return false;
+    const maxAfter = getMaxHPWithGear(cell.unit.class, armorName);
+    const damage = cell.damage || 0;
+    return damage < maxAfter;
+  }
+
+  function countValidArmorTargets(armorName) {
+    const p = state.currentPlayer;
+    let n = 0;
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[p][c];
+      if (cell && canEquipArmor(cell, armorName)) n++;
+    }
+    return n;
+  }
+
   /** Returns true if attacker at attCol can attack enemy at defCol (same row = defender row). */
   function isInRange(attackerCol, defenderCol, attackerClass) {
     const d = Math.abs(defenderCol - attackerCol);
@@ -163,7 +205,8 @@
     const damage = cardState.damage || 0;
     const paralyzed = cardState.paralyzed || false;
     const cannotAttackNextTurn = cardState.cannotAttackNextTurn || false;
-    const maxHP = getBaseHP(unit.class);
+    const maxHP = cardState.maxHP != null ? cardState.maxHP : getBaseHP(unit.class);
+    const gear = cardState.gear || null;
     const icon = CLASS_ICONS[unit.class] || '';
 
     const spritePath = getUnitSpritePath(unit);
@@ -171,12 +214,14 @@
 
     if (!faceUp) {
       const netMarker = cannotAttackNextTurn ? '<span class="marker marker--cannot-attack">Can\'t attack</span>' : '';
+      const gearBadge = gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '';
       return '<div class="unit-card unit-card--face-down-soft" data-face-up="false" data-name="' +
         escapeHtml(unit.name) + '" data-class="' + unit.class + '">' +
         '<div class="unit-card__content">' +
         spriteImg +
         '<span class="unit-card__badge unit-card__badge--face-down">Face-down</span>' +
         netMarker +
+        gearBadge +
         '<span class="unit-card__class">' + icon + ' ' + unit.class + '</span>' +
         '<span class="unit-card__name">' + escapeHtml(unit.name) + '</span>' +
         '</div></div>';
@@ -192,11 +237,13 @@
     if (cannotAttackNextTurn) {
       markersHTML += '<span class="marker marker--cannot-attack">Can\'t attack</span>';
     }
+    const gearBadge = gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '';
 
     return '<div class="unit-card unit-card--face-up" data-face-up="true" data-name="' +
       escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '">' +
       '<div class="unit-card__content">' +
       spriteImg +
+      (gearBadge ? gearBadge : '') +
       '<span class="unit-card__class">' + icon + ' ' + unit.class + '</span>' +
       '<span class="unit-card__name">' + escapeHtml(unit.name) + '</span>' +
       (markersHTML ? '<div class="unit-card__markers">' + markersHTML + '</div>' : '') +
@@ -223,7 +270,7 @@
       cells.forEach(function (cell, i) {
         if (!cell) return;
         const unit = cell.unit;
-        const cardState = { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false, cannotAttackNextTurn: cell.cannotAttackNextTurn || false };
+        const cardState = { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false, cannotAttackNextTurn: cell.cannotAttackNextTurn || false, maxHP: getMaxHP(cell), gear: cell.gear || null };
         const html = createUnitCardHTML(unit, cardState);
         slots[i].innerHTML = html;
         slots[i].classList.add('slot--occupied');
@@ -315,6 +362,13 @@
           const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
           if (slot) slot.classList.add('slot--selectable');
         }
+      } else if (ARMOR_ITEM_NAMES.indexOf(itemName) !== -1) {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[p][c];
+          if (!cell || !canEquipArmor(cell, itemName)) continue;
+          const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
+          if (slot) slot.classList.add('slot--selectable');
+        }
       }
     }
   }
@@ -392,7 +446,7 @@
     const idx = state.selectedPlacementIndex;
     if (idx == null || idx < 0 || idx >= hand.length) return;
     const unit = hand[idx];
-    state.board[player][slotIndex] = { unit: unit, faceUp: false, damage: 0, paralyzed: false };
+    state.board[player][slotIndex] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null };
     hand.splice(idx, 1);
     state.selectedPlacementIndex = null;
     renderBoard();
@@ -412,7 +466,7 @@
     const shuffled = shuffle(handRef.slice());
     const n = Math.min(shuffled.length, emptySlots.length);
     for (let i = 0; i < n; i++) {
-      state.board[player][emptySlots[i]] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false };
+      state.board[player][emptySlots[i]] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false, gear: null };
     }
     const placedSet = new Set(shuffled.slice(0, n));
     for (let i = handRef.length - 1; i >= 0; i--) {
@@ -503,7 +557,7 @@
     for (let i = 0; i < count && state.unitDeck.length > 0 && openSlots.length > 0; i++) {
       const unit = state.unitDeck.shift();
       const slot = openSlots.shift();
-      state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false };
+      state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null };
     }
   }
 
@@ -592,6 +646,10 @@
       return false;
     }
 
+    function canPlayArmor(armorName) {
+      return countValidArmorTargets(armorName) > 0;
+    }
+
     function buildItemCard(item, index, isCurrentPlayer) {
       const el = document.createElement('div');
       el.className = 'item-card';
@@ -615,6 +673,15 @@
       }
 
       if (isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && canPlaySingleUse(item.name)) {
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button';
+        useBtn.className = 'item-card__use btn btn--small';
+        useBtn.textContent = 'Use';
+        useBtn.dataset.itemIndex = String(index);
+        useBtn.dataset.itemName = item.name;
+        el.appendChild(useBtn);
+      }
+      if (isCurrentPlayer && isUseItems && spec && spec.type === 'gear_armor' && canPlayArmor(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -655,7 +722,10 @@
         if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
         else if (it.itemName === 'Revealing Light') turnStep.textContent = 'Choose a face-down enemy unit (Revealing Light).';
         else if (it.itemName === 'Disabling Net') turnStep.textContent = 'Choose an enemy unit (Disabling Net).';
-        else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
+        else if (ARMOR_ITEM_NAMES.indexOf(it.itemName) !== -1) {
+          var ac = getArmorAllowedClasses(it.itemName);
+          turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
+        } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
       } else {
         turnStep.textContent = 'Use items (optional), then continue to combat.';
       }
@@ -709,8 +779,8 @@
     const myCell = state.board[p][c];
     const otherCell = state.board[p][next];
     if (otherCell == null) return;
-    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false };
+    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
     state.selectedUnit.column = next;
     state.moveDone = true;
     state.actionStep = 'attack';
@@ -816,10 +886,44 @@
     renderBoard();
   }
 
+  var ARMOR_ITEM_NAMES = ['Light Armor', 'Premium Light Armor', 'Heavy Armor'];
+
+  function isArmorTargeting() {
+    const t = state.itemTargeting;
+    return t && ARMOR_ITEM_NAMES.indexOf(t.itemName) !== -1;
+  }
+
+  function applyEquipArmor(targetPlayer, targetCol) {
+    const cell = state.board[targetPlayer][targetCol];
+    if (!cell || !cell.unit) return;
+    if (targetPlayer !== state.currentPlayer) return;
+    const t = state.itemTargeting;
+    if (!t || ARMOR_ITEM_NAMES.indexOf(t.itemName) === -1) return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[t.handIndex];
+    if (!item || ARMOR_ITEM_NAMES.indexOf(item.name) === -1) return;
+    if (!canEquipArmor(cell, item.name)) return;
+
+    const previousGear = cell.gear || null;
+    cell.gear = { name: item.name, id: item.id };
+    hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(item);
+    if (previousGear) {
+      state.itemDiscard.push(previousGear);
+      log("Player " + state.currentPlayer + " equips " + item.name + " on " + cell.unit.name + ". Previous " + previousGear.name + " discarded.");
+    } else {
+      log("Player " + state.currentPlayer + " equips " + item.name + " on " + cell.unit.name + ".");
+    }
+    state.itemTargeting = null;
+    renderTurnUI();
+    renderBoard();
+  }
+
   function applyDamage(player, col, damageAmount, logPrefix) {
     const cell = state.board[player][col];
     if (!cell) return true;
-    const maxHP = getBaseHP(cell.unit.class);
+    const maxHP = getMaxHP(cell);
     const current = cell.damage || 0;
     const newTotal = current + damageAmount;
     cell.faceUp = true;
@@ -971,6 +1075,9 @@
       } else if (itemName === 'Disabling Net') {
         const opp = p === 1 ? 2 : 1;
         if (player === opp && state.board[player][column]) applyDisablingNet(player, column);
+      } else if (ARMOR_ITEM_NAMES.indexOf(itemName) !== -1) {
+        const cell = state.board[player][column];
+        if (player === p && cell && canEquipArmor(cell, itemName)) applyEquipArmor(player, column);
       }
       return;
     }
@@ -1004,8 +1111,10 @@
       const handIndex = parseInt(card.dataset.itemIndex, 10);
       const itemName = card.dataset.itemName;
       const player = parseInt(card.dataset.player, 10);
+      const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
       const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'Revealing Light' || itemName === 'Disabling Net';
-      if (player !== state.currentPlayer || !singleUsePlayable) return;
+      const armorPlayable = spec && spec.type === 'gear_armor' && countValidArmorTargets(itemName) > 0;
+      if (player !== state.currentPlayer || (!singleUsePlayable && !armorPlayable)) return;
       state.itemTargeting = { handIndex: handIndex, itemName: itemName };
       renderTurnUI();
       renderBoard();

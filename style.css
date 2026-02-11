@@ -621,6 +621,17 @@ body {
   word-break: break-word;
 }
 
+.unit-card__gear {
+  font-size: 0.6rem;
+  padding: 0.12rem 0.3rem;
+  border-radius: 4px;
+  background: #2a4a3a;
+  color: #b8e6d0;
+  font-weight: 600;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
 .unit-card__markers {
   display: flex;
   flex-wrap: wrap;

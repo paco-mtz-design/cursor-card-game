@@ -25,14 +25,21 @@ Development plan for item effects, veteran buffs, UI evolution, and debug toolin
 
 ---
 
-## Phases 9–16 and later
+## Phase 9 — Gear (armor)
+
+Light Armor, Premium Light Armor, Heavy Armor. One gear per unit; equip in "use items"; armor adds HP.
+
+**Armor equip rule:** A player cannot equip (or swap) gear onto a unit if that would cause the unit to be captured—e.g. a Lancer with 1 damage wearing Light Armor (+1 HP) has effective 2 max HP; removing or swapping that armor would leave them at 1/1 and captured. Such a unit is not a valid target for equipping any new gear. An opponent may still destroy a unit's gear (e.g. Rust Spell, or veteran buffs later); if that removal reduces max HP so that current damage ≥ new max HP, the unit is captured as a result. Summary: you cannot cause your own unit to be captured by removing gear; an opponent can.
+
+---
+
+## Phases 10–17 and later
 
 | Phase  | Focus                           | Notes |
 |--------|----------------------------------|-------|
-| **9**  | More single-use + “true strike” | Critical Hit Spell, Rust, Earthquake, Smoke Bomb; true-strike flag in combat. |
-| **10** | Gear (armor)                    | One gear per unit, armor adds HP; equip in “use items”. |
-| **11** | Gear (weapons & accessories)     | Sniper Scope, Magic Grenade, Barbed Gauntlets, Wardstone, Teleport Boots. |
-| **12** | Terrain                         | Terrain per slot; place in “use items”; resolve in movement and combat. |
+| **10** | Gear (weapons & accessories)     | Sniper Scope, Magic Grenade, Barbed Gauntlets, Wardstone, Teleport Boots. |
+| **11** | Terrain                         | Terrain per slot; place in "use items"; resolve in movement and combat. |
+| **12** | Remaining single-use + true strike | Rust Spell, Earthquake Spell, Smoke Bomb, Critical Hit Spell; true-strike flag in combat. Implement after gear/terrain exist for testing. |
 | **13** | Promotions                      | Class-specific upgrades; +1 HP and modified range/effects. |
 | **14** | Veteran buffs                   | Per-character buff definitions; hooks in combat. After items/terrain stable. |
 | **15** | Board-game UI (foundation)       | Decks visible, hands laid out, room for terrain + gear; inspect card. |
@@ -44,4 +51,4 @@ Development plan for item effects, veteran buffs, UI evolution, and debug toolin
 
 ## Implementation order (items)
 
-Single-use first (one card at a time), then gear (armor → accessories/weapons), then terrain, then promotions, then veteran buffs.
+Gear (armor → accessories/weapons), then terrain, then remaining single-use (Rust, Earthquake, Smoke Bomb, Critical Hit) and true strike, then promotions, then veteran buffs.
