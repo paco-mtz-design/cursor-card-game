@@ -83,3 +83,34 @@ function buildItemDeck() {
   });
   return flat;
 }
+
+/**
+ * Item metadata (type, effect text) from Items Deck - Technical sheet.md.
+ * Used for expand-to-read and to decide if an item is playable (e.g. single-use).
+ */
+const ITEM_SPECS = {
+  'Light Armor': { type: 'gear_armor', effect: 'Usable exclusively by Lancers, Shooters and Casters. Add +1 HP to the equipping unit.' },
+  'Premium Light Armor': { type: 'gear_armor', effect: 'Usable exclusively by Lancers, Shooters and Casters. Add +2 HP to the equipping unit.' },
+  'Heavy Armor': { type: 'gear_armor', effect: 'Usable exclusively by Brawlers. Add +1 HP to the equipping unit.' },
+  'Healing Potion': { type: 'single_use', effect: 'The targeted unit recovers 1 HP.' },
+  'Rust Spell': { type: 'single_use', effect: 'Destroy one Gear card (either yours or an opponent\'s).' },
+  'Earthquake Spell': { type: 'single_use', effect: 'Destroy one Terrain card (either yours or an opponent\'s).' },
+  'Revealing Light': { type: 'single_use', effect: 'Reveal one face-down enemy unit (it remains face-up).' },
+  'Disabling Net': { type: 'single_use', effect: 'The targeted enemy unit can\'t attack on their next turn.' },
+  'Smoke Bomb': { type: 'single_use', effect: 'Flip all your units face-down, shuffle as you wish.' },
+  'Critical Hit Spell': { type: 'single_use', effect: 'Makes your next attack fatal: ignoring terrain-, item-, or unit-specific effects. Range rules apply as usual.' },
+  'Sniper Scope': { type: 'gear_accessory', effect: 'Attacks by Shooters or Casters equipped with this card become true strikes, ignoring terrain-, item-, or unit-specific effects.' },
+  'Magic Grenade': { type: 'gear_weapon', effect: 'Allows the equipped unit to attack like a Caster (including the paralyze effect on surviving targets).' },
+  'Barbed Gauntlets': { type: 'gear_accessory', effect: 'If the wearer is hit, flip a coin. On heads, deal 1 damage to the attacker (even if this unit is defeated).' },
+  'Wardstone Bracelet': { type: 'gear_accessory', effect: 'Once per game, discard to negate all damage and effects of a single attack.' },
+  'Teleport Boots': { type: 'gear_accessory', effect: 'The wearer may move to any tile before attacking.' },
+  'Elevated Ground': { type: 'terrain', effect: 'Flip a coin when a unit on this tile is attacked by a Brawler or Lancer. On heads, the attack fails.' },
+  'Reinforced Barricade': { type: 'terrain', effect: 'Flip a coin when a unit on this tile is attacked by a Shooter or Caster. On heads, the attack fails.' },
+  'Paralyzing Vines': { type: 'terrain', effect: 'Flip a coin whenever a unit on this tile attempts to move or switch. On tails, the move fails.' },
+  'Divine Light': { type: 'terrain', effect: 'Any unit placed on or moved to this tile is immediately flipped face-up and cannot turn face-down again.' },
+  'Unstable Ground': { type: 'terrain', effect: 'Flip a coin every time a unit on this tile begins an attack. On tails, the attack is canceled.' },
+  "Champion's Crest": { type: 'promotion', effect: 'Promote a Brawler. The equipped unit gains +1 HP and can now attack forward and to both adjacent tiles.' },
+  'Vanguard Lance': { type: 'promotion', effect: 'Promote a Lancer. The equipped unit gains +1 HP and can now target diagonally and sideways (2 left, 2 right). Applies to counters, too.' },
+  "Sharpshooter's Scope": { type: 'promotion', effect: 'Promote a Shooter. The equipped unit gains +1 HP and all its attacks become true strikes, ignoring terrain-, item-, or unit-specific effects.' },
+  "Archmage's Tome": { type: 'promotion', effect: 'Promote a Caster. The equipped unit gains +1 HP and its attacks now affect the target and both adjacent enemy units (must rest 1 turn after attacking).' },
+};

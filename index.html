@@ -17,6 +17,7 @@
         <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
         <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
         <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
+        <button type="button" class="btn btn--small btn--secondary" id="btn-done-with-items" hidden>Done with items</button>
       </div>
     </div>
     <div class="game-over" id="game-over" hidden aria-live="polite">
@@ -51,42 +52,61 @@
       </div>
     </div>
 
-    <div class="captures" id="captures" hidden aria-label="Capture counts">
-      <span>P1 captures: <strong id="captures-p1">0</strong> / <span id="capture-goal-el">15</span></span>
-      <span>P2 captures: <strong id="captures-p2">0</strong> / <span id="capture-goal-el-2">15</span></span>
+    <div class="game__columns">
+      <aside class="game__col game__col--left" aria-label="Items and hands">
+        <section class="item-hands" id="item-hands" hidden aria-label="Item hands">
+          <div class="item-hands__debug" id="item-draw-debug" hidden aria-label="Debug: replace last item draw">
+            <span class="item-hands__debug-label">Item draw (debug):</span>
+            <button type="button" class="btn btn--small btn--secondary" id="btn-replace-draw-with-pick">Replace with pick...</button>
+            <div class="item-hands__pick-list-wrap" id="item-pick-list-wrap" hidden>
+              <div class="item-hands__pick-list" id="item-pick-list"></div>
+              <button type="button" class="btn btn--small btn--secondary item-hands__pick-list-close" id="btn-pick-list-close">Close</button>
+            </div>
+          </div>
+          <div class="item-hands__panel">
+            <h3 class="item-hands__title">Player 1 items</h3>
+            <div class="item-hands__list" id="item-hand-p1" role="list"></div>
+          </div>
+          <div class="item-hands__panel">
+            <h3 class="item-hands__title">Player 2 items</h3>
+            <div class="item-hands__list" id="item-hand-p2" role="list"></div>
+          </div>
+        </section>
+        <section class="discard-pile" id="discard-pile" hidden aria-label="Item discard pile">
+          <h3 class="discard-pile__title">Discard pile (<span id="discard-pile-count">0</span>)</h3>
+          <button type="button" class="btn btn--small btn--secondary" id="btn-discard-toggle" aria-expanded="false">Show</button>
+          <div class="discard-pile__list" id="discard-pile-list" hidden></div>
+        </section>
+      </aside>
+      <div class="game__col game__col--center">
+        <div class="captures" id="captures" hidden aria-label="Capture counts">
+          <span>P1 captures: <strong id="captures-p1">0</strong> / <span id="capture-goal-el">15</span></span>
+          <span>P2 captures: <strong id="captures-p2">0</strong> / <span id="capture-goal-el-2">15</span></span>
+        </div>
+        <div class="board" aria-label="Battlefield">
+          <div class="row row--player2" aria-label="Player 2 units">
+            <div class="slot" data-player="2" data-column="0" tabindex="0"></div>
+            <div class="slot" data-player="2" data-column="1" tabindex="0"></div>
+            <div class="slot" data-player="2" data-column="2" tabindex="0"></div>
+            <div class="slot" data-player="2" data-column="3" tabindex="0"></div>
+            <div class="slot" data-player="2" data-column="4" tabindex="0"></div>
+          </div>
+          <div class="row row--player1" aria-label="Player 1 units">
+            <div class="slot" data-player="1" data-column="0" tabindex="0"></div>
+            <div class="slot" data-player="1" data-column="1" tabindex="0"></div>
+            <div class="slot" data-player="1" data-column="2" tabindex="0"></div>
+            <div class="slot" data-player="1" data-column="3" tabindex="0"></div>
+            <div class="slot" data-player="1" data-column="4" tabindex="0"></div>
+          </div>
+        </div>
+      </div>
+      <aside class="game__col game__col--right" aria-label="Game log">
+        <section class="game-log" id="game-log" aria-label="Game log" hidden>
+          <h2 class="game-log__title">Game log</h2>
+          <div class="game-log__entries" id="game-log-entries"></div>
+        </section>
+      </aside>
     </div>
-    <section class="item-hands" id="item-hands" hidden aria-label="Item hands">
-      <div class="item-hands__panel">
-        <h3 class="item-hands__title">Player 1 items</h3>
-        <div class="item-hands__list" id="item-hand-p1" role="list"></div>
-      </div>
-      <div class="item-hands__panel">
-        <h3 class="item-hands__title">Player 2 items</h3>
-        <div class="item-hands__list" id="item-hand-p2" role="list"></div>
-      </div>
-    </section>
-    <div class="board" aria-label="Battlefield">
-      <!-- Player 2 row (top); columns 0–4 left to right -->
-      <div class="row row--player2" aria-label="Player 2 units">
-        <div class="slot" data-player="2" data-column="0" tabindex="0"></div>
-        <div class="slot" data-player="2" data-column="1" tabindex="0"></div>
-        <div class="slot" data-player="2" data-column="2" tabindex="0"></div>
-        <div class="slot" data-player="2" data-column="3" tabindex="0"></div>
-        <div class="slot" data-player="2" data-column="4" tabindex="0"></div>
-      </div>
-      <!-- Player 1 row (bottom) -->
-      <div class="row row--player1" aria-label="Player 1 units">
-        <div class="slot" data-player="1" data-column="0" tabindex="0"></div>
-        <div class="slot" data-player="1" data-column="1" tabindex="0"></div>
-        <div class="slot" data-player="1" data-column="2" tabindex="0"></div>
-        <div class="slot" data-player="1" data-column="3" tabindex="0"></div>
-        <div class="slot" data-player="1" data-column="4" tabindex="0"></div>
-      </div>
-    </div>
-    <section class="game-log" id="game-log" aria-label="Game log" hidden>
-      <h2 class="game-log__title">Game log</h2>
-      <div class="game-log__entries" id="game-log-entries"></div>
-    </section>
   </main>
 
   <script src="data.js"></script>

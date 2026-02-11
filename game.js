@@ -34,6 +34,16 @@
   const itemHandsEl = document.getElementById('item-hands');
   const itemHandP1El = document.getElementById('item-hand-p1');
   const itemHandP2El = document.getElementById('item-hand-p2');
+  const btnDoneWithItems = document.getElementById('btn-done-with-items');
+  const itemDrawDebugEl = document.getElementById('item-draw-debug');
+  const btnReplaceDrawWithPick = document.getElementById('btn-replace-draw-with-pick');
+  const itemPickListWrapEl = document.getElementById('item-pick-list-wrap');
+  const itemPickListEl = document.getElementById('item-pick-list');
+  const btnPickListClose = document.getElementById('btn-pick-list-close');
+  const discardPileEl = document.getElementById('discard-pile');
+  const discardPileCountEl = document.getElementById('discard-pile-count');
+  const btnDiscardToggle = document.getElementById('btn-discard-toggle');
+  const discardPileListEl = document.getElementById('discard-pile-list');
 
   let state = getInitialState();
 
@@ -215,7 +225,27 @@
     if (state.phase === 'playing') {
       highlightSlots();
       if (state.p1ItemHand != null) renderItemHands();
+      if (itemDrawDebugEl) {
+        itemDrawDebugEl.hidden = state.actionStep !== 'use_items' || !!state.itemTargeting;
+      }
+      if (state.actionStep !== 'use_items' || state.itemTargeting) {
+        if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
+      }
+      renderDiscardPile();
     }
+  }
+
+  function renderDiscardPile() {
+    if (!discardPileCountEl || !discardPileListEl) return;
+    const list = state.itemDiscard || [];
+    discardPileCountEl.textContent = list.length;
+    discardPileListEl.innerHTML = '';
+    list.forEach(function (item) {
+      const el = document.createElement('div');
+      el.className = 'discard-pile__item';
+      el.textContent = item.name;
+      discardPileListEl.appendChild(el);
+    });
   }
 
   function highlightSlots() {
@@ -251,6 +281,15 @@
         const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
         if (slot) slot.classList.add('slot--selectable');
       }
+    } else if (step === 'use_items' && state.itemTargeting && state.itemTargeting.itemName === 'Healing Potion') {
+      for (let pl = 1; pl <= 2; pl++) {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[pl][c];
+          if (!cell || (cell.damage || 0) < 1) continue;
+          const slot = document.querySelector('.row--player' + pl + ' .slot[data-column="' + c + '"]');
+          if (slot) slot.classList.add('slot--selectable');
+        }
+      }
     }
   }
 
@@ -273,7 +312,9 @@
     turnBanner.hidden = true;
     capturesEl.hidden = true;
     if (itemHandsEl) itemHandsEl.hidden = true;
+    if (discardPileEl) discardPileEl.hidden = true;
     if (gameLogEl) gameLogEl.hidden = true;
+    if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
     if (gameOverEl) gameOverEl.hidden = true;
     showStep('goal');
   }
@@ -373,14 +414,17 @@
       state.p1ItemHand = [];
       state.p2ItemHand = [];
       state.itemDeck = shuffle(buildItemDeck());
+      state.itemDiscard = [];
       state.p1Captures = 0;
       state.p2Captures = 0;
-      state.actionStep = 'select_unit';
+      state.actionStep = 'use_items';
       state.selectedUnit = null;
       state.moveDone = false;
+      state.itemTargeting = null;
       turnBanner.hidden = false;
       capturesEl.hidden = false;
       if (itemHandsEl) itemHandsEl.hidden = false;
+      if (discardPileEl) discardPileEl.hidden = false;
       if (gameLogEl) gameLogEl.hidden = false;
       gameLogEntries.innerHTML = '';
       captureGoalEl.textContent = state.captureGoal;
@@ -391,9 +435,10 @@
 
   function startOfTurn() {
     const p = state.currentPlayer;
-    state.actionStep = 'select_unit';
+    state.actionStep = 'use_items';
     state.selectedUnit = null;
     state.moveDone = false;
+    state.itemTargeting = null;
 
     const reinforcedCount = state.capturedLastTurn[p] || 0;
     const deckEmptyBefore = state.unitDeck.length === 0;
@@ -436,11 +481,23 @@
     }
   }
 
-  function drawItem(player) {
+  /** Draw one item. If optionalName is provided (debug), draw that card from the deck if present. */
+  function drawItem(player, optionalName) {
     const hand = player === 1 ? state.p1ItemHand : state.p2ItemHand;
-    const name = state.itemDeck && state.itemDeck.length > 0
-      ? state.itemDeck.shift()
-      : 'Item';
+    let name = 'Item';
+    if (state.itemDeck && state.itemDeck.length > 0) {
+      if (optionalName) {
+        const idx = state.itemDeck.indexOf(optionalName);
+        if (idx !== -1) {
+          state.itemDeck.splice(idx, 1);
+          name = optionalName;
+        } else {
+          name = state.itemDeck.shift();
+        }
+      } else {
+        name = state.itemDeck.shift();
+      }
+    }
     hand.push({ name: name, id: 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) });
   }
 
@@ -456,26 +513,70 @@
     capturesP2.textContent = state.p2Captures || 0;
   }
 
+  function countUnitsWithDamageAtLeast(minDamage) {
+    let n = 0;
+    for (let pl = 1; pl <= 2; pl++) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[pl][c];
+        if (cell && (cell.damage || 0) >= minDamage) n++;
+      }
+    }
+    return n;
+  }
+
   function renderItemHands() {
     if (!itemHandP1El || !itemHandP2El) return;
     const p1Hand = state.p1ItemHand || [];
     const p2Hand = state.p2ItemHand || [];
+    const p = state.currentPlayer;
+    const step = state.actionStep;
+    const isUseItems = step === 'use_items' && !state.itemTargeting;
+    const canPlayHealingPotion = isUseItems && countUnitsWithDamageAtLeast(1) > 0;
+
     itemHandP1El.innerHTML = '';
     itemHandP2El.innerHTML = '';
-    p1Hand.forEach(function (item) {
+
+    function buildItemCard(item, index, isCurrentPlayer) {
       const el = document.createElement('div');
       el.className = 'item-card';
       el.setAttribute('role', 'listitem');
-      el.textContent = item.name;
-      el.setAttribute('aria-label', 'Item: ' + item.name);
-      itemHandP1El.appendChild(el);
+      el.dataset.itemIndex = String(index);
+      el.dataset.itemName = item.name;
+      el.dataset.player = '1';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'item-card__name';
+      nameSpan.textContent = item.name;
+      el.appendChild(nameSpan);
+
+      const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[item.name];
+      if (spec && spec.effect) {
+        const effectDiv = document.createElement('div');
+        effectDiv.className = 'item-card__effect';
+        effectDiv.textContent = spec.effect;
+        effectDiv.setAttribute('aria-hidden', 'true');
+        el.appendChild(effectDiv);
+      }
+
+      if (isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && item.name === 'Healing Potion' && canPlayHealingPotion) {
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button';
+        useBtn.className = 'item-card__use btn btn--small';
+        useBtn.textContent = 'Use';
+        useBtn.dataset.itemIndex = String(index);
+        useBtn.dataset.itemName = item.name;
+        el.appendChild(useBtn);
+      }
+
+      return el;
+    }
+
+    p1Hand.forEach(function (item, index) {
+      itemHandP1El.appendChild(buildItemCard(item, index, p === 1));
     });
-    p2Hand.forEach(function (item) {
-      const el = document.createElement('div');
-      el.className = 'item-card';
-      el.setAttribute('role', 'listitem');
-      el.textContent = item.name;
-      el.setAttribute('aria-label', 'Item: ' + item.name);
+    p2Hand.forEach(function (item, index) {
+      const el = buildItemCard(item, index, p === 2);
+      el.dataset.player = '2';
       itemHandP2El.appendChild(el);
     });
   }
@@ -487,11 +588,21 @@
 
     turnActions.hidden = true;
     if (btnPass) btnPass.hidden = true;
+    if (btnDoneWithItems) btnDoneWithItems.hidden = true;
     btnMoveLeft.hidden = false;
     btnMoveRight.hidden = false;
     btnSkipMove.hidden = false;
 
-    if (step === 'select_unit') {
+    if (step === 'use_items') {
+      turnStep.textContent = state.itemTargeting ? 'Choose a unit with at least 1 damage (target for Healing Potion).' : 'Use items (optional), then continue to combat.';
+      turnActions.hidden = false;
+      btnMoveLeft.hidden = true;
+      btnMoveRight.hidden = true;
+      btnSkipMove.hidden = true;
+      if (btnPass) btnPass.hidden = true;
+      if (btnDoneWithItems) btnDoneWithItems.textContent = state.itemTargeting ? 'Cancel' : 'Done with items';
+      if (btnDoneWithItems) btnDoneWithItems.hidden = false;
+    } else if (step === 'select_unit') {
       turnStep.textContent = 'Select a unit to act.';
     } else if (step === 'move') {
       turnStep.textContent = 'Move (optional), then attack.';
@@ -562,6 +673,39 @@
     renderTurnUI();
     renderBoard();
     endTurn();
+  }
+
+  function doDoneWithItems() {
+    if (state.actionStep !== 'use_items') return;
+    if (state.itemTargeting) {
+      state.itemTargeting = null;
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    state.actionStep = 'select_unit';
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function applyHealingPotion(targetPlayer, targetCol) {
+    const cell = state.board[targetPlayer][targetCol];
+    if (!cell || (cell.damage || 0) < 1) return;
+    const t = state.itemTargeting;
+    if (!t || t.itemName !== 'Healing Potion') return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[t.handIndex];
+    if (!item || item.name !== 'Healing Potion') return;
+
+    cell.damage = Math.max(0, (cell.damage || 0) - 1);
+    hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(item);
+    state.itemTargeting = null;
+
+    log("Player " + state.currentPlayer + " uses Healing Potion on " + cell.unit.name + ". " + cell.unit.name + " recovers 1 HP.");
+    renderTurnUI();
+    renderBoard();
   }
 
   function applyDamage(player, col, damageAmount, logPrefix) {
@@ -702,6 +846,14 @@
     const p = state.currentPlayer;
     const step = state.actionStep;
 
+    if (step === 'use_items' && state.itemTargeting && state.itemTargeting.itemName === 'Healing Potion') {
+      const cell = state.board[player][column];
+      if (cell && (cell.damage || 0) >= 1) {
+        applyHealingPotion(player, column);
+      }
+      return;
+    }
+
     if (step === 'select_unit') {
       if (player === p && state.board[p][column] && !state.board[p][column].paralyzed) {
         onSelectUnit(p, column);
@@ -719,6 +871,66 @@
       }
       return;
     }
+  }
+
+  function handleItemHandClick(e) {
+    if (state.phase !== 'playing' || state.actionStep !== 'use_items' || state.itemTargeting) return;
+    const useBtn = e.target.closest('.item-card__use');
+    const card = e.target.closest('.item-card');
+    if (useBtn && card) {
+      e.preventDefault();
+      const handIndex = parseInt(card.dataset.itemIndex, 10);
+      const itemName = card.dataset.itemName;
+      const player = parseInt(card.dataset.player, 10);
+      if (player !== state.currentPlayer || itemName !== 'Healing Potion') return;
+      state.itemTargeting = { handIndex: handIndex, itemName: itemName };
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (card && !useBtn && card.querySelector('.item-card__effect')) {
+      card.classList.toggle('item-card--expanded');
+    }
+  }
+
+  function openReplaceDrawPickList() {
+    if (!itemPickListWrapEl || !itemPickListEl || state.actionStep !== 'use_items' || state.itemTargeting) return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    if (hand.length === 0) return;
+    itemPickListEl.innerHTML = '';
+    const deck = state.itemDeck || [];
+    if (deck.length === 0) {
+      itemPickListEl.textContent = 'No cards left in deck.';
+      itemPickListWrapEl.removeAttribute('hidden');
+      return;
+    }
+    deck.forEach(function (name) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn--small item-pick-list__btn';
+      btn.textContent = name;
+      btn.dataset.itemName = name;
+      itemPickListEl.appendChild(btn);
+    });
+    itemPickListWrapEl.removeAttribute('hidden');
+  }
+
+  function closePickList() {
+    if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
+  }
+
+  function replaceLastDrawWith(chosenName) {
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    if (hand.length === 0) return;
+    const idx = state.itemDeck.indexOf(chosenName);
+    if (idx === -1) return;
+    const lastItem = hand.pop();
+    state.itemDeck.push(lastItem.name);
+    state.itemDeck.splice(idx, 1);
+    hand.push({ name: chosenName, id: 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) });
+    closePickList();
+    log("Debug: Player " + state.currentPlayer + " replaces draw with " + chosenName + ".");
+    renderBoard();
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -744,5 +956,38 @@
 
     placementHand.addEventListener('click', handlePlacementHandClick);
     document.querySelector('.board').addEventListener('click', handleSlotClick);
+    if (itemHandsEl) itemHandsEl.addEventListener('click', handleItemHandClick);
+    if (btnReplaceDrawWithPick) {
+      btnReplaceDrawWithPick.addEventListener('click', openReplaceDrawPickList);
+    }
+    if (itemPickListEl) {
+      itemPickListEl.addEventListener('click', function (e) {
+        const btn = e.target.closest('.item-pick-list__btn');
+        if (btn && btn.dataset.itemName) {
+          replaceLastDrawWith(btn.dataset.itemName);
+        }
+      });
+    }
+    if (btnPickListClose) {
+      btnPickListClose.addEventListener('click', function (e) {
+        e.stopPropagation();
+        closePickList();
+      });
+    }
+    if (btnDiscardToggle && discardPileListEl) {
+      btnDiscardToggle.addEventListener('click', function () {
+        const isHidden = discardPileListEl.getAttribute('hidden') !== null;
+        if (isHidden) {
+          discardPileListEl.removeAttribute('hidden');
+          btnDiscardToggle.textContent = 'Hide';
+          btnDiscardToggle.setAttribute('aria-expanded', 'true');
+        } else {
+          discardPileListEl.setAttribute('hidden', '');
+          btnDiscardToggle.textContent = 'Show';
+          btnDiscardToggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+    if (btnDoneWithItems) btnDoneWithItems.addEventListener('click', function () { if (!state.gameOver) doDoneWithItems(); });
   });
 })();
