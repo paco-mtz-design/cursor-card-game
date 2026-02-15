@@ -67,6 +67,7 @@
       p1Hand: [],
       p2Hand: [],
       board: { 1: [null, null, null, null, null], 2: [null, null, null, null, null] },
+      terrain: { 1: [null, null, null, null, null], 2: [null, null, null, null, null] },
       placementPlayer: null,
       selectedPlacementIndex: null,
       gameOver: false,
@@ -157,6 +158,32 @@
 
   var ACCESSORY_ITEM_NAMES = ['Barbed Gauntlets', 'Wardstone Bracelet', 'Teleport Boots'];
   var GEAR_EQUIP_ITEM_NAMES = ['Light Armor', 'Premium Light Armor', 'Heavy Armor'].concat(ACCESSORY_ITEM_NAMES);
+
+  function getTerrain(player, col) {
+    if (!state.terrain || !state.terrain[player]) return null;
+    const t = state.terrain[player][col];
+    return t && t.name ? t.name : null;
+  }
+
+  function countEmptyTerrainSlots() {
+    let n = 0;
+    for (let pl = 1; pl <= 2; pl++) {
+      for (let c = 0; c < 5; c++) {
+        if (state.terrain[pl][c] == null) n++;
+      }
+    }
+    return n;
+  }
+
+  function countTilesWithTerrain() {
+    let n = 0;
+    for (let pl = 1; pl <= 2; pl++) {
+      for (let c = 0; c < 5; c++) {
+        if (state.terrain[pl][c] != null) n++;
+      }
+    }
+    return n;
+  }
 
   /** Returns true if attacker at attCol can attack enemy at defCol (same row = defender row). */
   function isInRange(attackerCol, defenderCol, attackerClass) {
@@ -273,13 +300,12 @@
       const row = document.querySelector('.row--player' + player);
       const slots = row.querySelectorAll('.slot');
       const cells = state.board[player];
+      const terrainRow = state.terrain && state.terrain[player] ? state.terrain[player] : [];
       cells.forEach(function (cell, i) {
-        if (!cell) return;
-        const unit = cell.unit;
-        const cardState = { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false, cannotAttackNextTurn: cell.cannotAttackNextTurn || false, maxHP: getMaxHP(cell), gear: cell.gear || null };
-        const html = createUnitCardHTML(unit, cardState);
-        slots[i].innerHTML = html;
-        slots[i].classList.add('slot--occupied');
+        const terrainPart = terrainRow[i] ? '<div class="terrain-badge">' + terrainRow[i].name + '</div>' : '';
+        const unitPart = cell ? createUnitCardHTML(cell.unit, { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false, cannotAttackNextTurn: cell.cannotAttackNextTurn || false, maxHP: getMaxHP(cell), gear: cell.gear || null }) : '';
+        slots[i].innerHTML = terrainPart + unitPart;
+        if (cell) slots[i].classList.add('slot--occupied');
       });
     });
     if (state.phase === 'playing') {
@@ -385,6 +411,22 @@
           const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
           if (slot) slot.classList.add('slot--selectable');
         }
+      } else if (typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1) {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            if (state.terrain[pl][c] != null) continue;
+            const slot = document.querySelector('.row--player' + pl + ' .slot[data-column="' + c + '"]');
+            if (slot) slot.classList.add('slot--selectable');
+          }
+        }
+      } else if (itemName === 'Tectonic Spike') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            if (state.terrain[pl][c] == null) continue;
+            const slot = document.querySelector('.row--player' + pl + ' .slot[data-column="' + c + '"]');
+            if (slot) slot.classList.add('slot--selectable');
+          }
+        }
       }
     }
   }
@@ -463,6 +505,7 @@
     if (idx == null || idx < 0 || idx >= hand.length) return;
     const unit = hand[idx];
     state.board[player][slotIndex] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null };
+    if (getTerrain(player, slotIndex) === 'Divine Light') state.board[player][slotIndex].faceUp = true;
     hand.splice(idx, 1);
     state.selectedPlacementIndex = null;
     renderBoard();
@@ -482,7 +525,9 @@
     const shuffled = shuffle(handRef.slice());
     const n = Math.min(shuffled.length, emptySlots.length);
     for (let i = 0; i < n; i++) {
-      state.board[player][emptySlots[i]] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false, gear: null };
+      const slot = emptySlots[i];
+      state.board[player][slot] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false, gear: null };
+      if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
     }
     const placedSet = new Set(shuffled.slice(0, n));
     for (let i = handRef.length - 1; i >= 0; i--) {
@@ -511,6 +556,7 @@
       state.p2ItemHand = [];
       state.itemDeck = shuffle(buildItemDeck());
       state.itemDiscard = [];
+      state.terrain = { 1: [null, null, null, null, null], 2: [null, null, null, null, null] };
       state.p1Captures = 0;
       state.p2Captures = 0;
       state.actionStep = 'use_items';
@@ -574,6 +620,7 @@
       const unit = state.unitDeck.shift();
       const slot = openSlots.shift();
       state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null };
+      if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
     }
   }
 
@@ -706,6 +753,24 @@
         useBtn.dataset.itemName = item.name;
         el.appendChild(useBtn);
       }
+      if (isCurrentPlayer && isUseItems && typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(item.name) !== -1 && countEmptyTerrainSlots() > 0) {
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button';
+        useBtn.className = 'item-card__use btn btn--small';
+        useBtn.textContent = 'Use';
+        useBtn.dataset.itemIndex = String(index);
+        useBtn.dataset.itemName = item.name;
+        el.appendChild(useBtn);
+      }
+      if (isCurrentPlayer && isUseItems && item.name === 'Tectonic Spike' && countTilesWithTerrain() > 0) {
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button';
+        useBtn.className = 'item-card__use btn btn--small';
+        useBtn.textContent = 'Use';
+        useBtn.dataset.itemIndex = String(index);
+        useBtn.dataset.itemName = item.name;
+        el.appendChild(useBtn);
+      }
 
       return el;
     }
@@ -808,12 +873,30 @@
     const myCell = state.board[p][c];
     const otherCell = state.board[p][next];
     if (otherCell == null) return;
+
+    if (getTerrain(p, c) === 'Paralyzing Vines') {
+      const heads = Math.random() < 0.5;
+      if (!heads) {
+        log("Paralyzing Vines: tails — " + myCell.unit.name + "'s move fails. " + myCell.unit.name + " must still attack.");
+        state.moveDone = true;
+        state.actionStep = 'attack';
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and moves.");
+    }
+
     state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null };
     state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
     state.selectedUnit.column = next;
     state.moveDone = true;
     state.actionStep = 'attack';
-    log("Player " + p + "'s " + myCell.unit.name + " moves " + direction + " (swaps with " + otherCell.unit.name + "). " + myCell.unit.name + " is revealed.");
+    if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) state.board[p][c].faceUp = true;
+    if (getTerrain(p, next) === 'Divine Light' && state.board[p][next]) state.board[p][next].faceUp = true;
+    let moveLog = "Player " + p + "'s " + myCell.unit.name + " moves " + direction + " (swaps with " + otherCell.unit.name + ").";
+    if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) moveLog += " " + otherCell.unit.name + " is revealed (Divine Light).";
+    log(moveLog);
     renderTurnUI();
     renderBoard();
   }
@@ -836,15 +919,34 @@
     if (!myCell || !myCell.gear || myCell.gear.name !== 'Teleport Boots') return;
     if (toCol < 0 || toCol > 4 || toCol === fromCol) return;
     const targetCell = state.board[p][toCol];
+
+    if (getTerrain(p, fromCol) === 'Paralyzing Vines') {
+      const heads = Math.random() < 0.5;
+      if (!heads) {
+        log("Paralyzing Vines: tails — " + myCell.unit.name + "'s teleport fails. " + myCell.unit.name + " must still attack.");
+        state.moveDone = true;
+        state.actionStep = 'attack';
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and teleports.");
+    }
+
     if (targetCell == null) {
       state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
       state.board[p][fromCol] = null;
+      if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
       log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
     } else {
       state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null };
       state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
       state.selectedUnit.column = toCol;
-      log("Player " + p + "'s " + myCell.unit.name + " teleports (swaps with " + targetCell.unit.name + ").");
+      if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
+      if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
+      let teleportLog = "Player " + p + "'s " + myCell.unit.name + " teleports (swaps with " + targetCell.unit.name + ").";
+      if (getTerrain(p, fromCol) === 'Divine Light' && state.board[p][fromCol]) teleportLog += " " + targetCell.unit.name + " is revealed (Divine Light).";
+      log(teleportLog);
     }
     state.selectedUnit.column = toCol;
     state.moveDone = true;
@@ -973,6 +1075,48 @@
     return t && GEAR_EQUIP_ITEM_NAMES.indexOf(t.itemName) !== -1;
   }
 
+  function applyPlaceTerrain(targetPlayer, targetCol) {
+    if (!state.terrain || state.terrain[targetPlayer][targetCol] != null) return;
+    const t = state.itemTargeting;
+    if (!t || typeof TERRAIN_ITEM_NAMES === 'undefined' || TERRAIN_ITEM_NAMES.indexOf(t.itemName) === -1) return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[t.handIndex];
+    if (!item || TERRAIN_ITEM_NAMES.indexOf(item.name) === -1) return;
+
+    state.terrain[targetPlayer][targetCol] = { name: item.name, id: item.id };
+    hand.splice(t.handIndex, 1);
+    state.itemTargeting = null;
+    if (item.name === 'Divine Light') {
+      const cell = state.board[targetPlayer][targetCol];
+      if (cell) cell.faceUp = true;
+    }
+
+    log("Player " + state.currentPlayer + " places " + item.name + " on tile (Player " + targetPlayer + ", column " + targetCol + ").");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function applyTectonicSpike(targetPlayer, targetCol) {
+    const terrainHere = state.terrain[targetPlayer][targetCol];
+    if (!terrainHere) return;
+    const t = state.itemTargeting;
+    if (!t || t.itemName !== 'Tectonic Spike') return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[t.handIndex];
+    if (!item || item.name !== 'Tectonic Spike') return;
+
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(terrainHere);
+    state.terrain[targetPlayer][targetCol] = null;
+    hand.splice(t.handIndex, 1);
+    state.itemDiscard.push(item);
+    state.itemTargeting = null;
+
+    log("Player " + state.currentPlayer + " uses Tectonic Spike — " + terrainHere.name + " removed from tile (Player " + targetPlayer + ", column " + targetCol + ").");
+    renderTurnUI();
+    renderBoard();
+  }
+
   function applyEquipArmor(targetPlayer, targetCol) {
     const cell = state.board[targetPlayer][targetCol];
     if (!cell || !cell.unit) return;
@@ -1034,6 +1178,20 @@
 
     log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
 
+    if (getTerrain(attackerPlayer, attackerCol) === 'Unstable Ground') {
+      const heads = Math.random() < 0.5;
+      if (!heads) {
+        log("Unstable Ground (attacker's tile): tails — attack canceled.");
+        state.selectedUnit = null;
+        state.actionStep = 'select_unit';
+        renderTurnUI();
+        renderBoard();
+        endTurn();
+        return;
+      }
+      log("Unstable Ground (attacker's tile): heads — attack proceeds.");
+    }
+
     let attackBlocked = false;
 
     const colsToCheck = [];
@@ -1053,38 +1211,80 @@
       const lancerCell = state.board[defenderPlayer][lancerCol];
       lancerCell.faceUp = true;
       log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
-      const heads = Math.random() < 0.5;
-      if (heads) {
-        log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
-        attackBlocked = true;
-        applyDamage(attackerPlayer, attackerCol, 1, "");
+      if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
+        const unstableHeads = Math.random() < 0.5;
+        if (!unstableHeads) {
+          log("Unstable Ground (Lancer's tile): tails — counter canceled.");
+        } else {
+          log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
+          const heads = Math.random() < 0.5;
+          if (heads) {
+            log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
+            attackBlocked = true;
+            applyDamage(attackerPlayer, attackerCol, 1, "");
+          } else {
+            log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+          }
+        }
       } else {
-        log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+        const heads = Math.random() < 0.5;
+        if (heads) {
+          log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
+          attackBlocked = true;
+          applyDamage(attackerPlayer, attackerCol, 1, "");
+        } else {
+          log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+        }
       }
     }
 
     var defenderHadBarbedGauntlets = false;
     var attClassForBarbed = null;
+    var attackHitDefender = false;
     if (!attackBlocked) {
       defCell.faceUp = true;
       log("Target revealed: Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
-      defenderHadBarbedGauntlets = !!(defCell.gear && defCell.gear.name === 'Barbed Gauntlets');
+      const defHasBarbed = !!(defCell.gear && defCell.gear.name === 'Barbed Gauntlets');
       attClassForBarbed = attCell.unit.class;
 
-      const damage = (attCell.unit.class === 'Shooter' && isLongshot(attackerCol, defenderCol))
-        ? 2
-        : 1;
-      if (attCell.unit.class === 'Shooter' && damage === 2) {
-        log("Longshot (edge to edge): 2 damage.");
+      let defenderTerrainBlocked = false;
+      const defTerrain = getTerrain(defenderPlayer, defenderCol);
+      if (defTerrain === 'Elevated Ground' && (attCell.unit.class === 'Brawler' || attCell.unit.class === 'Lancer')) {
+        const heads = Math.random() < 0.5;
+        if (heads) {
+          log("Elevated Ground: heads — attack fails.");
+          defenderTerrainBlocked = true;
+        } else {
+          log("Elevated Ground: tails — attack proceeds.");
+        }
+      } else if (defTerrain === 'Reinforced Barricade' && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) {
+        const heads = Math.random() < 0.5;
+        if (heads) {
+          log("Reinforced Barricade: heads — attack fails.");
+          defenderTerrainBlocked = true;
+        } else {
+          log("Reinforced Barricade: tails — attack proceeds.");
+        }
       }
-      const captured = applyDamage(defenderPlayer, defenderCol, damage, "");
-      if (!captured && state.board[defenderPlayer][defenderCol] && attCell.unit.class === 'Caster') {
-        state.board[defenderPlayer][defenderCol].paralyzed = true;
-        log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
+
+      if (!defenderTerrainBlocked) {
+        defenderHadBarbedGauntlets = defHasBarbed;
+        attackHitDefender = true;
+        const damage = (attCell.unit.class === 'Shooter' && isLongshot(attackerCol, defenderCol))
+          ? 2
+          : 1;
+        if (attCell.unit.class === 'Shooter' && damage === 2) {
+          log("Longshot (edge to edge): 2 damage.");
+        }
+        const captured = applyDamage(defenderPlayer, defenderCol, damage, "");
+        if (!captured && state.board[defenderPlayer][defenderCol] && attCell.unit.class === 'Caster') {
+          state.board[defenderPlayer][defenderCol].paralyzed = true;
+          log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
+        }
       }
     }
 
-    if (defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
+    if (attackHitDefender && defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
       const heads = Math.random() < 0.5;
       if (heads) {
         const attCellRef = state.board[attackerPlayer][attackerCol];
@@ -1185,6 +1385,10 @@
       } else if (GEAR_EQUIP_ITEM_NAMES.indexOf(itemName) !== -1) {
         const cell = state.board[player][column];
         if (player === p && cell && canEquipGear(cell, itemName)) applyEquipArmor(player, column);
+      } else if (typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1) {
+        if (state.terrain[player][column] == null) applyPlaceTerrain(player, column);
+      } else if (itemName === 'Tectonic Spike') {
+        if (state.terrain[player][column] != null) applyTectonicSpike(player, column);
       }
       return;
     }
@@ -1237,7 +1441,9 @@
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
       const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'All revealing lantern-jar' || itemName === 'Tangle-Vine Bola';
       const gearPlayable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory') && countValidGearTargets(itemName) > 0;
-      if (player !== state.currentPlayer || (!singleUsePlayable && !gearPlayable)) return;
+      const terrainPlayable = typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1 && countEmptyTerrainSlots() > 0;
+      const tectonicSpikePlayable = itemName === 'Tectonic Spike' && countTilesWithTerrain() > 0;
+      if (player !== state.currentPlayer || (!singleUsePlayable && !gearPlayable && !terrainPlayable && !tectonicSpikePlayable)) return;
       state.itemTargeting = { handIndex: handIndex, itemName: itemName };
       renderTurnUI();
       renderBoard();

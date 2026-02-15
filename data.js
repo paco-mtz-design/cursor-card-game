@@ -114,3 +114,6 @@ const ITEM_SPECS = {
   "Sharpshooter's Scope": { type: 'promotion', effect: 'Promote a Shooter. The equipped unit gains +1 HP and all its attacks become true strikes, ignoring terrain-, item-, or unit-specific effects.' },
   "Archmage's Tome": { type: 'promotion', effect: 'Promote a Caster. The equipped unit gains +1 HP and its attacks now affect the target and both adjacent enemy units (must rest 1 turn after attacking).' },
 };
+
+/** Terrain cards that can be placed on empty tiles during use-items. */
+const TERRAIN_ITEM_NAMES = ['Elevated Ground', 'Reinforced Barricade', 'Paralyzing Vines', 'Divine Light', 'Unstable Ground'];
