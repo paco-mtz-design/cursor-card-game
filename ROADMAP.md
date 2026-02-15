@@ -37,7 +37,7 @@ Light Armor, Premium Light Armor, Heavy Armor. One gear per unit; equip in "use 
 
 | Phase  | Focus                           | Notes |
 |--------|----------------------------------|-------|
-| **10** | Gear (weapons & accessories)     | Sniper Scope, Magic Grenade, Barbed Gauntlets, Wardstone, Teleport Boots. |
+| **10** | Gear (accessories)              | Barbed Gauntlets, Wardstone Bracelet, Teleport Boots. True-Strike Lens and Magic Grenade deferred to a later phase (after terrain / true strike). |
 | **11** | Terrain                         | Terrain per slot; place in "use items"; resolve in movement and combat. |
 | **12** | Remaining single-use + true strike | Rust Spell, Earthquake Spell, Smoke Bomb, Critical Hit Spell; true-strike flag in combat. Implement after gear/terrain exist for testing. |
 | **13** | Promotions                      | Class-specific upgrades; +1 HP and modified range/effects. |

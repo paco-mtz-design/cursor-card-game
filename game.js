@@ -44,6 +44,8 @@
   const discardPileCountEl = document.getElementById('discard-pile-count');
   const btnDiscardToggle = document.getElementById('btn-discard-toggle');
   const discardPileListEl = document.getElementById('discard-pile-list');
+  const btnWardstoneUse = document.getElementById('btn-wardstone-use');
+  const btnWardstoneNo = document.getElementById('btn-wardstone-no');
 
   let state = getInitialState();
 
@@ -116,10 +118,11 @@
     return spec && spec.type === 'gear_armor' && spec.hpBonus != null ? spec.hpBonus : 0;
   }
 
-  function getArmorAllowedClasses(armorName) {
-    if (!armorName || typeof ITEM_SPECS === 'undefined') return [];
-    const spec = ITEM_SPECS[armorName];
-    return spec && spec.type === 'gear_armor' && Array.isArray(spec.allowedClasses) ? spec.allowedClasses : [];
+  function getGearAllowedClasses(gearName) {
+    if (!gearName || typeof ITEM_SPECS === 'undefined') return [];
+    const spec = ITEM_SPECS[gearName];
+    var isEquippable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory') && Array.isArray(spec.allowedClasses);
+    return isEquippable ? spec.allowedClasses : [];
   }
 
   function getMaxHP(cell) {
@@ -133,24 +136,27 @@
     return getBaseHP(unitClass) + getArmorHPBonus(armorName);
   }
 
-  function canEquipArmor(cell, armorName) {
-    if (!cell || !cell.unit || !armorName) return false;
-    const allowed = getArmorAllowedClasses(armorName);
+  function canEquipGear(cell, gearName) {
+    if (!cell || !cell.unit || !gearName) return false;
+    const allowed = getGearAllowedClasses(gearName);
     if (allowed.indexOf(cell.unit.class) === -1) return false;
-    const maxAfter = getMaxHPWithGear(cell.unit.class, armorName);
+    const maxAfter = getMaxHPWithGear(cell.unit.class, gearName);
     const damage = cell.damage || 0;
     return damage < maxAfter;
   }
 
-  function countValidArmorTargets(armorName) {
+  function countValidGearTargets(gearName) {
     const p = state.currentPlayer;
     let n = 0;
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
-      if (cell && canEquipArmor(cell, armorName)) n++;
+      if (cell && canEquipGear(cell, gearName)) n++;
     }
     return n;
   }
+
+  var ACCESSORY_ITEM_NAMES = ['Barbed Gauntlets', 'Wardstone Bracelet', 'Teleport Boots'];
+  var GEAR_EQUIP_ITEM_NAMES = ['Light Armor', 'Premium Light Armor', 'Heavy Armor'].concat(ACCESSORY_ITEM_NAMES);
 
   /** Returns true if attacker at attCol can attack enemy at defCol (same row = defender row). */
   function isInRange(attackerCol, defenderCol, attackerClass) {
@@ -306,6 +312,7 @@
     document.querySelectorAll('.slot').forEach(function (slot) {
       slot.classList.remove('slot--selectable', 'slot--selected');
     });
+    if (state.pendingWardstone) return;
     const p = state.currentPlayer;
     const step = state.actionStep;
     const sel = state.selectedUnit;
@@ -320,10 +327,19 @@
       }
     } else if (step === 'move' && sel) {
       const c = sel.column;
+      const myCell = state.board[p][c];
+      const hasTeleportBoots = myCell && myCell.gear && myCell.gear.name === 'Teleport Boots';
       const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
       if (slot) slot.classList.add('slot--selected');
-      if (c > 0) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c - 1) + '"]')?.classList.add('slot--selectable');
-      if (c < 4) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c + 1) + '"]')?.classList.add('slot--selectable');
+      if (hasTeleportBoots) {
+        for (let col = 0; col < 5; col++) {
+          if (col === c) continue;
+          document.querySelector('.row--player' + p + ' .slot[data-column="' + col + '"]')?.classList.add('slot--selectable');
+        }
+      } else {
+        if (c > 0) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c - 1) + '"]')?.classList.add('slot--selectable');
+        if (c < 4) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c + 1) + '"]')?.classList.add('slot--selectable');
+      }
     } else if (step === 'attack' && sel) {
       const opp = p === 1 ? 2 : 1;
       const attCell = state.board[p][sel.column];
@@ -362,10 +378,10 @@
           const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
           if (slot) slot.classList.add('slot--selectable');
         }
-      } else if (ARMOR_ITEM_NAMES.indexOf(itemName) !== -1) {
+      } else if (GEAR_EQUIP_ITEM_NAMES.indexOf(itemName) !== -1) {
         for (let c = 0; c < 5; c++) {
           const cell = state.board[p][c];
-          if (!cell || !canEquipArmor(cell, itemName)) continue;
+          if (!cell || !canEquipGear(cell, itemName)) continue;
           const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
           if (slot) slot.classList.add('slot--selectable');
         }
@@ -646,8 +662,8 @@
       return false;
     }
 
-    function canPlayArmor(armorName) {
-      return countValidArmorTargets(armorName) > 0;
+    function canPlayGear(gearName) {
+      return countValidGearTargets(gearName) > 0;
     }
 
     function buildItemCard(item, index, isCurrentPlayer) {
@@ -681,7 +697,7 @@
         useBtn.dataset.itemName = item.name;
         el.appendChild(useBtn);
       }
-      if (isCurrentPlayer && isUseItems && spec && spec.type === 'gear_armor' && canPlayArmor(item.name)) {
+      if (isCurrentPlayer && isUseItems && spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory') && canPlayGear(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -712,9 +728,22 @@
     turnActions.hidden = true;
     if (btnPass) btnPass.hidden = true;
     if (btnDoneWithItems) btnDoneWithItems.hidden = true;
+    if (btnWardstoneUse) btnWardstoneUse.hidden = true;
+    if (btnWardstoneNo) btnWardstoneNo.hidden = true;
     btnMoveLeft.hidden = false;
     btnMoveRight.hidden = false;
     btnSkipMove.hidden = false;
+
+    if (state.pendingWardstone) {
+      turnStep.textContent = "Use Wardstone to negate this attack?";
+      turnActions.hidden = false;
+      btnMoveLeft.hidden = true;
+      btnMoveRight.hidden = true;
+      btnSkipMove.hidden = true;
+      if (btnWardstoneUse) btnWardstoneUse.hidden = false;
+      if (btnWardstoneNo) btnWardstoneNo.hidden = false;
+      return;
+    }
 
     if (step === 'use_items') {
       const it = state.itemTargeting;
@@ -722,8 +751,8 @@
         if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
         else if (it.itemName === 'All revealing lantern-jar') turnStep.textContent = 'Choose a face-down enemy unit (All revealing lantern-jar).';
         else if (it.itemName === 'Tangle-Vine Bola') turnStep.textContent = 'Choose an enemy unit (Tangle-Vine Bola).';
-        else if (ARMOR_ITEM_NAMES.indexOf(it.itemName) !== -1) {
-          var ac = getArmorAllowedClasses(it.itemName);
+        else if (GEAR_EQUIP_ITEM_NAMES.indexOf(it.itemName) !== -1) {
+          var ac = getGearAllowedClasses(it.itemName);
           turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
         } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
       } else {
@@ -799,6 +828,31 @@
     renderBoard();
   }
 
+  function doTeleportMove(toCol) {
+    if (state.actionStep !== 'move' || !state.selectedUnit) return;
+    const p = state.selectedUnit.player;
+    const fromCol = state.selectedUnit.column;
+    const myCell = state.board[p][fromCol];
+    if (!myCell || !myCell.gear || myCell.gear.name !== 'Teleport Boots') return;
+    if (toCol < 0 || toCol > 4 || toCol === fromCol) return;
+    const targetCell = state.board[p][toCol];
+    if (targetCell == null) {
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
+      state.board[p][fromCol] = null;
+      log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
+    } else {
+      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
+      state.selectedUnit.column = toCol;
+      log("Player " + p + "'s " + myCell.unit.name + " teleports (swaps with " + targetCell.unit.name + ").");
+    }
+    state.selectedUnit.column = toCol;
+    state.moveDone = true;
+    state.actionStep = 'attack';
+    renderTurnUI();
+    renderBoard();
+  }
+
   function doPass() {
     if (state.actionStep !== 'attack' || !state.selectedUnit) return;
     log("Player " + state.currentPlayer + " cannot attack — passes.");
@@ -820,6 +874,34 @@
     state.actionStep = 'select_unit';
     renderTurnUI();
     renderBoard();
+  }
+
+  function doWardstoneUse() {
+    if (!state.pendingWardstone) return;
+    const defCell = state.board[state.pendingWardstone.defPlayer][state.pendingWardstone.defCol];
+    if (!defCell || !defCell.gear || defCell.gear.name !== 'Wardstone Bracelet') {
+      state.pendingWardstone = null;
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(defCell.gear);
+    defCell.gear = null;
+    log("Player " + state.pendingWardstone.defPlayer + " uses Wardstone Bracelet — attack negated.");
+    state.pendingWardstone = null;
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    renderTurnUI();
+    renderBoard();
+    endTurn();
+  }
+
+  function doWardstoneNo() {
+    if (!state.pendingWardstone) return;
+    const pw = state.pendingWardstone;
+    state.pendingWardstone = null;
+    resolveCombat(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol);
   }
 
   function applyHealingPotion(targetPlayer, targetCol) {
@@ -886,11 +968,9 @@
     renderBoard();
   }
 
-  var ARMOR_ITEM_NAMES = ['Light Armor', 'Premium Light Armor', 'Heavy Armor'];
-
-  function isArmorTargeting() {
+  function isGearEquipTargeting() {
     const t = state.itemTargeting;
-    return t && ARMOR_ITEM_NAMES.indexOf(t.itemName) !== -1;
+    return t && GEAR_EQUIP_ITEM_NAMES.indexOf(t.itemName) !== -1;
   }
 
   function applyEquipArmor(targetPlayer, targetCol) {
@@ -898,18 +978,17 @@
     if (!cell || !cell.unit) return;
     if (targetPlayer !== state.currentPlayer) return;
     const t = state.itemTargeting;
-    if (!t || ARMOR_ITEM_NAMES.indexOf(t.itemName) === -1) return;
+    if (!t || GEAR_EQUIP_ITEM_NAMES.indexOf(t.itemName) === -1) return;
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     const item = hand[t.handIndex];
-    if (!item || ARMOR_ITEM_NAMES.indexOf(item.name) === -1) return;
-    if (!canEquipArmor(cell, item.name)) return;
+    if (!item || GEAR_EQUIP_ITEM_NAMES.indexOf(item.name) === -1) return;
+    if (!canEquipGear(cell, item.name)) return;
 
     const previousGear = cell.gear || null;
     cell.gear = { name: item.name, id: item.id };
     hand.splice(t.handIndex, 1);
-    if (!state.itemDiscard) state.itemDiscard = [];
-    state.itemDiscard.push(item);
     if (previousGear) {
+      if (!state.itemDiscard) state.itemDiscard = [];
       state.itemDiscard.push(previousGear);
       log("Player " + state.currentPlayer + " equips " + item.name + " on " + cell.unit.name + ". Previous " + previousGear.name + " discarded.");
     } else {
@@ -920,7 +999,7 @@
     renderBoard();
   }
 
-  function applyDamage(player, col, damageAmount, logPrefix) {
+  function applyDamage(player, col, damageAmount, logPrefix, skipLog) {
     const cell = state.board[player][col];
     if (!cell) return true;
     const maxHP = getMaxHP(cell);
@@ -928,7 +1007,11 @@
     const newTotal = current + damageAmount;
     cell.faceUp = true;
     if (newTotal >= maxHP) {
-      log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " is captured (0/" + maxHP + " HP).");
+      if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " is captured (0/" + maxHP + " HP).");
+      if (cell.gear) {
+        if (!state.itemDiscard) state.itemDiscard = [];
+        state.itemDiscard.push(cell.gear);
+      }
       state.board[player][col] = null;
       if (player === 1) {
         state.p2Captures = (state.p2Captures || 0) + 1;
@@ -940,7 +1023,7 @@
       return true;
     }
     cell.damage = newTotal;
-    log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
+    if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
     return false;
   }
 
@@ -980,9 +1063,13 @@
       }
     }
 
+    var defenderHadBarbedGauntlets = false;
+    var attClassForBarbed = null;
     if (!attackBlocked) {
       defCell.faceUp = true;
       log("Target revealed: Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
+      defenderHadBarbedGauntlets = !!(defCell.gear && defCell.gear.name === 'Barbed Gauntlets');
+      attClassForBarbed = attCell.unit.class;
 
       const damage = (attCell.unit.class === 'Shooter' && isLongshot(attackerCol, defenderCol))
         ? 2
@@ -994,6 +1081,26 @@
       if (!captured && state.board[defenderPlayer][defenderCol] && attCell.unit.class === 'Caster') {
         state.board[defenderPlayer][defenderCol].paralyzed = true;
         log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
+      }
+    }
+
+    if (defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
+      const heads = Math.random() < 0.5;
+      if (heads) {
+        const attCellRef = state.board[attackerPlayer][attackerCol];
+        if (attCellRef) {
+          const maxHP = getMaxHP(attCellRef);
+          const current = attCellRef.damage || 0;
+          const newTotal = current + 1;
+          if (newTotal >= maxHP) {
+            log("Barbed Gauntlets: heads — " + attCellRef.unit.name + " takes 1 damage from the defender's gauntlets and is captured.");
+          } else {
+            log("Barbed Gauntlets: heads — " + attCellRef.unit.name + " takes 1 damage from the defender's gauntlets (" + newTotal + "/" + maxHP + " HP).");
+          }
+          applyDamage(attackerPlayer, attackerCol, 1, null, true);
+        }
+      } else {
+        log("Barbed Gauntlets: tails — no reflected damage.");
       }
     }
 
@@ -1075,9 +1182,9 @@
       } else if (itemName === 'Tangle-Vine Bola') {
         const opp = p === 1 ? 2 : 1;
         if (player === opp && state.board[player][column]) applyDisablingNet(player, column);
-      } else if (ARMOR_ITEM_NAMES.indexOf(itemName) !== -1) {
+      } else if (GEAR_EQUIP_ITEM_NAMES.indexOf(itemName) !== -1) {
         const cell = state.board[player][column];
-        if (player === p && cell && canEquipArmor(cell, itemName)) applyEquipArmor(player, column);
+        if (player === p && cell && canEquipGear(cell, itemName)) applyEquipArmor(player, column);
       }
       return;
     }
@@ -1089,12 +1196,28 @@
       return;
     }
 
+    if (step === 'move' && state.selectedUnit && player === p) {
+      const fromCol = state.selectedUnit.column;
+      const myCell = state.board[p][fromCol];
+      if (myCell && myCell.gear && myCell.gear.name === 'Teleport Boots' && column !== fromCol) {
+        doTeleportMove(column);
+      }
+      return;
+    }
+
     if (step === 'attack' && state.selectedUnit) {
       const opp = p === 1 ? 2 : 1;
       const attCell = state.board[p][state.selectedUnit.column];
       if (attCell && attCell.cannotAttackNextTurn) return;
       if (player === opp && state.board[opp][column]) {
         if (attCell && isInRange(state.selectedUnit.column, column, attCell.unit.class)) {
+          const defCell = state.board[opp][column];
+          if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') {
+            state.pendingWardstone = { attPlayer: p, attCol: state.selectedUnit.column, defPlayer: opp, defCol: column };
+            renderTurnUI();
+            renderBoard();
+            return;
+          }
           resolveCombat(p, state.selectedUnit.column, opp, column);
         }
       }
@@ -1113,8 +1236,8 @@
       const player = parseInt(card.dataset.player, 10);
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
       const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'All revealing lantern-jar' || itemName === 'Tangle-Vine Bola';
-      const armorPlayable = spec && spec.type === 'gear_armor' && countValidArmorTargets(itemName) > 0;
-      if (player !== state.currentPlayer || (!singleUsePlayable && !armorPlayable)) return;
+      const gearPlayable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory') && countValidGearTargets(itemName) > 0;
+      if (player !== state.currentPlayer || (!singleUsePlayable && !gearPlayable)) return;
       state.itemTargeting = { handIndex: handIndex, itemName: itemName };
       renderTurnUI();
       renderBoard();
@@ -1185,6 +1308,8 @@
     btnMoveRight.addEventListener('click', function () { if (!state.gameOver) doMove('right'); });
     btnSkipMove.addEventListener('click', function () { if (!state.gameOver) doSkipMove(); });
     if (btnPass) btnPass.addEventListener('click', function () { if (!state.gameOver) doPass(); });
+    if (btnWardstoneUse) btnWardstoneUse.addEventListener('click', function () { if (!state.gameOver) doWardstoneUse(); });
+    if (btnWardstoneNo) btnWardstoneNo.addEventListener('click', function () { if (!state.gameOver) doWardstoneNo(); });
 
     placementHand.addEventListener('click', handlePlacementHandClick);
     document.querySelector('.board').addEventListener('click', handleSlotClick);
