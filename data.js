@@ -99,7 +99,7 @@ const ITEM_SPECS = {
   'Tangle-Vine Bola': { type: 'single_use', effect: 'The targeted enemy unit can\'t initiate an attack on their next turn (they can still be swapped with other moving units). Prevents targeted Lancers from countering, as well.' },
   'Obscuring bomb': { type: 'single_use', effect: 'Flip all your units face-down and shuffle them as you wish.' },
   'Vorpal Honing Amulet': { type: 'single_use', effect: 'Makes your next attack lethal: ignore terrain-, item-, or unit-specific effects. Range rules apply as usual. This attack can\'t be countered by Lancers.' },
-  'True-Strike Lens': { type: 'gear_accessory', effect: 'Attacks by Shooters or Casters equipped with this card ignore terrain effects and Lancer counters.' },
+  'True-Strike Lens': { type: 'gear_accessory', effect: 'Attacks by Shooters or Casters equipped with this card ignore terrain effects and Lancer counters.', allowedClasses: ['Shooter', 'Caster'] },
   'Magic Grenade': { type: 'single_use', effect: 'Allows one unit to attack once like a Caster (including range and the paralyzing magic effect). Doesn\'t stack with other effects.' },
   'Barbed Gauntlets': { type: 'gear_accessory', effect: 'If the wearer is successfully hit by a Brawler or Lancer, flip a coin. On heads, deal 1 damage to the attacker (even if this unit is defeated).', allowedClasses: ['Brawler', 'Lancer', 'Shooter', 'Caster'] },
   'Wardstone Bracelet': { type: 'gear_accessory', effect: 'You may choose to protect the wearer from all damage and effects of a single attack. Discard immediately if you do so.', allowedClasses: ['Brawler', 'Lancer', 'Shooter', 'Caster'] },

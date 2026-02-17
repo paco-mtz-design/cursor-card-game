@@ -4,6 +4,30 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 12 — Remaining single-use + True-Strike Lens + true strike
+
+**Scope:** Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade (single-use); True-Strike Lens (gear). True-strike/bypass in combat (skip attacker Unstable Ground, Lancer counter, defender Elevated/Reinforced terrain when true strike applies).
+
+**Implementations:**
+- **True strike in combat:** At start of `resolveCombat`, `trueStrike` is true when (1) `state.vorpalNextAttack === attackerPlayer` (Vorpal Honing Amulet) or (2) attacker has True-Strike Lens and is Shooter or Caster. When true strike: skip Unstable Ground (attacker tile), skip entire Lancer counter block, skip defender terrain (Elevated Ground, Reinforced Barricade). Log "True strike — attack ignores terrain and Lancer counters." Clear `state.vorpalNextAttack` after that attack resolves.
+- **Vorpal Honing Amulet:** Single-use, no target. "Use" in use-items applies immediately: remove from hand to discard, set `state.vorpalNextAttack = state.currentPlayer`. Next attack by that player gets true strike and **lethal damage** (damage set to defender's remaining HP so attack captures in one hit). Flag cleared after that attack. Wardstone can still be offered; if defender uses Wardstone, attack is negated and Vorpal is not consumed.
+- **True-Strike Lens:** Gear accessory in `GEAR_EQUIP_ITEM_NAMES`; `allowedClasses: ['Shooter', 'Caster']` in `data.js`. Equip flow unchanged. In `resolveCombat`, included in `trueStrike` check so Shooters/Casters with this gear ignore terrain and Lancer counters.
+- **Corrosive Phial:** Single-use. Target any face-up unit that has gear (yours or opponent's). "Use" button shown when `countUnitsWithGear() > 0` (any unit with gear); targeting still only highlights face-up units with gear. `applyCorrosivePhial`: push target's gear to discard, set `cell.gear = null`, remove Corrosive Phial from hand to discard.
+- **Obscuring bomb:** Single-use, no target. "Use" applies immediately: flip all current player's units face-down, remove card from hand to discard, then enter **reorder mode** (`state.obscuringReorder`). Player clicks one slot then another to swap units; "Done reordering" clears the mode. No random shuffle — player chooses final positions.
+- **Magic Grenade:** Single-use. Target one of your units. "Use" → click your unit slot. `applyMagicGrenade`: set `cell.nextAttackAsCaster = true`, remove card from hand to discard. In combat: `getEffectiveAttackerClass(attCell)` returns `'Caster'` when `nextAttackAsCaster` is set (any range, 1 damage, paralyze on hit). Used in `canAttack`, attack-step highlighting, and `resolveCombat` for damage/paralyze and defender terrain class check. Flag cleared after that attack. **`nextAttackAsCaster` is preserved** when the unit moves (swap or Teleport Boots) in `doMove` and `doTeleportMove`.
+- **Face-down HP persistence:** In `createUnitCardHTML`, face-down cards now show the damage/HP marker (e.g. "1/2 dmg") when `damage > 0`, so units turned face-down by Obscuring bomb (or future effects) keep HP visible. Data attributes `data-hp` and `data-damage` set on face-down cards. (Future: hide this on CPU's face-down cards when fog-of-war is added; keep on player's cards.)
+- **Item draw debug picker:** Search/filter input added; type to filter the deck (e.g. "Ma" → Magic Grenade). List container made taller (~11rem) so ~5 items visible while scrolling.
+
+**Bug fixes (same phase):**
+- Obscuring bomb no longer random-shuffles; replaced with manual reorder (swap two slots, then Done).
+- Corrosive Phial "Use" button was hidden when no face-up unit had gear; now shows whenever any unit has gear; valid targets remain face-up units with gear.
+- Magic Grenade: `nextAttackAsCaster` was lost when the attacking unit moved; now copied in `doMove` and `doTeleportMove` so Caster range/effect applies after a move.
+- Vorpal Honing Amulet: attack bypassed terrain/Lancer but only dealt 1 damage; now deals **lethal** damage (enough to capture defender in one hit) when `state.vorpalNextAttack === attackerPlayer`.
+
+**Files touched:** `ROADMAP.md` (Phase 12 row and implementation order), `data.js` (True-Strike Lens `allowedClasses`), `game.js` (state `vorpalNextAttack`, `obscuringReorder`, true-strike and lethal logic, Vorpal/Obscuring/Corrosive/Magic Grenade use and apply, move/teleport preserve `nextAttackAsCaster`, face-down HP in card HTML, item pick list search), `index.html` (item pick list search input), `style.css` (picker search input and taller list), `DEV_LOG.md`.
+
+---
+
 ## Phase 11 — Terrain cards
 
 **Scope:** All five terrain cards (Elevated Ground, Reinforced Barricade, Paralyzing Vines, Divine Light, Unstable Ground) plus Tectonic Spike to remove terrain.

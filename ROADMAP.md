@@ -39,7 +39,7 @@ Light Armor, Premium Light Armor, Heavy Armor. One gear per unit; equip in "use 
 |--------|----------------------------------|-------|
 | **10** | Gear (accessories)              | Barbed Gauntlets, Wardstone Bracelet, Teleport Boots. True-Strike Lens and Magic Grenade deferred to a later phase (after terrain / true strike). |
 | **11** | Terrain                         | Terrain per slot; place in "use items"; resolve in movement and combat. |
-| **12** | Remaining single-use + true strike | Rust Spell, Earthquake Spell, Smoke Bomb, Critical Hit Spell; true-strike flag in combat. Implement after gear/terrain exist for testing. |
+| **12** | Remaining single-use + True-Strike Lens + true strike | Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade; True-Strike Lens (gear). True-strike/bypass flag in combat (skip terrain + Lancer for Vorpal and True-Strike Lens). Tectonic Spike already in Phase 11. |
 | **13** | Promotions                      | Class-specific upgrades; +1 HP and modified range/effects. |
 | **14** | Veteran buffs                   | Per-character buff definitions; hooks in combat. After items/terrain stable. |
 | **15** | Board-game UI (foundation)       | Decks visible, hands laid out, room for terrain + gear; inspect card. |
@@ -51,4 +51,4 @@ Light Armor, Premium Light Armor, Heavy Armor. One gear per unit; equip in "use 
 
 ## Implementation order (items)
 
-Gear (armor → accessories/weapons), then terrain, then remaining single-use (Rust, Earthquake, Smoke Bomb, Critical Hit) and true strike, then promotions, then veteran buffs.
+Gear (armor → accessories/weapons), then terrain, then remaining single-use (Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade) and True-Strike Lens + true strike, then promotions, then veteran buffs.

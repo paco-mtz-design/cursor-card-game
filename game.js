@@ -38,6 +38,7 @@
   const itemDrawDebugEl = document.getElementById('item-draw-debug');
   const btnReplaceDrawWithPick = document.getElementById('btn-replace-draw-with-pick');
   const itemPickListWrapEl = document.getElementById('item-pick-list-wrap');
+  const itemPickListSearchEl = document.getElementById('item-pick-list-search');
   const itemPickListEl = document.getElementById('item-pick-list');
   const btnPickListClose = document.getElementById('btn-pick-list-close');
   const discardPileEl = document.getElementById('discard-pile');
@@ -156,7 +157,7 @@
     return n;
   }
 
-  var ACCESSORY_ITEM_NAMES = ['Barbed Gauntlets', 'Wardstone Bracelet', 'Teleport Boots'];
+  var ACCESSORY_ITEM_NAMES = ['Barbed Gauntlets', 'Wardstone Bracelet', 'Teleport Boots', 'True-Strike Lens'];
   var GEAR_EQUIP_ITEM_NAMES = ['Light Armor', 'Premium Light Armor', 'Heavy Armor'].concat(ACCESSORY_ITEM_NAMES);
 
   function getTerrain(player, col) {
@@ -195,6 +196,12 @@
     return false;
   }
 
+  /** For Magic Grenade: effective class is Caster when nextAttackAsCaster is set. */
+  function getEffectiveAttackerClass(attCell) {
+    if (!attCell) return null;
+    return attCell.nextAttackAsCaster ? 'Caster' : attCell.unit.class;
+  }
+
   /** Lancer range: attacker column is diagonal to defender (defender at defCol). */
   function isLancerCounterRange(attackerCol, defenderCol) {
     return Math.abs(attackerCol - defenderCol) === 1;
@@ -210,7 +217,7 @@
     if (!cell) return false;
     if (cell.cannotAttackNextTurn) return false;
     const opp = attackerPlayer === 1 ? 2 : 1;
-    const attClass = cell.unit.class;
+    const attClass = getEffectiveAttackerClass(cell);
     for (let c = 0; c < 5; c++) {
       if (state.board[opp][c] == null) continue;
       if (isInRange(attackerCol, c, attClass)) return true;
@@ -246,13 +253,15 @@
     const spriteImg = '<img class="unit-card__sprite" src="' + escapeHtml(spritePath) + '" alt="" role="presentation" onerror="this.classList.add(\'unit-card__sprite--missing\')">';
 
     if (!faceUp) {
+      const damageMarker = damage > 0 ? '<span class="marker marker--damage">' + damage + '/' + maxHP + ' dmg</span>' : '';
       const netMarker = cannotAttackNextTurn ? '<span class="marker marker--cannot-attack">Can\'t attack</span>' : '';
       const gearBadge = gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '';
       return '<div class="unit-card unit-card--face-down-soft" data-face-up="false" data-name="' +
-        escapeHtml(unit.name) + '" data-class="' + unit.class + '">' +
+        escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '">' +
         '<div class="unit-card__content">' +
         spriteImg +
         '<span class="unit-card__badge unit-card__badge--face-down">Face-down</span>' +
+        damageMarker +
         netMarker +
         gearBadge +
         '<span class="unit-card__class">' + icon + ' ' + unit.class + '</span>' +
@@ -312,7 +321,7 @@
       highlightSlots();
       if (state.p1ItemHand != null) renderItemHands();
       if (itemDrawDebugEl) {
-        itemDrawDebugEl.hidden = state.actionStep !== 'use_items' || !!state.itemTargeting;
+        itemDrawDebugEl.hidden = state.actionStep !== 'use_items' || !!state.itemTargeting || !!state.obscuringReorder;
       }
       if (state.actionStep !== 'use_items' || state.itemTargeting) {
         if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
@@ -343,6 +352,19 @@
     const step = state.actionStep;
     const sel = state.selectedUnit;
 
+    if (state.obscuringReorder) {
+      const reord = state.obscuringReorder;
+      for (let c = 0; c < 5; c++) {
+        if (state.board[reord.player][c] == null) continue;
+        const slot = document.querySelector('.row--player' + reord.player + ' .slot[data-column="' + c + '"]');
+        if (slot) {
+          slot.classList.add('slot--selectable');
+          if (reord.selectedCol === c) slot.classList.add('slot--selected');
+        }
+      }
+      return;
+    }
+
     if (step === 'select_unit') {
       for (let c = 0; c < 5; c++) {
         const cell = state.board[p][c];
@@ -371,7 +393,7 @@
       const attCell = state.board[p][sel.column];
       if (!attCell) return;
       if (attCell.cannotAttackNextTurn) return;
-      const attClass = attCell.unit.class;
+      const attClass = getEffectiveAttackerClass(attCell);
       for (let c = 0; c < 5; c++) {
         if (state.board[opp][c] == null) continue;
         if (!isInRange(sel.column, c, attClass)) continue;
@@ -426,6 +448,21 @@
             const slot = document.querySelector('.row--player' + pl + ' .slot[data-column="' + c + '"]');
             if (slot) slot.classList.add('slot--selectable');
           }
+        }
+      } else if (itemName === 'Corrosive Phial') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            const cell = state.board[pl][c];
+            if (!cell || !cell.faceUp || !cell.gear) continue;
+            const slot = document.querySelector('.row--player' + pl + ' .slot[data-column="' + c + '"]');
+            if (slot) slot.classList.add('slot--selectable');
+          }
+        }
+      } else if (itemName === 'Magic Grenade') {
+        for (let c = 0; c < 5; c++) {
+          if (state.board[p][c] == null) continue;
+          const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
+          if (slot) slot.classList.add('slot--selectable');
         }
       }
     }
@@ -563,6 +600,7 @@
       state.selectedUnit = null;
       state.moveDone = false;
       state.itemTargeting = null;
+      state.vorpalNextAttack = null;
       turnBanner.hidden = false;
       capturesEl.hidden = false;
       if (itemHandsEl) itemHandsEl.hidden = false;
@@ -688,6 +726,30 @@
     return n;
   }
 
+  /** Count face-up units with gear (for Corrosive Phial targeting). */
+  function countFaceUpUnitsWithGear() {
+    let n = 0;
+    for (let pl = 1; pl <= 2; pl++) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[pl][c];
+        if (cell && cell.faceUp && cell.gear) n++;
+      }
+    }
+    return n;
+  }
+
+  /** Count any units with gear (for Corrosive Phial Use button visibility). */
+  function countUnitsWithGear() {
+    let n = 0;
+    for (let pl = 1; pl <= 2; pl++) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[pl][c];
+        if (cell && cell.gear) n++;
+      }
+    }
+    return n;
+  }
+
   function renderItemHands() {
     if (!itemHandP1El || !itemHandP2El) return;
     const p1Hand = state.p1ItemHand || [];
@@ -706,6 +768,10 @@
       if (itemName === 'Healing Potion') return canPlayHealingPotion;
       if (itemName === 'All revealing lantern-jar') return canPlayRevealingLight;
       if (itemName === 'Tangle-Vine Bola') return canPlayDisablingNet;
+      if (itemName === 'Vorpal Honing Amulet') return true;
+      if (itemName === 'Corrosive Phial') return countUnitsWithGear() > 0;
+      if (itemName === 'Obscuring bomb') return countUnits(p) > 0;
+      if (itemName === 'Magic Grenade') return countUnits(p) > 0;
       return false;
     }
 
@@ -811,25 +877,40 @@
     }
 
     if (step === 'use_items') {
-      const it = state.itemTargeting;
-      if (it) {
-        if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
-        else if (it.itemName === 'All revealing lantern-jar') turnStep.textContent = 'Choose a face-down enemy unit (All revealing lantern-jar).';
-        else if (it.itemName === 'Tangle-Vine Bola') turnStep.textContent = 'Choose an enemy unit (Tangle-Vine Bola).';
-        else if (GEAR_EQUIP_ITEM_NAMES.indexOf(it.itemName) !== -1) {
-          var ac = getGearAllowedClasses(it.itemName);
-          turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
-        } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
+      if (state.obscuringReorder) {
+        turnStep.textContent = 'Reorder your units: click one slot, then another to swap. Then click Done reordering.';
+        turnActions.hidden = false;
+        btnMoveLeft.hidden = true;
+        btnMoveRight.hidden = true;
+        btnSkipMove.hidden = true;
+        if (btnPass) btnPass.hidden = true;
+        if (btnDoneWithItems) {
+          btnDoneWithItems.textContent = 'Done reordering';
+          btnDoneWithItems.hidden = false;
+        }
       } else {
-        turnStep.textContent = 'Use items (optional), then continue to combat.';
+        const it = state.itemTargeting;
+        if (it) {
+          if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
+          else if (it.itemName === 'All revealing lantern-jar') turnStep.textContent = 'Choose a face-down enemy unit (All revealing lantern-jar).';
+          else if (it.itemName === 'Tangle-Vine Bola') turnStep.textContent = 'Choose an enemy unit (Tangle-Vine Bola).';
+          else if (it.itemName === 'Corrosive Phial') turnStep.textContent = 'Choose a face-up unit with gear (Corrosive Phial).';
+          else if (it.itemName === 'Magic Grenade') turnStep.textContent = 'Choose your unit to attack as Caster (Magic Grenade).';
+          else if (GEAR_EQUIP_ITEM_NAMES.indexOf(it.itemName) !== -1) {
+            var ac = getGearAllowedClasses(it.itemName);
+            turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
+          } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
+        } else {
+          turnStep.textContent = 'Use items (optional), then continue to combat.';
+        }
+        turnActions.hidden = false;
+        btnMoveLeft.hidden = true;
+        btnMoveRight.hidden = true;
+        btnSkipMove.hidden = true;
+        if (btnPass) btnPass.hidden = true;
+        if (btnDoneWithItems) btnDoneWithItems.textContent = state.itemTargeting ? 'Cancel' : 'Done with items';
+        if (btnDoneWithItems) btnDoneWithItems.hidden = false;
       }
-      turnActions.hidden = false;
-      btnMoveLeft.hidden = true;
-      btnMoveRight.hidden = true;
-      btnSkipMove.hidden = true;
-      if (btnPass) btnPass.hidden = true;
-      if (btnDoneWithItems) btnDoneWithItems.textContent = state.itemTargeting ? 'Cancel' : 'Done with items';
-      if (btnDoneWithItems) btnDoneWithItems.hidden = false;
     } else if (step === 'select_unit') {
       turnStep.textContent = 'Select a unit to act.';
     } else if (step === 'move') {
@@ -888,7 +969,7 @@
     }
 
     state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
     state.selectedUnit.column = next;
     state.moveDone = true;
     state.actionStep = 'attack';
@@ -934,13 +1015,13 @@
     }
 
     if (targetCell == null) {
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
       state.board[p][fromCol] = null;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
       log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
     } else {
       state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null };
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, gear: myCell.gear || null };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
       state.selectedUnit.column = toCol;
       if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
@@ -967,6 +1048,10 @@
 
   function doDoneWithItems() {
     if (state.actionStep !== 'use_items') return;
+    if (state.obscuringReorder) {
+      doDoneObscuringReorder();
+      return;
+    }
     if (state.itemTargeting) {
       state.itemTargeting = null;
       renderTurnUI();
@@ -1066,6 +1151,104 @@
     state.itemTargeting = null;
 
     log("Player " + state.currentPlayer + " uses Tangle-Vine Bola on " + cell.unit.name + ". " + cell.unit.name + " cannot attack on their next turn.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function applyCorrosivePhial(targetPlayer, targetCol) {
+    const cell = state.board[targetPlayer][targetCol];
+    if (!cell || !cell.faceUp || !cell.gear) return;
+    const t = state.itemTargeting;
+    if (!t || t.itemName !== 'Corrosive Phial') return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[t.handIndex];
+    if (!item || item.name !== 'Corrosive Phial') return;
+
+    const gearRemoved = cell.gear;
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(gearRemoved);
+    cell.gear = null;
+    hand.splice(t.handIndex, 1);
+    state.itemDiscard.push(item);
+    state.itemTargeting = null;
+
+    log("Player " + state.currentPlayer + " uses Corrosive Phial on " + cell.unit.name + " — " + gearRemoved.name + " destroyed.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function applyObscuringBomb(handIndex) {
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[handIndex];
+    if (!item || item.name !== 'Obscuring bomb') return;
+
+    const p = state.currentPlayer;
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[p][c];
+      if (cell) cell.faceUp = false;
+    }
+
+    hand.splice(handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(item);
+
+    state.obscuringReorder = { player: p, selectedCol: null };
+    log("Player " + p + " uses Obscuring bomb — all units flipped face-down. Reorder by swapping slots, then click Done reordering.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function doObscuringSwap(colA, colB) {
+    if (!state.obscuringReorder || colA === colB) return;
+    const p = state.obscuringReorder.player;
+    const a = state.board[p][colA];
+    const b = state.board[p][colB];
+    state.board[p][colA] = b;
+    state.board[p][colB] = a;
+    state.obscuringReorder.selectedCol = null;
+    log("Swap: units at columns " + colA + " and " + colB + " exchanged.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function doDoneObscuringReorder() {
+    if (!state.obscuringReorder) return;
+    state.obscuringReorder = null;
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function applyMagicGrenade(targetPlayer, targetCol) {
+    const cell = state.board[targetPlayer][targetCol];
+    if (!cell || targetPlayer !== state.currentPlayer) return;
+    const t = state.itemTargeting;
+    if (!t || t.itemName !== 'Magic Grenade') return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[t.handIndex];
+    if (!item || item.name !== 'Magic Grenade') return;
+
+    cell.nextAttackAsCaster = true;
+    hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(item);
+    state.itemTargeting = null;
+
+    log("Player " + state.currentPlayer + " uses Magic Grenade on " + cell.unit.name + " — next attack will be as Caster (1 damage, paralyze).");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function applyVorpalHoningAmulet(handIndex) {
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const item = hand[handIndex];
+    if (!item || item.name !== 'Vorpal Honing Amulet') return;
+
+    hand.splice(handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(item);
+    state.vorpalNextAttack = state.currentPlayer;
+
+    log("Player " + state.currentPlayer + " uses Vorpal Honing Amulet — their next attack ignores terrain and Lancer counters.");
     renderTurnUI();
     renderBoard();
   }
@@ -1176,9 +1359,16 @@
     const defCell = state.board[defenderPlayer][defenderCol];
     if (!attCell || !defCell) return;
 
-    log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
+    const effectiveClass = getEffectiveAttackerClass(attCell);
+    const trueStrike = (state.vorpalNextAttack === attackerPlayer) ||
+      (attCell.gear && attCell.gear.name === 'True-Strike Lens' && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster'));
 
-    if (getTerrain(attackerPlayer, attackerCol) === 'Unstable Ground') {
+    log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
+    if (trueStrike) {
+      log("True strike — attack ignores terrain and Lancer counters.");
+    }
+
+    if (!trueStrike && getTerrain(attackerPlayer, attackerCol) === 'Unstable Ground') {
       const heads = Math.random() < 0.5;
       if (!heads) {
         log("Unstable Ground (attacker's tile): tails — attack canceled.");
@@ -1194,29 +1384,40 @@
 
     let attackBlocked = false;
 
-    const colsToCheck = [];
-    if (attackerCol - 1 >= 0) colsToCheck.push(attackerCol - 1);
-    if (attackerCol + 1 <= 4) colsToCheck.push(attackerCol + 1);
+    if (!trueStrike) {
+      const colsToCheck = [];
+      if (attackerCol - 1 >= 0) colsToCheck.push(attackerCol - 1);
+      if (attackerCol + 1 <= 4) colsToCheck.push(attackerCol + 1);
 
-    let lancerCol = null;
-    for (let i = 0; i < colsToCheck.length; i++) {
-      const c = colsToCheck[i];
-      const cell = state.board[defenderPlayer][c];
-      if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
-      lancerCol = c;
-      break;
-    }
+      let lancerCol = null;
+      for (let i = 0; i < colsToCheck.length; i++) {
+        const c = colsToCheck[i];
+        const cell = state.board[defenderPlayer][c];
+        if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
+        lancerCol = c;
+        break;
+      }
 
-    if (lancerCol !== null) {
-      const lancerCell = state.board[defenderPlayer][lancerCol];
-      lancerCell.faceUp = true;
-      log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
-      if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
-        const unstableHeads = Math.random() < 0.5;
-        if (!unstableHeads) {
-          log("Unstable Ground (Lancer's tile): tails — counter canceled.");
+      if (lancerCol !== null) {
+        const lancerCell = state.board[defenderPlayer][lancerCol];
+        lancerCell.faceUp = true;
+        log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
+        if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
+          const unstableHeads = Math.random() < 0.5;
+          if (!unstableHeads) {
+            log("Unstable Ground (Lancer's tile): tails — counter canceled.");
+          } else {
+            log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
+            const heads = Math.random() < 0.5;
+            if (heads) {
+              log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
+              attackBlocked = true;
+              applyDamage(attackerPlayer, attackerCol, 1, "");
+            } else {
+              log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+            }
+          }
         } else {
-          log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
           const heads = Math.random() < 0.5;
           if (heads) {
             log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
@@ -1225,15 +1426,6 @@
           } else {
             log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
           }
-        }
-      } else {
-        const heads = Math.random() < 0.5;
-        if (heads) {
-          log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
-          attackBlocked = true;
-          applyDamage(attackerPlayer, attackerCol, 1, "");
-        } else {
-          log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
         }
       }
     }
@@ -1248,40 +1440,51 @@
       attClassForBarbed = attCell.unit.class;
 
       let defenderTerrainBlocked = false;
-      const defTerrain = getTerrain(defenderPlayer, defenderCol);
-      if (defTerrain === 'Elevated Ground' && (attCell.unit.class === 'Brawler' || attCell.unit.class === 'Lancer')) {
-        const heads = Math.random() < 0.5;
-        if (heads) {
-          log("Elevated Ground: heads — attack fails.");
-          defenderTerrainBlocked = true;
-        } else {
-          log("Elevated Ground: tails — attack proceeds.");
-        }
-      } else if (defTerrain === 'Reinforced Barricade' && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) {
-        const heads = Math.random() < 0.5;
-        if (heads) {
-          log("Reinforced Barricade: heads — attack fails.");
-          defenderTerrainBlocked = true;
-        } else {
-          log("Reinforced Barricade: tails — attack proceeds.");
+      if (!trueStrike) {
+        const defTerrain = getTerrain(defenderPlayer, defenderCol);
+        if (defTerrain === 'Elevated Ground' && (effectiveClass === 'Brawler' || effectiveClass === 'Lancer')) {
+          const heads = Math.random() < 0.5;
+          if (heads) {
+            log("Elevated Ground: heads — attack fails.");
+            defenderTerrainBlocked = true;
+          } else {
+            log("Elevated Ground: tails — attack proceeds.");
+          }
+        } else if (defTerrain === 'Reinforced Barricade' && (effectiveClass === 'Shooter' || effectiveClass === 'Caster')) {
+          const heads = Math.random() < 0.5;
+          if (heads) {
+            log("Reinforced Barricade: heads — attack fails.");
+            defenderTerrainBlocked = true;
+          } else {
+            log("Reinforced Barricade: tails — attack proceeds.");
+          }
         }
       }
 
       if (!defenderTerrainBlocked) {
         defenderHadBarbedGauntlets = defHasBarbed;
         attackHitDefender = true;
-        const damage = (attCell.unit.class === 'Shooter' && isLongshot(attackerCol, defenderCol))
+        const vorpalLethal = (state.vorpalNextAttack === attackerPlayer);
+        let damage = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol))
           ? 2
           : 1;
-        if (attCell.unit.class === 'Shooter' && damage === 2) {
+        if (vorpalLethal) {
+          damage = Math.max(1, getMaxHP(defCell) - (defCell.damage || 0));
+          log("Vorpal Honing Amulet — lethal strike (" + damage + " damage).");
+        } else if (effectiveClass === 'Shooter' && damage === 2) {
           log("Longshot (edge to edge): 2 damage.");
         }
         const captured = applyDamage(defenderPlayer, defenderCol, damage, "");
-        if (!captured && state.board[defenderPlayer][defenderCol] && attCell.unit.class === 'Caster') {
+        if (!captured && state.board[defenderPlayer][defenderCol] && effectiveClass === 'Caster') {
           state.board[defenderPlayer][defenderCol].paralyzed = true;
           log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
         }
       }
+    }
+
+    const attCellAfter = state.board[attackerPlayer][attackerCol];
+    if (attCellAfter && attCellAfter.nextAttackAsCaster) {
+      attCellAfter.nextAttackAsCaster = false;
     }
 
     if (attackHitDefender && defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
@@ -1302,6 +1505,10 @@
       } else {
         log("Barbed Gauntlets: tails — no reflected damage.");
       }
+    }
+
+    if (state.vorpalNextAttack === attackerPlayer) {
+      state.vorpalNextAttack = null;
     }
 
     replaceCapturedUnitsBeforePass();
@@ -1370,6 +1577,19 @@
     const p = state.currentPlayer;
     const step = state.actionStep;
 
+    if (step === 'use_items' && state.obscuringReorder) {
+      const reord = state.obscuringReorder;
+      if (player !== reord.player || state.board[player][column] == null) return;
+      if (reord.selectedCol === null) {
+        state.obscuringReorder.selectedCol = column;
+        renderTurnUI();
+        renderBoard();
+      } else {
+        doObscuringSwap(reord.selectedCol, column);
+      }
+      return;
+    }
+
     if (step === 'use_items' && state.itemTargeting) {
       const itemName = state.itemTargeting.itemName;
       if (itemName === 'Healing Potion') {
@@ -1389,6 +1609,11 @@
         if (state.terrain[player][column] == null) applyPlaceTerrain(player, column);
       } else if (itemName === 'Tectonic Spike') {
         if (state.terrain[player][column] != null) applyTectonicSpike(player, column);
+      } else if (itemName === 'Corrosive Phial') {
+        const cell = state.board[player][column];
+        if (cell && cell.faceUp && cell.gear) applyCorrosivePhial(player, column);
+      } else if (itemName === 'Magic Grenade') {
+        if (player === p && state.board[player][column]) applyMagicGrenade(player, column);
       }
       return;
     }
@@ -1414,7 +1639,7 @@
       const attCell = state.board[p][state.selectedUnit.column];
       if (attCell && attCell.cannotAttackNextTurn) return;
       if (player === opp && state.board[opp][column]) {
-        if (attCell && isInRange(state.selectedUnit.column, column, attCell.unit.class)) {
+        if (attCell && isInRange(state.selectedUnit.column, column, getEffectiveAttackerClass(attCell))) {
           const defCell = state.board[opp][column];
           if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') {
             state.pendingWardstone = { attPlayer: p, attCol: state.selectedUnit.column, defPlayer: opp, defCol: column };
@@ -1430,7 +1655,7 @@
   }
 
   function handleItemHandClick(e) {
-    if (state.phase !== 'playing' || state.actionStep !== 'use_items' || state.itemTargeting) return;
+    if (state.phase !== 'playing' || state.actionStep !== 'use_items' || state.itemTargeting || state.obscuringReorder) return;
     const useBtn = e.target.closest('.item-card__use');
     const card = e.target.closest('.item-card');
     if (useBtn && card) {
@@ -1439,11 +1664,19 @@
       const itemName = card.dataset.itemName;
       const player = parseInt(card.dataset.player, 10);
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
-      const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'All revealing lantern-jar' || itemName === 'Tangle-Vine Bola';
+      const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'All revealing lantern-jar' || itemName === 'Tangle-Vine Bola' || itemName === 'Vorpal Honing Amulet' || (itemName === 'Corrosive Phial' && countUnitsWithGear() > 0) || (itemName === 'Obscuring bomb' && countUnits(state.currentPlayer) > 0) || (itemName === 'Magic Grenade' && countUnits(state.currentPlayer) > 0);
       const gearPlayable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory') && countValidGearTargets(itemName) > 0;
       const terrainPlayable = typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1 && countEmptyTerrainSlots() > 0;
       const tectonicSpikePlayable = itemName === 'Tectonic Spike' && countTilesWithTerrain() > 0;
       if (player !== state.currentPlayer || (!singleUsePlayable && !gearPlayable && !terrainPlayable && !tectonicSpikePlayable)) return;
+      if (itemName === 'Vorpal Honing Amulet') {
+        applyVorpalHoningAmulet(handIndex);
+        return;
+      }
+      if (itemName === 'Obscuring bomb') {
+        applyObscuringBomb(handIndex);
+        return;
+      }
       state.itemTargeting = { handIndex: handIndex, itemName: itemName };
       renderTurnUI();
       renderBoard();
@@ -1454,18 +1687,21 @@
     }
   }
 
-  function openReplaceDrawPickList() {
-    if (!itemPickListWrapEl || !itemPickListEl || state.actionStep !== 'use_items' || state.itemTargeting) return;
-    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
-    if (hand.length === 0) return;
+  function renderItemPickList(filter) {
+    if (!itemPickListEl) return;
     itemPickListEl.innerHTML = '';
     const deck = state.itemDeck || [];
+    const q = (filter || '').trim().toLowerCase();
+    const names = q ? deck.filter(function (name) { return name.toLowerCase().indexOf(q) !== -1; }) : deck.slice();
     if (deck.length === 0) {
       itemPickListEl.textContent = 'No cards left in deck.';
-      itemPickListWrapEl.removeAttribute('hidden');
       return;
     }
-    deck.forEach(function (name) {
+    if (names.length === 0) {
+      itemPickListEl.textContent = 'No items match "' + (filter || '').trim() + '".';
+      return;
+    }
+    names.forEach(function (name) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn--small item-pick-list__btn';
@@ -1473,6 +1709,17 @@
       btn.dataset.itemName = name;
       itemPickListEl.appendChild(btn);
     });
+  }
+
+  function openReplaceDrawPickList() {
+    if (!itemPickListWrapEl || !itemPickListEl || state.actionStep !== 'use_items' || state.itemTargeting) return;
+    const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    if (hand.length === 0) return;
+    if (itemPickListSearchEl) {
+      itemPickListSearchEl.value = '';
+      itemPickListSearchEl.focus();
+    }
+    renderItemPickList('');
     itemPickListWrapEl.removeAttribute('hidden');
   }
 
@@ -1535,6 +1782,11 @@
       btnPickListClose.addEventListener('click', function (e) {
         e.stopPropagation();
         closePickList();
+      });
+    }
+    if (itemPickListSearchEl) {
+      itemPickListSearchEl.addEventListener('input', function () {
+        renderItemPickList(itemPickListSearchEl.value);
       });
     }
     if (btnDiscardToggle && discardPileListEl) {
