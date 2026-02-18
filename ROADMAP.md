@@ -40,7 +40,7 @@ Light Armor, Premium Light Armor, Heavy Armor. One gear per unit; equip in "use 
 | **10** | Gear (accessories)              | Barbed Gauntlets, Wardstone Bracelet, Teleport Boots. True-Strike Lens and Magic Grenade deferred to a later phase (after terrain / true strike). |
 | **11** | Terrain                         | Terrain per slot; place in "use items"; resolve in movement and combat. |
 | **12** | Remaining single-use + True-Strike Lens + true strike | Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade; True-Strike Lens (gear). True-strike/bypass flag in combat (skip terrain + Lancer for Vorpal and True-Strike Lens). Tectonic Spike already in Phase 11. |
-| **13** | Promotions                      | Class-specific upgrades; +1 HP and modified range/effects. |
+| **13** | Promotions                      | Champion's Crest (Brawler: +1 HP, attack adjacent); Vanguard Lance (Lancer: +1 HP, range 1–2 only, no tile in front); Sharpshooter's Scope (Shooter: +1 HP, true strike); Archmage's Tome (Caster: +1 HP, multi-target with per-target Wardstone/terrain, must rest next turn). Equip like other gear; one per unit. |
 | **14** | Veteran buffs                   | Per-character buff definitions; hooks in combat. After items/terrain stable. |
 | **15** | Board-game UI (foundation)       | Decks visible, hands laid out, room for terrain + gear; inspect card. |
 | **16** | Debug tooling (unit deck)       | Controlled unit-card draw; log extended for all events. |

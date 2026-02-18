@@ -4,6 +4,28 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 13 — Promotions
+
+**Scope:** Four promotion items (Champion's Crest, Vanguard Lance, Sharpshooter's Scope, Archmage's Tome). Equipped like other gear (one gear per unit; equipping replaces current gear). Each is class-specific, grants +1 HP, and modifies range or combat behavior.
+
+**Implementations:**
+- **Data:** In `ITEM_SPECS`, each promotion has `type: 'promotion'`, `allowedClasses: [class]`, and `hpBonus: 1`. `getArmorHPBonus` and `getGearAllowedClasses` extended to support `type === 'promotion'`. Promotions added to `GEAR_EQUIP_ITEM_NAMES` (via `PROMOTION_ITEM_NAMES`). **Use button:** `buildItemCard` and `handleItemHandClick` include `spec.type === 'promotion'` so promotion cards show "Use" and enter targeting when `canPlayGear` is true.
+- **Champion's Crest (Brawler):** +1 HP. Attack range: same column and both adjacent (distance ≤ 1). Implemented via `isInRangeWithCell`: when Brawler has Crest, `d <= 1`.
+- **Vanguard Lance (Lancer):** +1 HP. Attack range: diagonal/sideways only — distance **1 or 2** (not 0). "Applies to counters, too": defender Lancer with Vanguard Lance can counter when attacker is at distance 1 or 2; normal Lancer counter range remains distance === 1. Lancer counter block loops all defender columns and uses `inCounterRange`: Vanguard ⇒ `dist >= 1 && dist <= 2`, else `dist === 1`.
+- **Sharpshooter's Scope (Shooter):** +1 HP. All attacks become true strikes: skip attacker Unstable Ground, Lancer counter block, defender Elevated/Reinforced terrain. Added to `trueStrike` in `resolveCombat`. Wardstone not bypassed. Barbed Gauntlets only on Brawler/Lancer hits.
+- **Archmage's Tome (Caster):** +1 HP. Attacks affect primary target and both adjacent enemy units (1 damage + paralyze each). **Per-target defenses:** Each of the three columns is resolved in sequence via `state.archmageMultiResolving` and `continueArchmageMulti()`. For each target: Reinforced Barricade (Caster) is checked per tile (coin flip; heads = that unit not hit). If the unit has Wardstone Bracelet, defender gets Use/No; Use negates that unit's hit only. `doWardstoneUse` / `doWardstoneNo` detect archmage multi and advance to the next target or call `finishArchmageMulti()`. **Rest:** Attacker gets `mustRestNextTurn = true` (separate from `cannotAttackNextTurn` so Tangle-Vine Bola is unchanged). `mustRestNextTurn` is cleared at **start** of that player's next turn (`startOfTurn`); unit is non-selectable and shows "Can't attack" until then. Magic Grenade (nextAttackAsCaster) stays single-target Caster; no Tome multi-target or rest.
+- **Range:** `isInRangeWithCell(attackerCol, defenderCol, attCell)` used in `canAttack`, attack-step highlighting, and attack target click; respects promotions and Magic Grenade.
+
+**Bug fixes (same phase):**
+- Promotion cards did not show "Use" button; added `spec.type === 'promotion'` to gear Use-button condition in `buildItemCard` and to `gearPlayable` in `handleItemHandClick`.
+- Vanguard Lance allowed attack/counter on the tile directly in front (distance 0); range restricted to `d >= 1 && d <= 2` for attack and counter.
+- Archmage's Tome rest was cleared at end of turn so the Caster could attack again next turn; introduced `mustRestNextTurn` (cleared at start of turn) and use it for Archmage rest; "Can't attack" badge and selectability check both flags.
+- Archmage's Tome multi-target did not trigger Wardstone or Reinforced Barricade for adjacent targets; implemented per-target resolution with Wardstone prompt and per-tile Reinforced Barricade check.
+
+**Files touched:** `data.js` (promotion `allowedClasses`, `hpBonus`), `game.js` (gear helpers, `PROMOTION_ITEM_NAMES`, `isInRangeWithCell`, Vanguard range, Lancer counter range, trueStrike Scope, Archmage multi-target, `continueArchmageMulti` / `finishArchmageMulti`, `mustRestNextTurn`, Wardstone handlers, Use button for promotion), `ROADMAP.md`, `DEV_LOG.md`.
+
+---
+
 ## Phase 12 — Remaining single-use + True-Strike Lens + true strike
 
 **Scope:** Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade (single-use); True-Strike Lens (gear). True-strike/bypass in combat (skip attacker Unstable Ground, Lancer counter, defender Elevated/Reinforced terrain when true strike applies).

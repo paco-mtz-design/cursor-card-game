@@ -117,13 +117,15 @@
   function getArmorHPBonus(armorName) {
     if (!armorName || typeof ITEM_SPECS === 'undefined') return 0;
     const spec = ITEM_SPECS[armorName];
-    return spec && spec.type === 'gear_armor' && spec.hpBonus != null ? spec.hpBonus : 0;
+    if (!spec || spec.hpBonus == null) return 0;
+    if (spec.type === 'gear_armor' || spec.type === 'promotion') return spec.hpBonus;
+    return 0;
   }
 
   function getGearAllowedClasses(gearName) {
     if (!gearName || typeof ITEM_SPECS === 'undefined') return [];
     const spec = ITEM_SPECS[gearName];
-    var isEquippable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory') && Array.isArray(spec.allowedClasses);
+    var isEquippable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && Array.isArray(spec.allowedClasses);
     return isEquippable ? spec.allowedClasses : [];
   }
 
@@ -158,7 +160,8 @@
   }
 
   var ACCESSORY_ITEM_NAMES = ['Barbed Gauntlets', 'Wardstone Bracelet', 'Teleport Boots', 'True-Strike Lens'];
-  var GEAR_EQUIP_ITEM_NAMES = ['Light Armor', 'Premium Light Armor', 'Heavy Armor'].concat(ACCESSORY_ITEM_NAMES);
+  var PROMOTION_ITEM_NAMES = ["Champion's Crest", 'Vanguard Lance', "Sharpshooter's Scope", "Archmage's Tome"];
+  var GEAR_EQUIP_ITEM_NAMES = ['Light Armor', 'Premium Light Armor', 'Heavy Armor'].concat(ACCESSORY_ITEM_NAMES).concat(PROMOTION_ITEM_NAMES);
 
   function getTerrain(player, col) {
     if (!state.terrain || !state.terrain[player]) return null;
@@ -196,6 +199,17 @@
     return false;
   }
 
+  /** Range check using attCell so promotions (Champion's Crest, Vanguard Lance) and Magic Grenade apply. */
+  function isInRangeWithCell(attackerCol, defenderCol, attCell) {
+    if (!attCell) return false;
+    if (attCell.nextAttackAsCaster) return true;
+    const d = Math.abs(defenderCol - attackerCol);
+    const gearName = attCell.gear && attCell.gear.name;
+    if (attCell.unit.class === 'Brawler' && gearName === "Champion's Crest") return d <= 1;
+    if (attCell.unit.class === 'Lancer' && gearName === 'Vanguard Lance') return d >= 1 && d <= 2;
+    return isInRange(attackerCol, defenderCol, attCell.unit.class);
+  }
+
   /** For Magic Grenade: effective class is Caster when nextAttackAsCaster is set. */
   function getEffectiveAttackerClass(attCell) {
     if (!attCell) return null;
@@ -215,12 +229,11 @@
   function canAttack(attackerPlayer, attackerCol) {
     const cell = state.board[attackerPlayer][attackerCol];
     if (!cell) return false;
-    if (cell.cannotAttackNextTurn) return false;
+    if (cell.cannotAttackNextTurn || cell.mustRestNextTurn) return false;
     const opp = attackerPlayer === 1 ? 2 : 1;
-    const attClass = getEffectiveAttackerClass(cell);
     for (let c = 0; c < 5; c++) {
       if (state.board[opp][c] == null) continue;
-      if (isInRange(attackerCol, c, attClass)) return true;
+      if (isInRangeWithCell(attackerCol, c, cell)) return true;
     }
     return false;
   }
@@ -245,6 +258,8 @@
     const damage = cardState.damage || 0;
     const paralyzed = cardState.paralyzed || false;
     const cannotAttackNextTurn = cardState.cannotAttackNextTurn || false;
+    const mustRestNextTurn = cardState.mustRestNextTurn || false;
+    const showCannotAttack = cannotAttackNextTurn || mustRestNextTurn;
     const maxHP = cardState.maxHP != null ? cardState.maxHP : getBaseHP(unit.class);
     const gear = cardState.gear || null;
     const icon = CLASS_ICONS[unit.class] || '';
@@ -254,7 +269,7 @@
 
     if (!faceUp) {
       const damageMarker = damage > 0 ? '<span class="marker marker--damage">' + damage + '/' + maxHP + ' dmg</span>' : '';
-      const netMarker = cannotAttackNextTurn ? '<span class="marker marker--cannot-attack">Can\'t attack</span>' : '';
+      const netMarker = showCannotAttack ? '<span class="marker marker--cannot-attack">Can\'t attack</span>' : '';
       const gearBadge = gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '';
       return '<div class="unit-card unit-card--face-down-soft" data-face-up="false" data-name="' +
         escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '">' +
@@ -276,7 +291,7 @@
     if (paralyzed) {
       markersHTML += '<span class="marker marker--paralyzed">Paralyzed</span>';
     }
-    if (cannotAttackNextTurn) {
+    if (showCannotAttack) {
       markersHTML += '<span class="marker marker--cannot-attack">Can\'t attack</span>';
     }
     const gearBadge = gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '';
@@ -312,7 +327,7 @@
       const terrainRow = state.terrain && state.terrain[player] ? state.terrain[player] : [];
       cells.forEach(function (cell, i) {
         const terrainPart = terrainRow[i] ? '<div class="terrain-badge">' + terrainRow[i].name + '</div>' : '';
-        const unitPart = cell ? createUnitCardHTML(cell.unit, { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false, cannotAttackNextTurn: cell.cannotAttackNextTurn || false, maxHP: getMaxHP(cell), gear: cell.gear || null }) : '';
+        const unitPart = cell ? createUnitCardHTML(cell.unit, { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false, cannotAttackNextTurn: cell.cannotAttackNextTurn || false, mustRestNextTurn: cell.mustRestNextTurn || false, maxHP: getMaxHP(cell), gear: cell.gear || null }) : '';
         slots[i].innerHTML = terrainPart + unitPart;
         if (cell) slots[i].classList.add('slot--occupied');
       });
@@ -369,7 +384,7 @@
       for (let c = 0; c < 5; c++) {
         const cell = state.board[p][c];
         if (!cell) continue;
-        if (cell.paralyzed) continue;
+        if (cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) continue;
         const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
         if (slot) slot.classList.add('slot--selectable');
       }
@@ -393,10 +408,9 @@
       const attCell = state.board[p][sel.column];
       if (!attCell) return;
       if (attCell.cannotAttackNextTurn) return;
-      const attClass = getEffectiveAttackerClass(attCell);
       for (let c = 0; c < 5; c++) {
         if (state.board[opp][c] == null) continue;
-        if (!isInRange(sel.column, c, attClass)) continue;
+        if (!isInRangeWithCell(sel.column, c, attCell)) continue;
         const slot = document.querySelector('.row--player' + opp + ' .slot[data-column="' + c + '"]');
         if (slot) slot.classList.add('slot--selectable');
       }
@@ -620,6 +634,11 @@
     state.moveDone = false;
     state.itemTargeting = null;
 
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[p][c];
+      if (cell) cell.mustRestNextTurn = false;
+    }
+
     const reinforcedCount = state.capturedLastTurn[p] || 0;
     const deckEmptyBefore = state.unitDeck.length === 0;
     runReinforcement(p);
@@ -810,7 +829,7 @@
         useBtn.dataset.itemName = item.name;
         el.appendChild(useBtn);
       }
-      if (isCurrentPlayer && isUseItems && spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory') && canPlayGear(item.name)) {
+      if (isCurrentPlayer && isUseItems && spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && canPlayGear(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -936,7 +955,7 @@
 
   function onSelectUnit(player, column) {
     const cell = state.board[player][column];
-    if (!cell || cell.paralyzed) return;
+    if (!cell || cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) return;
     state.selectedUnit = { player: player, column: column };
     cell.faceUp = true;
     state.actionStep = 'move';
@@ -969,7 +988,7 @@
     }
 
     state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
     state.selectedUnit.column = next;
     state.moveDone = true;
     state.actionStep = 'attack';
@@ -1015,13 +1034,13 @@
     }
 
     if (targetCell == null) {
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
       state.board[p][fromCol] = null;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
       log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
     } else {
       state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null };
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
       state.selectedUnit.column = toCol;
       if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
@@ -1075,20 +1094,35 @@
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(defCell.gear);
     defCell.gear = null;
-    log("Player " + state.pendingWardstone.defPlayer + " uses Wardstone Bracelet — attack negated.");
+    log("Player " + state.pendingWardstone.defPlayer + " uses Wardstone Bracelet — attack negated for this unit.");
     state.pendingWardstone = null;
-    state.selectedUnit = null;
-    state.actionStep = 'select_unit';
-    renderTurnUI();
-    renderBoard();
-    endTurn();
+    if (state.archmageMultiResolving) {
+      state.archmageMultiResolving.index++;
+      continueArchmageMulti();
+    } else {
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      renderTurnUI();
+      renderBoard();
+      endTurn();
+    }
   }
 
   function doWardstoneNo() {
     if (!state.pendingWardstone) return;
     const pw = state.pendingWardstone;
     state.pendingWardstone = null;
-    resolveCombat(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol);
+    if (state.archmageMultiResolving) {
+      applyDamage(pw.defPlayer, pw.defCol, 1, "");
+      if (state.board[pw.defPlayer][pw.defCol]) {
+        state.board[pw.defPlayer][pw.defCol].paralyzed = true;
+        log(state.board[pw.defPlayer][pw.defCol].unit.name + " is paralyzed (Magic Paralysis).");
+      }
+      state.archmageMultiResolving.index++;
+      continueArchmageMulti();
+    } else {
+      resolveCombat(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol);
+    }
   }
 
   function applyHealingPotion(targetPlayer, targetCol) {
@@ -1361,7 +1395,8 @@
 
     const effectiveClass = getEffectiveAttackerClass(attCell);
     const trueStrike = (state.vorpalNextAttack === attackerPlayer) ||
-      (attCell.gear && attCell.gear.name === 'True-Strike Lens' && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster'));
+      (attCell.gear && attCell.gear.name === 'True-Strike Lens' && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) ||
+      (attCell.gear && attCell.gear.name === "Sharpshooter's Scope" && attCell.unit.class === 'Shooter');
 
     log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
     if (trueStrike) {
@@ -1385,17 +1420,16 @@
     let attackBlocked = false;
 
     if (!trueStrike) {
-      const colsToCheck = [];
-      if (attackerCol - 1 >= 0) colsToCheck.push(attackerCol - 1);
-      if (attackerCol + 1 <= 4) colsToCheck.push(attackerCol + 1);
-
       let lancerCol = null;
-      for (let i = 0; i < colsToCheck.length; i++) {
-        const c = colsToCheck[i];
+      for (let c = 0; c < 5; c++) {
         const cell = state.board[defenderPlayer][c];
         if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
-        lancerCol = c;
-        break;
+        const dist = Math.abs(attackerCol - c);
+        const inCounterRange = (cell.gear && cell.gear.name === 'Vanguard Lance') ? (dist >= 1 && dist <= 2) : (dist === 1);
+        if (inCounterRange) {
+          lancerCol = c;
+          break;
+        }
       }
 
       if (lancerCol !== null) {
@@ -1465,6 +1499,7 @@
         defenderHadBarbedGauntlets = defHasBarbed;
         attackHitDefender = true;
         const vorpalLethal = (state.vorpalNextAttack === attackerPlayer);
+        const archmageMulti = effectiveClass === 'Caster' && attCell.unit.class === 'Caster' && attCell.gear && attCell.gear.name === "Archmage's Tome" && !attCell.nextAttackAsCaster;
         let damage = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol))
           ? 2
           : 1;
@@ -1474,10 +1509,18 @@
         } else if (effectiveClass === 'Shooter' && damage === 2) {
           log("Longshot (edge to edge): 2 damage.");
         }
-        const captured = applyDamage(defenderPlayer, defenderCol, damage, "");
-        if (!captured && state.board[defenderPlayer][defenderCol] && effectiveClass === 'Caster') {
-          state.board[defenderPlayer][defenderCol].paralyzed = true;
-          log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
+        if (archmageMulti) {
+          log("Archmage's Tome — attack affects target and adjacent enemies.");
+          const cols = [defenderCol, defenderCol - 1, defenderCol + 1].filter(function (c) { return c >= 0 && c <= 4; });
+          state.archmageMultiResolving = { attPlayer: attackerPlayer, attCol: attackerCol, defPlayer: defenderPlayer, cols: cols, index: 0, trueStrike: trueStrike };
+          continueArchmageMulti();
+          return;
+        } else {
+          const captured = applyDamage(defenderPlayer, defenderCol, damage, "");
+          if (!captured && state.board[defenderPlayer][defenderCol] && effectiveClass === 'Caster') {
+            state.board[defenderPlayer][defenderCol].paralyzed = true;
+            log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
+          }
         }
       }
     }
@@ -1511,6 +1554,68 @@
       state.vorpalNextAttack = null;
     }
 
+    replaceCapturedUnitsBeforePass();
+    var winner = checkGameOver();
+    if (winner !== null) {
+      showGameOver(winner);
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      updateCaptureDisplay();
+      renderBoard();
+      return;
+    }
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    updateCaptureDisplay();
+    renderBoard();
+    endTurn();
+  }
+
+  function continueArchmageMulti() {
+    const ar = state.archmageMultiResolving;
+    if (!ar) return;
+    while (ar.index < ar.cols.length) {
+      const c = ar.cols[ar.index];
+      const targetCell = state.board[ar.defPlayer][c];
+      if (!targetCell) {
+        ar.index++;
+        continue;
+      }
+      targetCell.faceUp = true;
+      if (!ar.trueStrike) {
+        const ter = getTerrain(ar.defPlayer, c);
+        if (ter === 'Reinforced Barricade') {
+          const heads = Math.random() < 0.5;
+          if (heads) {
+            log("Reinforced Barricade (column " + c + "): heads — Archmage's Tome hit fails for this unit.");
+            ar.index++;
+            continue;
+          }
+          log("Reinforced Barricade (column " + c + "): tails — hit proceeds.");
+        }
+      }
+      if (targetCell.gear && targetCell.gear.name === 'Wardstone Bracelet') {
+        state.pendingWardstone = { attPlayer: ar.attPlayer, attCol: ar.attCol, defPlayer: ar.defPlayer, defCol: c };
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      applyDamage(ar.defPlayer, c, 1, "");
+      if (state.board[ar.defPlayer][c]) {
+        state.board[ar.defPlayer][c].paralyzed = true;
+        log(state.board[ar.defPlayer][c].unit.name + " is paralyzed (Magic Paralysis).");
+      }
+      ar.index++;
+    }
+    finishArchmageMulti();
+  }
+
+  function finishArchmageMulti() {
+    const ar = state.archmageMultiResolving;
+    if (!ar) return;
+    state.archmageMultiResolving = null;
+    const attCellAfter = state.board[ar.attPlayer][ar.attCol];
+    if (attCellAfter) attCellAfter.mustRestNextTurn = true;
     replaceCapturedUnitsBeforePass();
     var winner = checkGameOver();
     if (winner !== null) {
@@ -1639,7 +1744,7 @@
       const attCell = state.board[p][state.selectedUnit.column];
       if (attCell && attCell.cannotAttackNextTurn) return;
       if (player === opp && state.board[opp][column]) {
-        if (attCell && isInRange(state.selectedUnit.column, column, getEffectiveAttackerClass(attCell))) {
+        if (attCell && isInRangeWithCell(state.selectedUnit.column, column, attCell)) {
           const defCell = state.board[opp][column];
           if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') {
             state.pendingWardstone = { attPlayer: p, attCol: state.selectedUnit.column, defPlayer: opp, defCol: column };
@@ -1665,7 +1770,7 @@
       const player = parseInt(card.dataset.player, 10);
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
       const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'All revealing lantern-jar' || itemName === 'Tangle-Vine Bola' || itemName === 'Vorpal Honing Amulet' || (itemName === 'Corrosive Phial' && countUnitsWithGear() > 0) || (itemName === 'Obscuring bomb' && countUnits(state.currentPlayer) > 0) || (itemName === 'Magic Grenade' && countUnits(state.currentPlayer) > 0);
-      const gearPlayable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory') && countValidGearTargets(itemName) > 0;
+      const gearPlayable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && countValidGearTargets(itemName) > 0;
       const terrainPlayable = typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1 && countEmptyTerrainSlots() > 0;
       const tectonicSpikePlayable = itemName === 'Tectonic Spike' && countTilesWithTerrain() > 0;
       if (player !== state.currentPlayer || (!singleUsePlayable && !gearPlayable && !terrainPlayable && !tectonicSpikePlayable)) return;

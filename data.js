@@ -109,10 +109,10 @@ const ITEM_SPECS = {
   'Paralyzing Vines': { type: 'terrain', effect: 'Flip a coin whenever a unit on this tile attempts to move or switch. On tails, the move fails.' },
   'Divine Light': { type: 'terrain', effect: 'Any unit placed on, moved to, or swapped to this tile is immediately flipped face-up.' },
   'Unstable Ground': { type: 'terrain', effect: 'Flip a coin every time a unit on this tile begins an attack (or attempts a Lancer counter). On tails, the attack is canceled.' },
-  "Champion's Crest": { type: 'promotion', effect: 'Promote a Brawler. The equipped unit gains +1 HP and can now attack forward and to both adjacent tiles.' },
-  'Vanguard Lance': { type: 'promotion', effect: 'Promote a Lancer. The equipped unit gains +1 HP and can now target diagonally and sideways (2 left, 2 right). Applies to counters, too.' },
-  "Sharpshooter's Scope": { type: 'promotion', effect: 'Promote a Shooter. The equipped unit gains +1 HP and all its attacks become true strikes, ignoring terrain-, item-, or unit-specific effects.' },
-  "Archmage's Tome": { type: 'promotion', effect: 'Promote a Caster. The equipped unit gains +1 HP and its attacks now affect the target and both adjacent enemy units (must rest 1 turn after attacking).' },
+  "Champion's Crest": { type: 'promotion', effect: 'Promote a Brawler. The equipped unit gains +1 HP and can now attack forward and to both adjacent tiles.', allowedClasses: ['Brawler'], hpBonus: 1 },
+  'Vanguard Lance': { type: 'promotion', effect: 'Promote a Lancer. The equipped unit gains +1 HP and can now target diagonally and sideways (2 left, 2 right). Applies to counters, too.', allowedClasses: ['Lancer'], hpBonus: 1 },
+  "Sharpshooter's Scope": { type: 'promotion', effect: 'Promote a Shooter. The equipped unit gains +1 HP and all its attacks become true strikes, ignoring terrain-, item-, or unit-specific effects.', allowedClasses: ['Shooter'], hpBonus: 1 },
+  "Archmage's Tome": { type: 'promotion', effect: 'Promote a Caster. The equipped unit gains +1 HP and its attacks now affect the target and both adjacent enemy units (must rest 1 turn after attacking).', allowedClasses: ['Caster'], hpBonus: 1 },
 };
 
 /** Terrain cards that can be placed on empty tiles during use-items. */
