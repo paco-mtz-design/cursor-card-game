@@ -25,15 +25,22 @@ Development plan for item effects, veteran buffs, UI evolution, and debug toolin
 
 ---
 
-## Phases 9–16 and later
+## Phase 9 — Gear (armor)
+
+Light Armor, Premium Light Armor, Heavy Armor. One gear per unit; equip in "use items"; armor adds HP.
+
+**Armor equip rule:** A player cannot equip (or swap) gear onto a unit if that would cause the unit to be captured—e.g. a Lancer with 1 damage wearing Light Armor (+1 HP) has effective 2 max HP; removing or swapping that armor would leave them at 1/1 and captured. Such a unit is not a valid target for equipping any new gear. An opponent may still destroy a unit's gear (e.g. Rust Spell, or veteran buffs later); if that removal reduces max HP so that current damage ≥ new max HP, the unit is captured as a result. Summary: you cannot cause your own unit to be captured by removing gear; an opponent can.
+
+---
+
+## Phases 10–17 and later
 
 | Phase  | Focus                           | Notes |
 |--------|----------------------------------|-------|
-| **9**  | More single-use + “true strike” | Critical Hit Spell, Rust, Earthquake, Smoke Bomb; true-strike flag in combat. |
-| **10** | Gear (armor)                    | One gear per unit, armor adds HP; equip in “use items”. |
-| **11** | Gear (weapons & accessories)     | Sniper Scope, Magic Grenade, Barbed Gauntlets, Wardstone, Teleport Boots. |
-| **12** | Terrain                         | Terrain per slot; place in “use items”; resolve in movement and combat. |
-| **13** | Promotions                      | Class-specific upgrades; +1 HP and modified range/effects. |
+| **10** | Gear (accessories)              | Barbed Gauntlets, Wardstone Bracelet, Teleport Boots. True-Strike Lens and Magic Grenade deferred to a later phase (after terrain / true strike). |
+| **11** | Terrain                         | Terrain per slot; place in "use items"; resolve in movement and combat. |
+| **12** | Remaining single-use + True-Strike Lens + true strike | Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade; True-Strike Lens (gear). True-strike/bypass flag in combat (skip terrain + Lancer for Vorpal and True-Strike Lens). Tectonic Spike already in Phase 11. |
+| **13** | Promotions                      | Champion's Crest (Brawler: +1 HP, attack adjacent); Vanguard Lance (Lancer: +1 HP, range 1–2 only, no tile in front); Sharpshooter's Scope (Shooter: +1 HP, true strike); Archmage's Tome (Caster: +1 HP, multi-target with per-target Wardstone/terrain, must rest next turn). Equip like other gear; one per unit. |
 | **14** | Veteran buffs                   | Per-character buff definitions; hooks in combat. After items/terrain stable. |
 | **15** | Board-game UI (foundation)       | Decks visible, hands laid out, room for terrain + gear; inspect card. |
 | **16** | Debug tooling (unit deck)       | Controlled unit-card draw; log extended for all events. |
@@ -44,4 +51,4 @@ Development plan for item effects, veteran buffs, UI evolution, and debug toolin
 
 ## Implementation order (items)
 
-Single-use first (one card at a time), then gear (armor → accessories/weapons), then terrain, then promotions, then veteran buffs.
+Gear (armor → accessories/weapons), then terrain, then remaining single-use (Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade) and True-Strike Lens + true strike, then promotions, then veteran buffs.
