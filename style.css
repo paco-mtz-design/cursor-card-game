@@ -170,18 +170,37 @@ body {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 0.35rem 0.6rem;
+  padding: 0.25rem;
   font-size: 0.8rem;
   background: #333;
   border: 1px solid #555;
   border-radius: 6px;
   color: #e8e8e8;
   cursor: pointer;
-  max-width: 180px;
+  width: 107px;
+  flex-shrink: 0;
+}
+
+.item-card-img {
+  width: 100%;
+  aspect-ratio: 107 / 150;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+  margin-bottom: 0.25rem;
 }
 
 .item-card:hover {
   border-color: #666;
+}
+
+.item-card--playable {
+  border-color: #7a9;
+  box-shadow: 0 0 0 1px rgba(122, 170, 153, 0.5);
+}
+
+.item-card--playable:hover {
+  border-color: #9bc;
 }
 
 .item-card__name {
@@ -352,13 +371,348 @@ body {
   min-width: 200px;
 }
 
-/* Setup overlay (Phase 3) */
+/* --- New board layout (Board Schematic) --- */
+.board-container {
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+  width: 100%;
+  max-width: 1200px;
+  align-items: stretch;
+  min-height: 400px;
+}
+
+.board__left {
+  flex: 0 0 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem;
+}
+
+.tarot-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tarot-placeholder {
+  width: 60px;
+  height: 100px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+}
+
+.board__center {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.action-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 0.5rem;
+  min-height: 2.5rem;
+}
+
+.item-hand {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  min-height: 100px;
+}
+
+.item-hand--opponent .item-hand__list {
+  transform: rotate(180deg);
+}
+
+.item-hand--opponent .item-card-img {
+  transform: rotate(180deg);
+}
+
+.item-hand__list {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.board__right {
+  flex: 0 0 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.score-markers {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  min-height: 24px;
+}
+
+.score-markers__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid #5a7a5a;
+  background: transparent;
+}
+
+.score-markers__dot--filled {
+  background: #5a9a5a;
+  border-color: #5a9a5a;
+}
+
+.deck-piles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.deck-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.deck-pile__title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #aaa;
+}
+
+.deck-pile__stack {
+  width: 72px;
+  height: 100px;
+  border-radius: 6px;
+  background: #333;
+  border: 1px solid #555;
+  background-size: cover;
+  background-position: center;
+}
+
+.deck-pile__stack--back {
+  /* Card back image set in CSS or JS */
+}
+
+#items-deck-stack {
+  background-image: url('assets/items/item-card-back.png');
+  background-size: cover;
+}
+
+#units-deck-stack {
+  background-image: url('assets/units/unit-card-back.png');
+  background-size: cover;
+}
+
+#units-discard-stack {
+  background-image: url('assets/units/unit-card-back.png');
+  background-size: cover;
+}
+
+.deck-pile__stack--discard-list {
+  min-height: 60px;
+  max-height: 120px;
+  overflow-y: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.btn--debug {
+  margin-top: auto;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.6rem;
+}
+
+/* Debug drawer */
+.debug-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  max-width: 90vw;
+  height: 100vh;
+  background: #252525;
+  border-left: 2px solid #444;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.25s ease-out;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.debug-drawer.is-open {
+  transform: translateX(0);
+}
+
+.debug-drawer[aria-hidden="false"] {
+  transform: translateX(0);
+}
+
+.debug-drawer[aria-hidden="true"] {
+  transform: translateX(100%);
+}
+
+.debug-drawer__inner {
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.debug-drawer__close {
+  align-self: flex-end;
+}
+
+/* Modals */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal[hidden] {
+  display: none !important;
+}
+
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.modal__content {
+  position: relative;
+  background: #2a2a2a;
+  border-radius: 12px;
+  border: 1px solid #555;
+  padding: 1.25rem;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal__close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: #444;
+  color: #e8e8e8;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal__close:hover {
+  background: #555;
+}
+
+.modal__title {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  padding-right: 2rem;
+}
+
+.unit-zoom__cards {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.unit-zoom__card-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.unit-zoom__img-wrap {
+  width: 143px;
+  min-height: 200px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #333;
+  border: 1px solid #555;
+}
+
+.unit-zoom__img-wrap img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.unit-zoom__markers {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.unit-zoom__label {
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+.discard-zoom__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.5rem;
+}
+
+.discard-zoom__grid .card-thumb {
+  width: 100%;
+  aspect-ratio: 107/150;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #333;
+  border: 1px solid #555;
+}
+
+.discard-zoom__grid .card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Setup overlay (Phase 3) — matches board UI */
 .setup {
   background: #252525;
-  border: 2px solid #555;
+  border: 1px solid #EDEDED;
   border-radius: 12px;
-  padding: 1.25rem 1.5rem;
-  min-width: 280px;
+  padding: 1.5rem 2rem;
+  min-width: 300px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
 .setup__step {
@@ -433,16 +787,21 @@ body {
 
 .hand-card .unit-card {
   min-height: 0;
-  font-size: 0.65rem;
 }
 
-.hand-card .unit-card__sprite {
-  height: 64px;
-  max-height: 64px;
+.hand-card .unit-card__markers {
+  display: none;
 }
 
-.hand-card .unit-card__name {
-  font-size: 0.6rem;
+.hand-card .unit-card__img-wrap {
+  flex: 1;
+  min-height: 100px;
+}
+
+.hand-card .unit-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* Board: 2 rows × 5 columns */
@@ -470,13 +829,13 @@ body {
   /* Bottom row: “you” in typical view */
 }
 
-/* Slots: sized to fit sprite + 2-line name + class + markers within bounds */
+/* Slots: unit tile size per schematic (179×250), 5px radius, 1px border */
 .slot {
-  width: 112px;
-  height: 212px;
+  width: 179px;
+  height: 250px;
   background: #333;
-  border: 2px solid #555;
-  border-radius: 8px;
+  border: 1px solid #EDEDED;
+  border-radius: 5px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
   display: flex;
@@ -524,6 +883,40 @@ body {
   min-height: 0;
   border-radius: 6px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.unit-card__img-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.unit-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+
+.unit-card__face-down-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.unit-card__markers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  padding: 0.2rem;
 }
 
 .terrain-badge {

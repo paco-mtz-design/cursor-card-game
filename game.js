@@ -31,7 +31,8 @@
   const gameOverEl = document.getElementById('game-over');
   const gameOverMessage = document.getElementById('game-over-message');
   const btnPass = document.getElementById('btn-pass');
-  const itemHandsEl = document.getElementById('item-hands');
+  const itemHandsP1El = document.getElementById('item-hands-p1');
+  const itemHandsP2El = document.getElementById('item-hands-p2');
   const itemHandP1El = document.getElementById('item-hand-p1');
   const itemHandP2El = document.getElementById('item-hand-p2');
   const btnDoneWithItems = document.getElementById('btn-done-with-items');
@@ -47,6 +48,17 @@
   const discardPileListEl = document.getElementById('discard-pile-list');
   const btnWardstoneUse = document.getElementById('btn-wardstone-use');
   const btnWardstoneNo = document.getElementById('btn-wardstone-no');
+  const debugDrawerEl = document.getElementById('debug-drawer');
+  const btnDebugOpen = document.getElementById('btn-debug-open');
+  const btnDebugClose = document.getElementById('btn-debug-close');
+  const unitZoomModal = document.getElementById('unit-zoom-modal');
+  const unitZoomCloseBtn = document.getElementById('unit-zoom-close');
+  const unitZoomBackdrop = document.getElementById('unit-zoom-backdrop');
+  const discardZoomModal = document.getElementById('discard-zoom-modal');
+  const discardZoomCloseBtn = document.getElementById('discard-zoom-close');
+  const discardZoomBackdrop = document.getElementById('discard-zoom-backdrop');
+  const scoreMarkersP1El = document.getElementById('score-markers-p1');
+  const scoreMarkersP2El = document.getElementById('score-markers-p2');
 
   let state = getInitialState();
 
@@ -249,8 +261,26 @@
     return String(name).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   }
 
+  /** First name for full-card filenames in assets/units/full-cards/ (e.g. "Harlund Ironhowl" -> "Harlund") */
+  function getUnitFullCardFilename(unit) {
+    const first = String(unit.name || '').trim().split(/\s+/)[0];
+    return first || '';
+  }
+
   function getUnitSpritePath(unit) {
     return 'assets/units/' + nameToSlug(unit.name) + '.png';
+  }
+
+  /** Unit full-card image path (assets/units/full-cards/Firstname.png); falls back to placeholder if missing. */
+  function getUnitCardImagePath(unit) {
+    const first = getUnitFullCardFilename(unit);
+    return first ? 'assets/units/full-cards/' + first + '.png' : 'assets/units/unit-placeholder-for-dev.png';
+  }
+
+  /** Item card image path; falls back to placeholder. */
+  function getItemCardImagePath(itemName) {
+    const slug = nameToSlug(itemName);
+    return slug ? 'assets/items/' + slug + '.png' : 'assets/items/item-placeholder-for-dev.png';
   }
 
   function createUnitCardHTML(unit, cardState) {
@@ -262,28 +292,9 @@
     const showCannotAttack = cannotAttackNextTurn || mustRestNextTurn;
     const maxHP = cardState.maxHP != null ? cardState.maxHP : getBaseHP(unit.class);
     const gear = cardState.gear || null;
-    const icon = CLASS_ICONS[unit.class] || '';
 
-    const spritePath = getUnitSpritePath(unit);
-    const spriteImg = '<img class="unit-card__sprite" src="' + escapeHtml(spritePath) + '" alt="" role="presentation" onerror="this.classList.add(\'unit-card__sprite--missing\')">';
-
-    if (!faceUp) {
-      const damageMarker = damage > 0 ? '<span class="marker marker--damage">' + damage + '/' + maxHP + ' dmg</span>' : '';
-      const netMarker = showCannotAttack ? '<span class="marker marker--cannot-attack">Can\'t attack</span>' : '';
-      const gearBadge = gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '';
-      return '<div class="unit-card unit-card--face-down-soft" data-face-up="false" data-name="' +
-        escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '">' +
-        '<div class="unit-card__content">' +
-        spriteImg +
-        '<span class="unit-card__badge unit-card__badge--face-down">Face-down</span>' +
-        damageMarker +
-        netMarker +
-        gearBadge +
-        '<span class="unit-card__class">' + icon + ' ' + unit.class + '</span>' +
-        '<span class="unit-card__name">' + escapeHtml(unit.name) + '</span>' +
-        '</div></div>';
-    }
-
+    const cardPath = getUnitCardImagePath(unit);
+    const fallbackPath = 'assets/units/unit-placeholder-for-dev.png';
     let markersHTML = '';
     if (damage > 0) {
       markersHTML += '<span class="marker marker--damage">' + damage + '/' + maxHP + ' dmg</span>';
@@ -294,17 +305,17 @@
     if (showCannotAttack) {
       markersHTML += '<span class="marker marker--cannot-attack">Can\'t attack</span>';
     }
-    const gearBadge = gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '';
 
-    return '<div class="unit-card unit-card--face-up" data-face-up="true" data-name="' +
-      escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '">' +
-      '<div class="unit-card__content">' +
-      spriteImg +
-      (gearBadge ? gearBadge : '') +
-      '<span class="unit-card__class">' + icon + ' ' + unit.class + '</span>' +
-      '<span class="unit-card__name">' + escapeHtml(unit.name) + '</span>' +
+    const cardClass = faceUp ? 'unit-card unit-card--face-up' : 'unit-card unit-card--face-down-soft';
+    const dataAttrs = ' data-face-up="' + (faceUp ? 'true' : 'false') + '" data-name="' + escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '"';
+    return '<div class="' + cardClass + '"' + dataAttrs + '>' +
       (markersHTML ? '<div class="unit-card__markers">' + markersHTML + '</div>' : '') +
-      '</div></div>';
+      '<div class="unit-card__img-wrap">' +
+      '<img class="unit-card__img" src="' + escapeHtml(cardPath) + '" alt="" role="presentation" onerror="this.src=\'' + fallbackPath + '\'">' +
+      (!faceUp ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '') +
+      '</div>' +
+      (gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '') +
+      '</div>';
   }
 
   function clearBoard() {
@@ -500,7 +511,8 @@
     setupEl.hidden = false;
     turnBanner.hidden = true;
     capturesEl.hidden = true;
-    if (itemHandsEl) itemHandsEl.hidden = true;
+    if (itemHandsP1El) itemHandsP1El.hidden = true;
+    if (itemHandsP2El) itemHandsP2El.hidden = true;
     if (discardPileEl) discardPileEl.hidden = true;
     if (gameLogEl) gameLogEl.hidden = true;
     if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
@@ -617,12 +629,14 @@
       state.vorpalNextAttack = null;
       turnBanner.hidden = false;
       capturesEl.hidden = false;
-      if (itemHandsEl) itemHandsEl.hidden = false;
+      if (itemHandsP1El) itemHandsP1El.hidden = false;
+      if (itemHandsP2El) itemHandsP2El.hidden = false;
       if (discardPileEl) discardPileEl.hidden = false;
       if (gameLogEl) gameLogEl.hidden = false;
       gameLogEntries.innerHTML = '';
       captureGoalEl.textContent = state.captureGoal;
       captureGoalEl2.textContent = state.captureGoal;
+      renderScoreMarkers();
       startOfTurn();
     }
   }
@@ -665,6 +679,7 @@
     updateCaptureDisplay();
     renderTurnUI();
     renderBoard();
+    animateCardIntoHand(p);
   }
 
   function runReinforcement(player) {
@@ -711,6 +726,41 @@
   function updateCaptureDisplay() {
     capturesP1.textContent = state.p1Captures || 0;
     capturesP2.textContent = state.p2Captures || 0;
+    renderScoreMarkers();
+  }
+
+  /** Animate the last card in the given player's item hand (e.g. after draw). Uses GSAP if available. */
+  function animateCardIntoHand(player) {
+    const listEl = player === 1 ? itemHandP1El : itemHandP2El;
+    if (!listEl || typeof window.gsap !== 'function') return;
+    const cards = listEl.querySelectorAll('.item-card');
+    const last = cards[cards.length - 1];
+    if (!last) return;
+    window.gsap.fromTo(last, { scale: 0.5, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: 'back.out(1.2)' });
+  }
+
+  function renderScoreMarkers() {
+    const goal = state.captureGoal || 15;
+    const p1 = state.p1Captures || 0;
+    const p2 = state.p2Captures || 0;
+    if (scoreMarkersP1El) {
+      scoreMarkersP1El.innerHTML = '';
+      for (let i = 0; i < goal; i++) {
+        const dot = document.createElement('span');
+        dot.className = 'score-markers__dot' + (i < p1 ? ' score-markers__dot--filled' : '');
+        dot.setAttribute('aria-hidden', 'true');
+        scoreMarkersP1El.appendChild(dot);
+      }
+    }
+    if (scoreMarkersP2El) {
+      scoreMarkersP2El.innerHTML = '';
+      for (let i = 0; i < goal; i++) {
+        const dot = document.createElement('span');
+        dot.className = 'score-markers__dot' + (i < p2 ? ' score-markers__dot--filled' : '');
+        dot.setAttribute('aria-hidden', 'true');
+        scoreMarkersP2El.appendChild(dot);
+      }
+    }
   }
 
   function countUnitsWithDamageAtLeast(minDamage) {
@@ -806,6 +856,14 @@
       el.dataset.itemName = item.name;
       el.dataset.player = '1';
 
+      const img = document.createElement('img');
+      img.className = 'item-card-img';
+      img.src = getItemCardImagePath(item.name);
+      img.alt = '';
+      img.setAttribute('role', 'presentation');
+      img.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
+      el.appendChild(img);
+
       const nameSpan = document.createElement('span');
       nameSpan.className = 'item-card__name';
       nameSpan.textContent = item.name;
@@ -857,6 +915,9 @@
         el.appendChild(useBtn);
       }
 
+      if (el.querySelector('.item-card__use')) {
+        el.classList.add('item-card--playable');
+      }
       return el;
     }
 
@@ -1871,7 +1932,8 @@
 
     placementHand.addEventListener('click', handlePlacementHandClick);
     document.querySelector('.board').addEventListener('click', handleSlotClick);
-    if (itemHandsEl) itemHandsEl.addEventListener('click', handleItemHandClick);
+    const boardContainer = document.getElementById('board-container');
+    if (boardContainer) boardContainer.addEventListener('click', handleItemHandClick);
     if (btnReplaceDrawWithPick) {
       btnReplaceDrawWithPick.addEventListener('click', openReplaceDrawPickList);
     }
@@ -1909,5 +1971,110 @@
       });
     }
     if (btnDoneWithItems) btnDoneWithItems.addEventListener('click', function () { if (!state.gameOver) doDoneWithItems(); });
+
+    if (btnDebugOpen && debugDrawerEl) {
+      btnDebugOpen.addEventListener('click', function () {
+        debugDrawerEl.setAttribute('aria-hidden', 'false');
+        debugDrawerEl.classList.add('is-open');
+      });
+    }
+    if (btnDebugClose && debugDrawerEl) {
+      btnDebugClose.addEventListener('click', function () {
+        debugDrawerEl.setAttribute('aria-hidden', 'true');
+        debugDrawerEl.classList.remove('is-open');
+      });
+    }
+
+    document.querySelector('.board').addEventListener('dblclick', function (e) {
+      const slot = e.target.closest('.slot');
+      if (!slot || state.phase !== 'playing') return;
+      const player = parseInt(slot.getAttribute('data-player'), 10);
+      const col = parseInt(slot.getAttribute('data-column'), 10);
+      const cell = state.board[player][col];
+      if (!cell) return;
+      openUnitZoom(player, col);
+    });
+
+    if (discardPileEl) {
+      discardPileEl.addEventListener('click', function (e) {
+        if (e.target.id === 'btn-discard-toggle') return;
+        openDiscardZoom();
+      });
+    }
+    if (unitZoomCloseBtn && unitZoomModal) {
+      unitZoomCloseBtn.addEventListener('click', closeUnitZoom);
+    }
+    if (unitZoomBackdrop && unitZoomModal) {
+      unitZoomBackdrop.addEventListener('click', closeUnitZoom);
+    }
+    if (discardZoomCloseBtn && discardZoomModal) {
+      discardZoomCloseBtn.addEventListener('click', closeDiscardZoom);
+    }
+    if (discardZoomBackdrop && discardZoomModal) {
+      discardZoomBackdrop.addEventListener('click', closeDiscardZoom);
+    }
   });
+
+  function openUnitZoom(player, col) {
+    const cell = state.board[player][col];
+    if (!cell || !unitZoomModal) return;
+    const unit = cell.unit;
+    const unitImgWrap = document.getElementById('unit-zoom-unit');
+    const gearImgWrap = document.getElementById('unit-zoom-gear');
+    const terrainImgWrap = document.getElementById('unit-zoom-terrain');
+    const markersEl = document.getElementById('unit-zoom-markers');
+    if (!unitImgWrap || !markersEl) return;
+    const unitSrc = getUnitCardImagePath(unit);
+    unitImgWrap.innerHTML = '<img src="' + unitSrc + '" alt="' + (unit.name || 'Unit') + '" onerror="this.src=\'assets/units/unit-placeholder-for-dev.png\'">';
+    markersEl.innerHTML = '';
+    const maxHP = getMaxHP(cell);
+    const dmg = cell.damage || 0;
+    if (dmg > 0) {
+      const m = document.createElement('span');
+      m.className = 'marker marker--damage';
+      m.textContent = dmg + '/' + maxHP + ' dmg';
+      markersEl.appendChild(m);
+    }
+    if (cell.paralyzed) {
+      const m = document.createElement('span');
+      m.className = 'marker marker--paralyzed';
+      m.textContent = 'Paralyzed';
+      markersEl.appendChild(m);
+    }
+    if (cell.gear && gearImgWrap) {
+      const gslug = (cell.gear.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      gearImgWrap.innerHTML = '<img src="assets/items/' + gslug + '.png" alt="' + (cell.gear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+    } else if (gearImgWrap) gearImgWrap.innerHTML = '';
+    const terr = state.terrain && state.terrain[player] && state.terrain[player][col];
+    if (terr && terrainImgWrap) {
+      const tslug = (terr.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      terrainImgWrap.innerHTML = '<img src="assets/items/' + tslug + '.png" alt="' + (terr.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+    } else if (terrainImgWrap) terrainImgWrap.innerHTML = '';
+    unitZoomModal.hidden = false;
+  }
+
+  function closeUnitZoom() {
+    if (unitZoomModal) unitZoomModal.hidden = true;
+  }
+
+  function openDiscardZoom() {
+    const grid = document.getElementById('discard-zoom-grid');
+    if (!grid || !discardZoomModal) return;
+    const list = state.itemDiscard || [];
+    grid.innerHTML = '';
+    list.forEach(function (item) {
+      const slug = (item.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const src = slug ? 'assets/items/' + slug + '.png' : 'assets/items/item-placeholder-for-dev.png';
+      const div = document.createElement('div');
+      div.className = 'card-thumb';
+      div.innerHTML = '<img src="' + src + '" alt="' + (item.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      grid.appendChild(div);
+    });
+    document.getElementById('discard-zoom-title').textContent = 'Item discard pile (' + list.length + ')';
+    discardZoomModal.hidden = false;
+  }
+
+  function closeDiscardZoom() {
+    if (discardZoomModal) discardZoomModal.hidden = true;
+  }
 })();
