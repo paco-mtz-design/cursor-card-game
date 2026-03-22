@@ -1,17 +1,17 @@
 # Tacticlash — Roadmap (Phases 8+)
 
-Development plan for item effects, veteran buffs, UI evolution, and debug tooling after the core MVP (Phases 1–7). Adjust as we learn from Phase 8.
+Development plan for item effects, board/UI, veteran buffs, tarot, further UI, and CPU opponent after the core MVP (Phases 1–7). Adjust as we learn.
 
 ---
 
-## Confirmed gaps (to address in rollout)
+## Confirmed gaps (still open or deferred)
 
-- **Turn structure vs manual:** Action Phase must start with a “use items” step (equip gear, place terrain, use single-use), then Combat (select unit → move → attack). We currently go straight to `select_unit` after reinforcement.
-- **Item discard:** Single-use and swapped gear go to a discard pile. We need `state.itemDiscard` and to remove played items from hand.
-- **State model for items:** Items in hand are `{ name, id }`. We’ll need: item type, gear per unit, terrain per slot, and targeting for single-use.
-- **“True strike” / bypass effects:** Some items make attacks ignore terrain/item/unit effects. We need a flag in combat resolution and to skip terrain/defender effects when set.
-- **Veteran data:** Characters have `level: 'Rookie' | 'Veteran'`; we still need per-unit veteran buff definitions and combat hooks.
-- **Fog of war:** Defer until all logic is in place and we add an autonomous CPU opponent. No need to hide opponent’s face-down during development.
+- **Veteran data:** Characters have `level: 'Rookie' | 'Veteran'`; per-unit veteran buff definitions and combat hooks — planned for **Phase 15**.
+- **Fog of war:** Defer until **Phase 18** (CPU opponent). No need to hide opponent’s face-down during development.
+
+### Resolved (historical — was in earlier gap lists)
+
+The following were addressed across Phases 8–13: use-items step at start of Action Phase; item discard pile; item/gear/terrain state and targeting; true strike / bypass in combat. Details in [DEV_LOG.md](DEV_LOG.md).
 
 ---
 
@@ -33,22 +33,31 @@ Light Armor, Premium Light Armor, Heavy Armor. One gear per unit; equip in "use 
 
 ---
 
-## Phases 10–17 and later
+## Phases 10–13 (shipped)
 
 | Phase  | Focus                           | Notes |
-|--------|----------------------------------|-------|
-| **10** | Gear (accessories)              | Barbed Gauntlets, Wardstone Bracelet, Teleport Boots. True-Strike Lens and Magic Grenade deferred to a later phase (after terrain / true strike). |
+|--------|---------------------------------|-------|
+| **10** | Gear (accessories)              | Barbed Gauntlets, Wardstone Bracelet, Teleport Boots. True-Strike Lens and Magic Grenade deferred to Phase 12. |
 | **11** | Terrain                         | Terrain per slot; place in "use items"; resolve in movement and combat. |
-| **12** | Remaining single-use + True-Strike Lens + true strike | Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade; True-Strike Lens (gear). True-strike/bypass flag in combat (skip terrain + Lancer for Vorpal and True-Strike Lens). Tectonic Spike already in Phase 11. |
-| **13** | Promotions                      | Champion's Crest (Brawler: +1 HP, attack adjacent); Vanguard Lance (Lancer: +1 HP, range 1–2 only, no tile in front); Sharpshooter's Scope (Shooter: +1 HP, true strike); Archmage's Tome (Caster: +1 HP, multi-target with per-target Wardstone/terrain, must rest next turn). Equip like other gear; one per unit. |
-| **14** | Veteran buffs                   | Per-character buff definitions; hooks in combat. After items/terrain stable. |
-| **15** | Board-game UI (foundation)       | Decks visible, hands laid out, room for terrain + gear; inspect card. |
-| **16** | Debug tooling (unit deck)       | Controlled unit-card draw; log extended for all events. |
-| **Later** | Fog of war                    | When adding CPU opponent: opponent’s face-down = card back or “?”. |
-| **Later** | Visuals + AI                  | Visual flair; then CPU opponent with difficulty levels. |
+| **12** | Remaining single-use + True-Strike Lens + true strike | Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade; True-Strike Lens (gear). Tectonic Spike in Phase 11. |
+| **13** | Promotions                      | Champion's Crest, Vanguard Lance, Sharpshooter's Scope, Archmage's Tome. |
 
 ---
 
-## Implementation order (items)
+## Phases 14–18 (current and upcoming)
 
-Gear (armor → accessories/weapons), then terrain, then remaining single-use (Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade) and True-Strike Lens + true strike, then promotions, then veteran buffs.
+| Phase  | Focus                           | Notes |
+|--------|---------------------------------|-------|
+| **14** | **Board UI improvements** (current) | Everything related to board presentation: unit tiles, gear/terrain stack on units, slot layout, spacing, markers, polish. See [DEV_LOG.md](DEV_LOG.md) Phase 14. |
+| **15** | Veteran buffs                   | Per-character buff definitions; hooks in combat. |
+| **16** | Tarot cards                     | Tarot mechanics and UI as designed for the full game. |
+| **17** | Potential UI further improvements | Additional layout, polish, optional debug/inspector tooling, deck visibility—TBD. |
+| **18** | Add CPU opponent                | Autonomous opponent; fog of war for opponent face-down cards can align with this phase. |
+
+---
+
+## Implementation order (high level)
+
+Items (Phases 8–13) are shipped. **Next:** **Phase 14** board/unit UI, then **Phase 15** veteran buffs, **Phase 16** tarot, **Phase 17** further UI, **Phase 18** CPU opponent.
+
+Within items, the historical order was: gear (armor → accessories), terrain, remaining single-use and True-Strike Lens + true strike, then promotions.
