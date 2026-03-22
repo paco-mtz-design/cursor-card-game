@@ -21,11 +21,6 @@
   const btnMoveLeft = document.getElementById('btn-move-left');
   const btnMoveRight = document.getElementById('btn-move-right');
   const btnSkipMove = document.getElementById('btn-skip-move');
-  const capturesEl = document.getElementById('captures');
-  const capturesP1 = document.getElementById('captures-p1');
-  const capturesP2 = document.getElementById('captures-p2');
-  const captureGoalEl = document.getElementById('capture-goal-el');
-  const captureGoalEl2 = document.getElementById('capture-goal-el-2');
   const gameLogEl = document.getElementById('game-log');
   const gameLogEntries = document.getElementById('game-log-entries');
   const gameOverEl = document.getElementById('game-over');
@@ -44,8 +39,12 @@
   const btnPickListClose = document.getElementById('btn-pick-list-close');
   const discardPileEl = document.getElementById('discard-pile');
   const discardPileCountEl = document.getElementById('discard-pile-count');
-  const btnDiscardToggle = document.getElementById('btn-discard-toggle');
-  const discardPileListEl = document.getElementById('discard-pile-list');
+  const itemDiscardStackEl = document.getElementById('item-discard-stack');
+  const btnItemDiscardOpen = document.getElementById('btn-item-discard-open');
+  const unitsDiscardPileEl = document.getElementById('units-discard-pile');
+  const unitDiscardCountEl = document.getElementById('unit-discard-count');
+  const unitsDiscardStackEl = document.getElementById('units-discard-stack');
+  const btnUnitDiscardOpen = document.getElementById('btn-unit-discard-open');
   const btnWardstoneUse = document.getElementById('btn-wardstone-use');
   const btnWardstoneNo = document.getElementById('btn-wardstone-no');
   const debugDrawerEl = document.getElementById('debug-drawer');
@@ -373,21 +372,80 @@
       if (state.actionStep !== 'use_items' || state.itemTargeting) {
         if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
       }
-      renderDiscardPile();
+      renderDiscardPiles();
     }
   }
 
-  function renderDiscardPile() {
-    if (!discardPileCountEl || !discardPileListEl) return;
-    const list = state.itemDiscard || [];
-    discardPileCountEl.textContent = list.length;
-    discardPileListEl.innerHTML = '';
-    list.forEach(function (item) {
-      const el = document.createElement('div');
-      el.className = 'discard-pile__item';
-      el.textContent = item.name;
-      discardPileListEl.appendChild(el);
-    });
+  /**
+   * Mini discard preview: at most `maxLayers` faces from the end of `entries`.
+   * Last array entry = top of stack (highest z-index). Full count stays in the title/label.
+   */
+  function renderMiniDiscardStack(container, entries, imageForEntry, fallbackSrc, maxLayers) {
+    if (!container) return;
+    var cap = maxLayers != null ? maxLayers : 3;
+    container.innerHTML = '';
+    const n = entries.length;
+    if (n === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'deck-pile__stack--empty';
+      empty.setAttribute('aria-hidden', 'true');
+      container.appendChild(empty);
+      return;
+    }
+    var start = Math.max(0, n - cap);
+    for (var i = start; i < n; i++) {
+      var local = i - start;
+      var layer = document.createElement('div');
+      layer.className = 'deck-pile__stack-layer';
+      layer.style.zIndex = String(local);
+      var off = local * 3;
+      layer.style.transform = 'translate(' + off + 'px, ' + -off + 'px)';
+      var img = document.createElement('img');
+      img.src = imageForEntry(entries[i]);
+      img.alt = '';
+      img.setAttribute('role', 'presentation');
+      img.onerror = function () {
+        this.onerror = null;
+        this.src = fallbackSrc;
+      };
+      layer.appendChild(img);
+      container.appendChild(layer);
+    }
+  }
+
+  function renderDiscardPiles() {
+    var maxMiniStackLayers = 3;
+    var itemList = state.itemDiscard || [];
+    if (discardPileCountEl) discardPileCountEl.textContent = itemList.length;
+    renderMiniDiscardStack(
+      itemDiscardStackEl,
+      itemList,
+      function (entry) {
+        return getItemCardImagePath(entry.name);
+      },
+      'assets/items/item-placeholder-for-dev.png',
+      maxMiniStackLayers
+    );
+    if (btnItemDiscardOpen) {
+      var itemLabel = 'View item discard pile (' + itemList.length + ' cards)';
+      btnItemDiscardOpen.setAttribute('aria-label', itemLabel);
+    }
+
+    var unitList = state.unitDiscard || [];
+    if (unitDiscardCountEl) unitDiscardCountEl.textContent = unitList.length;
+    renderMiniDiscardStack(
+      unitsDiscardStackEl,
+      unitList,
+      function (unit) {
+        return getUnitCardImagePath(unit);
+      },
+      'assets/units/unit-placeholder-for-dev.png',
+      maxMiniStackLayers
+    );
+    if (btnUnitDiscardOpen) {
+      var unitLabel = 'View unit discard pile (' + unitList.length + ' units)';
+      btnUnitDiscardOpen.setAttribute('aria-label', unitLabel);
+    }
   }
 
   function highlightSlots() {
@@ -531,10 +589,10 @@
     clearBoard();
     setupEl.hidden = false;
     turnBanner.hidden = true;
-    capturesEl.hidden = true;
     if (itemHandsP1El) itemHandsP1El.hidden = true;
     if (itemHandsP2El) itemHandsP2El.hidden = true;
     if (discardPileEl) discardPileEl.hidden = true;
+    if (unitsDiscardPileEl) unitsDiscardPileEl.hidden = true;
     if (gameLogEl) gameLogEl.hidden = true;
     if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
     if (gameOverEl) gameOverEl.hidden = true;
@@ -640,6 +698,7 @@
       state.p2ItemHand = [];
       state.itemDeck = shuffle(buildItemDeck());
       state.itemDiscard = [];
+      state.unitDiscard = [];
       state.terrain = { 1: [null, null, null, null, null], 2: [null, null, null, null, null] };
       state.p1Captures = 0;
       state.p2Captures = 0;
@@ -649,14 +708,12 @@
       state.itemTargeting = null;
       state.vorpalNextAttack = null;
       turnBanner.hidden = false;
-      capturesEl.hidden = false;
       if (itemHandsP1El) itemHandsP1El.hidden = false;
       if (itemHandsP2El) itemHandsP2El.hidden = false;
       if (discardPileEl) discardPileEl.hidden = false;
+      if (unitsDiscardPileEl) unitsDiscardPileEl.hidden = false;
       if (gameLogEl) gameLogEl.hidden = false;
       gameLogEntries.innerHTML = '';
-      captureGoalEl.textContent = state.captureGoal;
-      captureGoalEl2.textContent = state.captureGoal;
       renderScoreMarkers();
       startOfTurn();
     }
@@ -745,8 +802,6 @@
   }
 
   function updateCaptureDisplay() {
-    capturesP1.textContent = state.p1Captures || 0;
-    capturesP2.textContent = state.p2Captures || 0;
     renderScoreMarkers();
   }
 
@@ -1451,6 +1506,8 @@
     cell.faceUp = true;
     if (newTotal >= maxHP) {
       if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " is captured (0/" + maxHP + " HP).");
+      if (!state.unitDiscard) state.unitDiscard = [];
+      state.unitDiscard.push(cell.unit);
       if (cell.gear) {
         if (!state.itemDiscard) state.itemDiscard = [];
         state.itemDiscard.push(cell.gear);
@@ -1977,18 +2034,14 @@
         renderItemPickList(itemPickListSearchEl.value);
       });
     }
-    if (btnDiscardToggle && discardPileListEl) {
-      btnDiscardToggle.addEventListener('click', function () {
-        const isHidden = discardPileListEl.getAttribute('hidden') !== null;
-        if (isHidden) {
-          discardPileListEl.removeAttribute('hidden');
-          btnDiscardToggle.textContent = 'Hide';
-          btnDiscardToggle.setAttribute('aria-expanded', 'true');
-        } else {
-          discardPileListEl.setAttribute('hidden', '');
-          btnDiscardToggle.textContent = 'Show';
-          btnDiscardToggle.setAttribute('aria-expanded', 'false');
-        }
+    if (btnItemDiscardOpen) {
+      btnItemDiscardOpen.addEventListener('click', function () {
+        openDiscardZoom('items');
+      });
+    }
+    if (btnUnitDiscardOpen) {
+      btnUnitDiscardOpen.addEventListener('click', function () {
+        openDiscardZoom('units');
       });
     }
     if (btnDoneWithItems) btnDoneWithItems.addEventListener('click', function () { if (!state.gameOver) doDoneWithItems(); });
@@ -2016,12 +2069,6 @@
       openUnitZoom(player, col);
     });
 
-    if (discardPileEl) {
-      discardPileEl.addEventListener('click', function (e) {
-        if (e.target.id === 'btn-discard-toggle') return;
-        openDiscardZoom();
-      });
-    }
     if (unitZoomCloseBtn && unitZoomModal) {
       unitZoomCloseBtn.addEventListener('click', closeUnitZoom);
     }
@@ -2078,20 +2125,30 @@
     if (unitZoomModal) unitZoomModal.hidden = true;
   }
 
-  function openDiscardZoom() {
+  function openDiscardZoom(mode) {
+    mode = mode || 'items';
     const grid = document.getElementById('discard-zoom-grid');
-    if (!grid || !discardZoomModal) return;
-    const list = state.itemDiscard || [];
+    const titleEl = document.getElementById('discard-zoom-title');
+    if (!grid || !discardZoomModal || !titleEl) return;
+    const list = mode === 'units' ? (state.unitDiscard || []) : (state.itemDiscard || []);
     grid.innerHTML = '';
-    list.forEach(function (item) {
-      const slug = (item.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const src = slug ? 'assets/items/' + slug + '.png' : 'assets/items/item-placeholder-for-dev.png';
+    const ordered = list.slice().reverse();
+    ordered.forEach(function (entry) {
       const div = document.createElement('div');
       div.className = 'card-thumb';
-      div.innerHTML = '<img src="' + src + '" alt="' + (item.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      if (mode === 'units') {
+        const src = getUnitCardImagePath(entry);
+        const name = entry.name || 'Unit';
+        div.innerHTML = '<img src="' + src + '" alt="' + name + '" onerror="this.src=\'assets/units/unit-placeholder-for-dev.png\'">';
+      } else {
+        const src = getItemCardImagePath(entry.name);
+        const name = entry.name || '';
+        div.innerHTML = '<img src="' + src + '" alt="' + name + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      }
       grid.appendChild(div);
     });
-    document.getElementById('discard-zoom-title').textContent = 'Item discard pile (' + list.length + ')';
+    titleEl.textContent =
+      mode === 'units' ? 'Unit discard (' + list.length + ')' : 'Item discard (' + list.length + ')';
     discardZoomModal.hidden = false;
   }
 

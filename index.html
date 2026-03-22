@@ -4,19 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tacticlash</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="header">
-    <h1>Tacticlash</h1>
-    <div class="header__turn" id="turn-banner" hidden>
-      <span class="turn-banner__label" id="turn-label">Player 1's turn</span>
-      <span class="turn-banner__step" id="turn-step"></span>
+  <header class="header" id="app-header">
+    <div class="header__row header__row--brand">
+      <h1 class="header__title">Tacticlash</h1>
+      <div class="header__toolbar">
+        <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
+        <button type="button" class="btn btn--debug-header" id="btn-debug-open" aria-label="Open debug controls">Debug controls</button>
+      </div>
     </div>
     <div class="game-over" id="game-over" hidden aria-live="polite">
       <p class="game-over__message" id="game-over-message"></p>
     </div>
-    <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
+    <div class="header__turn header__action-bar" id="turn-banner" hidden>
+      <div class="header__turn-text" id="turn-summary" aria-live="polite">
+        <span class="turn-banner__label" id="turn-label">Player 1's turn</span><span class="turn-banner__sep" aria-hidden="true">: </span><span class="turn-banner__step" id="turn-step"></span>
+      </div>
+      <div class="action-strip action-strip--header" id="turn-actions" hidden aria-label="Turn actions">
+        <button type="button" class="btn btn--small" id="btn-move-left">Move left</button>
+        <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
+        <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
+        <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
+        <button type="button" class="btn btn--small btn--secondary" id="btn-done-with-items" hidden>Done with items</button>
+        <button type="button" class="btn btn--small" id="btn-wardstone-use" hidden>Use Wardstone</button>
+        <button type="button" class="btn btn--small btn--secondary" id="btn-wardstone-no" hidden>No</button>
+      </div>
+    </div>
   </header>
 
   <main class="game">
@@ -45,10 +63,10 @@
       </div>
     </div>
 
-    <!-- Board container: left (tarot) | center (hands + board) | right (decks, score, debug) -->
+    <!-- Board container: center (hands + board) | right (decks, score) — tarot column hidden until feature ships -->
     <div class="board-container" id="board-container">
-      <aside class="board__left" aria-label="Tarot cards">
-        <div class="tarot-strip" id="tarot-strip" aria-hidden="true">
+      <aside class="board__left" id="board-tarot-slot" hidden aria-hidden="true" aria-label="Tarot cards (coming soon)">
+        <div class="tarot-strip" id="tarot-strip">
           <div class="tarot-placeholder"></div>
           <div class="tarot-placeholder"></div>
           <div class="tarot-placeholder"></div>
@@ -60,12 +78,6 @@
         <section class="item-hand item-hand--opponent" id="item-hands-p2" hidden aria-label="Player 2 item hand">
           <div class="item-hand__list" id="item-hand-p2" role="list"></div>
         </section>
-
-        <!-- Score + battlefield + action strip + player hand -->
-        <div class="captures" id="captures" hidden aria-label="Capture counts">
-          <span>P1: <strong id="captures-p1">0</strong>/<span id="capture-goal-el">15</span></span>
-          <span>P2: <strong id="captures-p2">0</strong>/<span id="capture-goal-el-2">15</span></span>
-        </div>
 
         <div class="board" aria-label="Battlefield">
           <div class="row row--player2" aria-label="Player 2 units">
@@ -84,17 +96,6 @@
           </div>
         </div>
 
-        <!-- Contextual action strip: move/attack/item buttons (shown when a unit is selected or during use items) -->
-        <div class="action-strip" id="turn-actions" hidden aria-label="Turn actions">
-          <button type="button" class="btn btn--small" id="btn-move-left">Move left</button>
-          <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
-          <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
-          <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
-          <button type="button" class="btn btn--small btn--secondary" id="btn-done-with-items" hidden>Done with items</button>
-          <button type="button" class="btn btn--small" id="btn-wardstone-use" hidden>Use Wardstone</button>
-          <button type="button" class="btn btn--small btn--secondary" id="btn-wardstone-no" hidden>No</button>
-        </div>
-
         <!-- Player item hand (bottom); shown when playing -->
         <section class="item-hand item-hand--player" id="item-hands-p1" hidden aria-label="Player 1 item hand">
           <div class="item-hand__list" id="item-hand-p1" role="list"></div>
@@ -108,21 +109,24 @@
         <div class="deck-piles">
           <div class="deck-pile deck-pile--item-discard" id="discard-pile" hidden aria-label="Item discard pile">
             <h3 class="deck-pile__title">Item discard (<span id="discard-pile-count">0</span>)</h3>
-            <button type="button" class="btn btn--small btn--secondary" id="btn-discard-toggle" aria-expanded="false">Show</button>
-            <div class="deck-pile__stack deck-pile__stack--discard-list" id="discard-pile-list" hidden></div>
+            <button type="button" class="deck-pile__stack-btn" id="btn-item-discard-open" aria-label="View item discard pile">
+              <span class="deck-pile__stack deck-pile__stack--discard-mini" id="item-discard-stack" aria-hidden="true"></span>
+            </button>
           </div>
           <div class="deck-pile deck-pile--items" id="items-deck" aria-label="Items deck">
-            <div class="deck-pile__stack deck-pile__stack--back" id="items-deck-stack"></div>
+            <div class="deck-pile__stack deck-pile__stack--back deck-pile__stack--deck" id="items-deck-stack"></div>
           </div>
           <div class="deck-pile deck-pile--units" id="units-deck" aria-label="Units deck">
-            <div class="deck-pile__stack deck-pile__stack--back" id="units-deck-stack"></div>
+            <div class="deck-pile__stack deck-pile__stack--back deck-pile__stack--deck" id="units-deck-stack"></div>
           </div>
-          <div class="deck-pile deck-pile--unit-discard" id="units-discard-pile" aria-label="Units discard">
-            <div class="deck-pile__stack deck-pile__stack--back" id="units-discard-stack"></div>
+          <div class="deck-pile deck-pile--unit-discard" id="units-discard-pile" hidden aria-label="Units discard pile">
+            <h3 class="deck-pile__title">Unit discard (<span id="unit-discard-count">0</span>)</h3>
+            <button type="button" class="deck-pile__stack-btn" id="btn-unit-discard-open" aria-label="View unit discard pile">
+              <span class="deck-pile__stack deck-pile__stack--discard-mini" id="units-discard-stack" aria-hidden="true"></span>
+            </button>
           </div>
         </div>
         <div class="score-markers score-markers--p1" id="score-markers-p1" aria-label="Player 1 captures"></div>
-        <button type="button" class="btn btn--debug" id="btn-debug-open" aria-label="Open debug controls">Debug controls</button>
       </aside>
     </div>
 
@@ -170,7 +174,7 @@
       </div>
     </div>
 
-    <!-- Discard zoom modal: click discard pile -->
+    <!-- Discard modal: item or unit pile (mode set in JS) -->
     <div class="modal" id="discard-zoom-modal" role="dialog" aria-modal="true" aria-labelledby="discard-zoom-title" hidden>
       <div class="modal__backdrop" id="discard-zoom-backdrop"></div>
       <div class="modal__content modal__content--discard-zoom">
