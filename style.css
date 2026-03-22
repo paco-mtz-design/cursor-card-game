@@ -815,7 +815,7 @@ body {
 .board {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0;
   padding: 1rem;
   background: #ffffff;
   border-radius: 12px;
@@ -826,6 +826,9 @@ body {
   display: flex;
   gap: 0.5rem;
   justify-content: center;
+  align-items: flex-start;
+  overflow: visible;
+  margin-top: 80px;
 }
 
 .row--player2 {
@@ -836,8 +839,9 @@ body {
   /* Bottom row: “you” in typical view */
 }
 
-/* Slots: unit tile size per schematic (179×250), 5px radius, 1px border */
+/* Slots: fixed 179×250; children use absolute stack inside .unit-tile */
 .slot {
+  position: relative;
   width: 179px;
   height: 250px;
   background: #f4f5f8;
@@ -845,10 +849,7 @@ body {
   border-radius: 5px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
+  overflow: visible;
 }
 
 .slot:hover {
@@ -885,14 +886,139 @@ body {
   padding: 0;
 }
 
-.slot--occupied .unit-card {
-  flex: 1;
-  min-height: 0;
-  border-radius: 6px;
-  overflow: hidden;
+/* Base: shared by placement hand + board */
+.unit-tile {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Placement hand: compact preview (not fanned) */
+.hand-card .unit-tile {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  justify-content: flex-start;
+  min-height: 140px;
+  gap: 0;
+}
+
+.hand-card .unit-tile > .unit-card {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: auto;
+  z-index: auto;
+}
+
+/* Board slot: absolute stack — terrain (back) / gear / unit (front); negative top pulls fan above slot top */
+.slot--occupied .unit-tile {
+  position: relative;
+  width: 100%;
+  height: 250px;
+  margin: 0;
+  overflow: visible;
+}
+
+.slot--occupied .unit-tile .unit-mini-card {
+  position: absolute;
+  width: 143px;
+  aspect-ratio: 179 / 250;
+  max-width: none;
+  left: 50%;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.14);
+  margin: 0;
+}
+
+/* Subtle hand-placed tilt — always keep translateX(-50%) for horizontal centering */
+.slot--occupied .unit-mini-card--terrain {
+  top: -60px;
+  z-index: 1;
+  transform: translateX(-50%) rotate(-1deg);
+}
+
+.slot--occupied .unit-mini-card--gear {
+  top: -30px;
+  z-index: 2;
+  transform: translateX(-50%) rotate(1deg);
+}
+
+/* Slightly different angles per board column so stacks don’t look identical */
+.slot:nth-child(1) .unit-mini-card--terrain {
+  transform: translateX(-50%) rotate(-1.15deg);
+}
+
+.slot:nth-child(1) .unit-mini-card--gear {
+  transform: translateX(-50%) rotate(0.9deg);
+}
+
+.slot:nth-child(2) .unit-mini-card--terrain {
+  transform: translateX(-50%) rotate(0.95deg);
+}
+
+.slot:nth-child(2) .unit-mini-card--gear {
+  transform: translateX(-50%) rotate(-1.05deg);
+}
+
+.slot:nth-child(3) .unit-mini-card--terrain {
+  transform: translateX(-50%) rotate(-0.85deg);
+}
+
+.slot:nth-child(3) .unit-mini-card--gear {
+  transform: translateX(-50%) rotate(1.1deg);
+}
+
+.slot:nth-child(4) .unit-mini-card--terrain {
+  transform: translateX(-50%) rotate(1.1deg);
+}
+
+.slot:nth-child(4) .unit-mini-card--gear {
+  transform: translateX(-50%) rotate(-0.85deg);
+}
+
+.slot:nth-child(5) .unit-mini-card--terrain {
+  transform: translateX(-50%) rotate(-1deg);
+}
+
+.slot:nth-child(5) .unit-mini-card--gear {
+  transform: translateX(-50%) rotate(1deg);
+}
+
+.slot--occupied .unit-tile > .unit-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  width: 179px;
+  height: 250px;
+  margin: 0;
+  border-radius: 6px;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  background: transparent;
+}
+
+.slot--occupied .unit-card .unit-card__markers {
+  z-index: 10;
+}
+
+.unit-mini-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  image-rendering: high-quality;
+  image-rendering: -webkit-optimize-contrast;
 }
 
 .unit-card__img-wrap {
@@ -901,6 +1027,7 @@ body {
   min-height: 0;
   border-radius: 6px;
   overflow: hidden;
+  background: #f3f4f6;
 }
 
 .unit-card__img {
@@ -952,17 +1079,18 @@ body {
   border-radius: 6px;
   font-size: 0.75rem;
   overflow: hidden;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  background: transparent;
 }
 
 /* Soft face-down: owner sees their card (name, class) but it’s clearly “not revealed” */
 .unit-card--face-down-soft {
-  background: linear-gradient(180deg, #f3f4f6 0%, #e5e7eb 100%);
-  border: 2px dashed #d1d5db;
+  background: transparent;
   flex-direction: column;
   align-items: stretch;
-  padding: 0.4rem;
+  padding: 0;
   text-align: center;
-  color: #999;
+  color: inherit;
 }
 
 .unit-card--face-down-soft .unit-card__content {
@@ -998,11 +1126,10 @@ body {
 
 /* Face-up card */
 .unit-card--face-up {
-  background: linear-gradient(180deg, #ffffff 0%, #f3f4f6 100%);
-  border: 1px solid #d1d5db;
+  background: transparent;
   flex-direction: column;
   align-items: stretch;
-  padding: 0.4rem;
+  padding: 0;
   text-align: center;
 }
 
@@ -1064,12 +1191,14 @@ body {
 }
 
 .unit-card__markers {
+  position: absolute;
+  top: -10px;
+  right: -10px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  justify-content: center;
-  margin-top: 0.2rem;
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+  z-index: 2;
 }
 
 /* Damage and status markers */

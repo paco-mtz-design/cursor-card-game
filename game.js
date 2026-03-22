@@ -292,6 +292,7 @@
     const showCannotAttack = cannotAttackNextTurn || mustRestNextTurn;
     const maxHP = cardState.maxHP != null ? cardState.maxHP : getBaseHP(unit.class);
     const gear = cardState.gear || null;
+    const terrain = cardState.terrain || null;
 
     const cardPath = getUnitCardImagePath(unit);
     const fallbackPath = 'assets/units/unit-placeholder-for-dev.png';
@@ -308,13 +309,22 @@
 
     const cardClass = faceUp ? 'unit-card unit-card--face-up' : 'unit-card unit-card--face-down-soft';
     const dataAttrs = ' data-face-up="' + (faceUp ? 'true' : 'false') + '" data-name="' + escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '"';
-    return '<div class="' + cardClass + '"' + dataAttrs + '>' +
-      (markersHTML ? '<div class="unit-card__markers">' + markersHTML + '</div>' : '') +
+    const badgePart = markersHTML ? '<div class="unit-card__markers">' + markersHTML + '</div>' : '';
+    const faceDownOverlayPart = !faceUp ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '';
+
+    const gearPart = gear ? '<div class="unit-mini-card unit-mini-card--gear"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(gear.name)) + '" alt="" role="presentation"></div>' : '';
+    const terrainPart = terrain ? '<div class="unit-mini-card unit-mini-card--terrain"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(terrain.name)) + '" alt="" role="presentation"></div>' : '';
+
+    return '<div class="unit-tile">' +
+      terrainPart +
+      gearPart +
+      '<div class="' + cardClass + '"' + dataAttrs + '>' +
       '<div class="unit-card__img-wrap">' +
       '<img class="unit-card__img" src="' + escapeHtml(cardPath) + '" alt="" role="presentation" onerror="this.src=\'' + fallbackPath + '\'">' +
-      (!faceUp ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '') +
+      faceDownOverlayPart +
       '</div>' +
-      (gear ? '<span class="unit-card__gear">' + escapeHtml(gear.name) + '</span>' : '') +
+      badgePart +
+      '</div>' +
       '</div>';
   }
 
@@ -337,9 +347,20 @@
       const cells = state.board[player];
       const terrainRow = state.terrain && state.terrain[player] ? state.terrain[player] : [];
       cells.forEach(function (cell, i) {
-        const terrainPart = terrainRow[i] ? '<div class="terrain-badge">' + terrainRow[i].name + '</div>' : '';
-        const unitPart = cell ? createUnitCardHTML(cell.unit, { faceUp: cell.faceUp, damage: cell.damage || 0, paralyzed: cell.paralyzed || false, cannotAttackNextTurn: cell.cannotAttackNextTurn || false, mustRestNextTurn: cell.mustRestNextTurn || false, maxHP: getMaxHP(cell), gear: cell.gear || null }) : '';
-        slots[i].innerHTML = terrainPart + unitPart;
+        const terrainCell = terrainRow[i] || null;
+        const unitPart = cell
+          ? createUnitCardHTML(cell.unit, {
+              faceUp: cell.faceUp,
+              damage: cell.damage || 0,
+              paralyzed: cell.paralyzed || false,
+              cannotAttackNextTurn: cell.cannotAttackNextTurn || false,
+              mustRestNextTurn: cell.mustRestNextTurn || false,
+              maxHP: getMaxHP(cell),
+              gear: cell.gear || null,
+              terrain: terrainCell
+            })
+          : '';
+        slots[i].innerHTML = unitPart;
         if (cell) slots[i].classList.add('slot--occupied');
       });
     });
