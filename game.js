@@ -18,6 +18,9 @@
   const turnLabel = document.getElementById('turn-label');
   const turnStep = document.getElementById('turn-step');
   const turnActions = document.getElementById('turn-actions');
+  const boardCenterEl = document.querySelector('.board__center');
+  const boardEl = document.querySelector('.board');
+  const contextualMoveControls = document.getElementById('contextual-move-controls');
   const btnMoveLeft = document.getElementById('btn-move-left');
   const btnMoveRight = document.getElementById('btn-move-right');
   const btnSkipMove = document.getElementById('btn-skip-move');
@@ -1040,16 +1043,17 @@
     if (btnDoneWithItems) btnDoneWithItems.hidden = true;
     if (btnWardstoneUse) btnWardstoneUse.hidden = true;
     if (btnWardstoneNo) btnWardstoneNo.hidden = true;
-    btnMoveLeft.hidden = false;
-    btnMoveRight.hidden = false;
-    btnSkipMove.hidden = false;
+    btnMoveLeft.hidden = true;
+    btnMoveRight.hidden = true;
+    btnSkipMove.hidden = true;
+    if (contextualMoveControls) {
+      contextualMoveControls.hidden = true;
+      contextualMoveControls.classList.remove('contextual-move-controls--above', 'contextual-move-controls--below');
+    }
 
     if (state.pendingWardstone) {
       turnStep.textContent = "Use Wardstone to negate this attack?";
       turnActions.hidden = false;
-      btnMoveLeft.hidden = true;
-      btnMoveRight.hidden = true;
-      btnSkipMove.hidden = true;
       if (btnWardstoneUse) btnWardstoneUse.hidden = false;
       if (btnWardstoneNo) btnWardstoneNo.hidden = false;
       return;
@@ -1059,9 +1063,6 @@
       if (state.obscuringReorder) {
         turnStep.textContent = 'Reorder your units: click one slot, then another to swap. Then click Done reordering.';
         turnActions.hidden = false;
-        btnMoveLeft.hidden = true;
-        btnMoveRight.hidden = true;
-        btnSkipMove.hidden = true;
         if (btnPass) btnPass.hidden = true;
         if (btnDoneWithItems) {
           btnDoneWithItems.textContent = 'Done reordering';
@@ -1083,9 +1084,6 @@
           turnStep.textContent = 'Use items (optional), then continue to combat.';
         }
         turnActions.hidden = false;
-        btnMoveLeft.hidden = true;
-        btnMoveRight.hidden = true;
-        btnSkipMove.hidden = true;
         if (btnPass) btnPass.hidden = true;
         if (btnDoneWithItems) btnDoneWithItems.textContent = state.itemTargeting ? 'Cancel' : 'Done with items';
         if (btnDoneWithItems) btnDoneWithItems.hidden = false;
@@ -1094,10 +1092,19 @@
       turnStep.textContent = 'Select a unit to act.';
     } else if (step === 'move') {
       turnStep.textContent = 'Move (optional), then attack.';
-      turnActions.hidden = false;
       const c = state.selectedUnit.column;
       btnMoveLeft.disabled = c <= 0 || state.board[p][c - 1] == null;
       btnMoveRight.disabled = c >= 4 || state.board[p][c + 1] == null;
+      btnMoveLeft.hidden = false;
+      btnMoveRight.hidden = false;
+      btnSkipMove.hidden = false;
+      if (contextualMoveControls) {
+        contextualMoveControls.hidden = false;
+        positionContextualMoveControls();
+        requestAnimationFrame(function () {
+          positionContextualMoveControls();
+        });
+      }
     } else if (step === 'attack') {
       const canAtt = state.selectedUnit && canAttack(state.selectedUnit.player, state.selectedUnit.column);
       if (canAtt) {
@@ -1105,12 +1112,54 @@
       } else {
         turnStep.textContent = 'No valid target — you may pass.';
         turnActions.hidden = false;
-        btnMoveLeft.hidden = true;
-        btnMoveRight.hidden = true;
-        btnSkipMove.hidden = true;
         if (btnPass) btnPass.hidden = false;
       }
     }
+  }
+
+  function positionContextualMoveControls() {
+    if (!contextualMoveControls || contextualMoveControls.hidden || !state.selectedUnit || !boardCenterEl) return;
+    const p = state.selectedUnit.player;
+    const c = state.selectedUnit.column;
+    const selectedSlot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
+    if (!selectedSlot) return;
+
+    const centerRect = boardCenterEl.getBoundingClientRect();
+    const slotRect = selectedSlot.getBoundingClientRect();
+    const boardRect = boardEl ? boardEl.getBoundingClientRect() : centerRect;
+
+    const isCompactViewport = window.matchMedia('(max-width: 700px)').matches;
+    const controlsWidth = contextualMoveControls.offsetWidth || 220;
+    const controlsHeight = contextualMoveControls.offsetHeight || 40;
+    const horizontalPad = 10;
+    let desiredCenterX = slotRect.left - centerRect.left + (slotRect.width / 2);
+    if (isCompactViewport) desiredCenterX = centerRect.width / 2;
+    /* Position by left edge (not transform-centered) so width:max-content is not squeezed at the board edge */
+    let leftEdge = desiredCenterX - controlsWidth / 2;
+    const maxLeft = centerRect.width - horizontalPad - controlsWidth;
+    const minLeft = horizontalPad;
+    leftEdge = Math.max(minLeft, Math.min(maxLeft, leftEdge));
+
+    let topPx;
+    contextualMoveControls.classList.remove('contextual-move-controls--above', 'contextual-move-controls--below');
+    if (p === 1) {
+      contextualMoveControls.classList.add('contextual-move-controls--above');
+      topPx = isCompactViewport
+        ? (boardRect.top - centerRect.top - controlsHeight - 8)
+        : (slotRect.top - centerRect.top - controlsHeight - 10);
+    } else {
+      contextualMoveControls.classList.add('contextual-move-controls--below');
+      topPx = isCompactViewport
+        ? (boardRect.bottom - centerRect.top + 8)
+        : (slotRect.bottom - centerRect.top + 10);
+    }
+
+    const minTop = 2;
+    const maxTop = centerRect.height - controlsHeight - 2;
+    const clampedTop = Math.max(minTop, Math.min(maxTop, topPx));
+    contextualMoveControls.style.transform = 'none';
+    contextualMoveControls.style.left = leftEdge + 'px';
+    contextualMoveControls.style.top = clampedTop + 'px';
   }
 
   function onSelectUnit(player, column) {
@@ -2033,6 +2082,9 @@
     btnMoveLeft.addEventListener('click', function () { if (!state.gameOver) doMove('left'); });
     btnMoveRight.addEventListener('click', function () { if (!state.gameOver) doMove('right'); });
     btnSkipMove.addEventListener('click', function () { if (!state.gameOver) doSkipMove(); });
+    window.addEventListener('resize', function () {
+      if (state.actionStep === 'move' && state.selectedUnit) positionContextualMoveControls();
+    });
     if (btnPass) btnPass.addEventListener('click', function () { if (!state.gameOver) doPass(); });
     if (btnWardstoneUse) btnWardstoneUse.addEventListener('click', function () { if (!state.gameOver) doWardstoneUse(); });
     if (btnWardstoneNo) btnWardstoneNo.addEventListener('click', function () { if (!state.gameOver) doWardstoneNo(); });

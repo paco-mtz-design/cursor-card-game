@@ -416,6 +416,7 @@ textarea {
 
 .board__center {
   flex: 1 1 auto;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -423,6 +424,33 @@ textarea {
   min-width: 0;
   background: transparent;
   overflow-x: clip;
+}
+
+.contextual-move-controls {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* JS sets left/top in px; do not use translateX(-50%) here — it breaks shrink-to-fit width when near the right edge */
+  transform: none;
+  width: max-content;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
+  z-index: 5300;
+}
+
+.contextual-move-controls .btn--small {
+  flex-shrink: 0;
+  padding: 0.28rem 0.52rem;
+  font-size: 0.76rem;
+  white-space: nowrap;
 }
 
 .action-strip {
@@ -462,6 +490,17 @@ textarea {
   .action-strip--header {
     max-width: 100%;
     justify-content: flex-start;
+  }
+
+  .contextual-move-controls {
+    max-width: calc(100% - 1rem);
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 0.4rem;
+  }
+
+  .contextual-move-controls .btn--small {
+    white-space: normal;
   }
 }
 

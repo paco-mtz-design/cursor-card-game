@@ -26,9 +26,6 @@
         <span class="turn-banner__label" id="turn-label">Player 1's turn</span><span class="turn-banner__sep" aria-hidden="true">: </span><span class="turn-banner__step" id="turn-step"></span>
       </div>
       <div class="action-strip action-strip--header" id="turn-actions" hidden aria-label="Turn actions">
-        <button type="button" class="btn btn--small" id="btn-move-left">Move left</button>
-        <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
-        <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
         <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
         <button type="button" class="btn btn--small btn--secondary" id="btn-done-with-items" hidden>Done with items</button>
         <button type="button" class="btn btn--small" id="btn-wardstone-use" hidden>Use Wardstone</button>
@@ -96,6 +93,11 @@
             <div class="slot" data-player="1" data-column="3" tabindex="0"></div>
             <div class="slot" data-player="1" data-column="4" tabindex="0"></div>
           </div>
+        </div>
+        <div class="contextual-move-controls" id="contextual-move-controls" hidden aria-label="Move actions">
+          <button type="button" class="btn btn--small" id="btn-move-left">Move left</button>
+          <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
+          <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
         </div>
 
         <!-- Player item hand (bottom); shown when playing -->
