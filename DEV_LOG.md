@@ -4,6 +4,33 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## How we use this log
+
+- Entries document **milestones that shipped** (or were agreed as the reference implementation for a phase), not every experiment or WIP tweak.
+- Prefer logging **what moved the game forward** toward roadmap goals—especially changes that **nail requirements** you’re happy to keep.
+- **Handoff:** read the newest section first; compare intent with [ROADMAP.md](ROADMAP.md).
+- Phases **8–9** are summarized in ROADMAP and code history; this log’s detailed sections start at **Phase 10** for granularity.
+
+---
+
+## Phase 14 — Board & unit UI
+
+**Status:** Concluded.
+
+**Scope:** Board presentation for units with gear and terrain: fixed slot, layered mini-cards, full-size unit art, readable status markers, hand-placed feel.
+
+**Implementations:**
+- **`createUnitCardHTML` ([`game.js`](game.js)):** DOM order terrain → gear → unit (no `unit-tile__footer` wrapper). Gear/terrain from `cardState.gear` and terrain row in `renderBoard`; `state.terrain[player][col]` passed into terrain slot.
+- **Absolute stack ([`style.css`](style.css)):** `.slot` is `position: relative`, 179×250, `overflow: visible`. `.unit-tile` fills the slot (height 250px). Mini-cards: `position: absolute`, `left: 50%`, `transform: translateX(-50%)` combined with subtle **rotate**; per-column **`.slot:nth-child(n)`** angle variation. Terrain `top: -60px` (z-index 1), gear `top: -30px` (z-index 2), unit `.unit-card` `top: 0; left: 0` (z-index 3), **179×250** unit. **Markers** `z-index: 10`.
+- **Overflow:** `overflow: visible` on board `.unit-card`; **`overflow: hidden`** only on `.unit-card__img-wrap` (and mini-card art) for rounded corners.
+- **Spacing:** `.row` `margin-top` so peeking layers don’t collide with the row above; `.board` gap/padding tuned.
+- **Placement hand:** `.hand-card .unit-tile` overrides keep setup preview layout (flex) separate from board slot rules.
+- **Code hygiene:** Removed temporary debug `fetch` instrumentation from `renderBoard` / `createUnitCardHTML`.
+
+**Files touched:** `game.js`, `style.css`, `ROADMAP.md`, `DEV_LOG.md`, `README.md`.
+
+---
+
 ## Phase 13 — Promotions
 
 **Scope:** Four promotion items (Champion's Crest, Vanguard Lance, Sharpshooter's Scope, Archmage's Tome). Equipped like other gear (one gear per unit; equipping replaces current gear). Each is class-specific, grants +1 HP, and modifies range or combat behavior.

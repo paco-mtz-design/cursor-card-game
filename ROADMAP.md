@@ -1,54 +1,57 @@
-# Tacticlash — Roadmap (Phases 8+)
+# Tacticlash — Roadmap
 
-Development plan for item effects, veteran buffs, UI evolution, and debug tooling after the core MVP (Phases 1–7). Adjust as we learn from Phase 8.
+Single source of truth for **phase order**, **scope**, and **status**. Implementation detail lives in **[DEV_LOG.md](DEV_LOG.md)** (newest entries first).
 
----
+**Status legend**
 
-## Confirmed gaps (to address in rollout)
+| Status | Meaning |
+|--------|---------|
+| **Done** | Shipped in the prototype |
+| **Current** | Active focus |
+| **Planned** | Not started yet |
 
-- **Turn structure vs manual:** Action Phase must start with a “use items” step (equip gear, place terrain, use single-use), then Combat (select unit → move → attack). We currently go straight to `select_unit` after reinforcement.
-- **Item discard:** Single-use and swapped gear go to a discard pile. We need `state.itemDiscard` and to remove played items from hand.
-- **State model for items:** Items in hand are `{ name, id }`. We’ll need: item type, gear per unit, terrain per slot, and targeting for single-use.
-- **“True strike” / bypass effects:** Some items make attacks ignore terrain/item/unit effects. We need a flag in combat resolution and to skip terrain/defender effects when set.
-- **Veteran data:** Characters have `level: 'Rookie' | 'Veteran'`; we still need per-unit veteran buff definitions and combat hooks.
-- **Fog of war:** Defer until all logic is in place and we add an autonomous CPU opponent. No need to hide opponent’s face-down during development.
-
----
-
-## Phase 8 — “Use items” step + first single-use + debug + UI
-
-**One card at a time.** Insert “use items” step at start of Action Phase; add item discard pile. Implement single-use items **one by one** (start with **Healing Potion**), test after each, and flag conflicts/interactions with existing effects.
-
-- **Debug:** Optional controlled item draw (random vs choose specific card from remaining item deck) to expedite testing.
-- **UI:** Item hand allows “expand” a card to read its details (effect text).
-- **Log:** All new item plays and effects are added to the game log.
+**MVP** = Phases **1–7** (core loop before items/gear expansions).
 
 ---
 
-## Phase 9 — Gear (armor)
+## All phases
 
-Light Armor, Premium Light Armor, Heavy Armor. One gear per unit; equip in "use items"; armor adds HP.
-
-**Armor equip rule:** A player cannot equip (or swap) gear onto a unit if that would cause the unit to be captured—e.g. a Lancer with 1 damage wearing Light Armor (+1 HP) has effective 2 max HP; removing or swapping that armor would leave them at 1/1 and captured. Such a unit is not a valid target for equipping any new gear. An opponent may still destroy a unit's gear (e.g. Rust Spell, or veteran buffs later); if that removal reduces max HP so that current damage ≥ new max HP, the unit is captured as a result. Summary: you cannot cause your own unit to be captured by removing gear; an opponent can.
+| Phase | Focus | Status | Notes |
+|-------|--------|--------|--------|
+| **1** | Static board and shell | Done | MVP — 5×2 grid, clickable slots, header, New game |
+| **2** | Units on the board | Done | MVP — Face-up/face-down units, names/classes, damage/status markers |
+| **3** | New game and setup | Done | MVP — Capture goal, coin flip, place 5 units (manual or random) |
+| **4** | Turn structure (“one unit acts”) | Done | MVP — Reinforcement, action phase: select unit → optional move → attack; end turn |
+| **5** | Combat and range | Done | MVP — Brawler/Lancer/Shooter/Caster ranges, counters, Longshot, paralysis, captures |
+| **6** | Win condition and endgame | Done | MVP — Capture goal, empty deck, no units, pass when no attack |
+| **7** | Item hand (display) | Done | MVP — Item hands + draw 1 item per turn |
+| **8** | Use-items step + first single-use + debug + UI | Done | Item discard pile; Healing Potion first; optional debug item draw; expand/read cards |
+| **9** | Gear (armor) | Done | Light / Premium Light / Heavy; one gear per unit; armor HP; equip/capture rules |
+| **10** | Gear (accessories) | Done | Barbed Gauntlets, Wardstone Bracelet, Teleport Boots (True-Strike Lens → Phase 12) |
+| **11** | Terrain | Done | Terrain per slot; place in use-items; movement/combat hooks; Tectonic Spike |
+| **12** | Remaining single-use + True-Strike Lens + true strike | Done | Corrosive Phial, Obscuring bomb, Vorpal, Magic Grenade; true strike in combat |
+| **13** | Promotions | Done | Champion's Crest, Vanguard Lance, Sharpshooter's Scope, Archmage's Tome |
+| **14** | Board & unit UI | Done | Unit tiles, gear/terrain stacks, hands, markers, spacing, contextual move controls, polish |
+| **15** | Veteran buffs | Current | Per-unit veteran definitions; combat hooks (`level` already in data) |
+| **16** | Tarot cards | Planned | Mechanics + UI as designed for the full game |
+| **17** | Further UI improvements | Planned | Layout, polish, optional tooling — TBD |
+| **18** | CPU opponent | Planned | Autonomous opponent; fog-of-war for opponent face-down can align here |
 
 ---
 
-## Phases 10–17 and later
+## Confirmed gaps (open or deferred)
 
-| Phase  | Focus                           | Notes |
-|--------|----------------------------------|-------|
-| **10** | Gear (accessories)              | Barbed Gauntlets, Wardstone Bracelet, Teleport Boots. True-Strike Lens and Magic Grenade deferred to a later phase (after terrain / true strike). |
-| **11** | Terrain                         | Terrain per slot; place in "use items"; resolve in movement and combat. |
-| **12** | Remaining single-use + True-Strike Lens + true strike | Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade; True-Strike Lens (gear). True-strike/bypass flag in combat (skip terrain + Lancer for Vorpal and True-Strike Lens). Tectonic Spike already in Phase 11. |
-| **13** | Promotions                      | Champion's Crest (Brawler: +1 HP, attack adjacent); Vanguard Lance (Lancer: +1 HP, range 1–2 only, no tile in front); Sharpshooter's Scope (Shooter: +1 HP, true strike); Archmage's Tome (Caster: +1 HP, multi-target with per-target Wardstone/terrain, must rest next turn). Equip like other gear; one per unit. |
-| **14** | Veteran buffs                   | Per-character buff definitions; hooks in combat. After items/terrain stable. |
-| **15** | Board-game UI (foundation)       | Decks visible, hands laid out, room for terrain + gear; inspect card. |
-| **16** | Debug tooling (unit deck)       | Controlled unit-card draw; log extended for all events. |
-| **Later** | Fog of war                    | When adding CPU opponent: opponent’s face-down = card back or “?”. |
-| **Later** | Visuals + AI                  | Visual flair; then CPU opponent with difficulty levels. |
+- **Veteran data & rules:** Per-unit veteran buff definitions and combat hooks — **Phase 15** (current).
+- **Fog of war:** Deferred to **Phase 18** with the CPU opponent. No need to hide opponent face-down during solo development.
+
+### Resolved (historical)
+
+Phases **8–14** delivered: use-items flow, discard piles, gear/terrain/single-use/promotions, true strike, and board/UI work. See **[DEV_LOG.md](DEV_LOG.md)**.
 
 ---
 
-## Implementation order (items)
+## Implementation order (reference)
 
-Gear (armor → accessories/weapons), then terrain, then remaining single-use (Corrosive Phial, Obscuring bomb, Vorpal Honing Amulet, Magic Grenade) and True-Strike Lens + true strike, then promotions, then veteran buffs.
+**Done:** Phases **1–14** (MVP through board/unit UI). **Current:** **Phase 15** (veteran buffs). **Next:** **16** → **17** → **18**.
+
+Within the original items track, work landed in order: **8–9** (use-items + armor), **10** accessories, **11** terrain, **12** remaining single-use + True-Strike Lens + true strike, **13** promotions, then **14** UI.
