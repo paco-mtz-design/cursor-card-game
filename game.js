@@ -56,6 +56,12 @@
   const discardZoomModal = document.getElementById('discard-zoom-modal');
   const discardZoomCloseBtn = document.getElementById('discard-zoom-close');
   const discardZoomBackdrop = document.getElementById('discard-zoom-backdrop');
+  const itemZoomModal = document.getElementById('item-zoom-modal');
+  const itemZoomCloseBtn = document.getElementById('item-zoom-close');
+  const itemZoomBackdrop = document.getElementById('item-zoom-backdrop');
+  const itemZoomTitle = document.getElementById('item-zoom-title');
+  const itemZoomImgWrap = document.getElementById('item-zoom-img-wrap');
+  const itemZoomEffect = document.getElementById('item-zoom-effect');
   const scoreMarkersP1El = document.getElementById('score-markers-p1');
   const scoreMarkersP2El = document.getElementById('score-markers-p2');
 
@@ -924,6 +930,13 @@
       return countValidGearTargets(gearName) > 0;
     }
 
+    function primaryLabelForItem(spec, itemName) {
+      if (!spec) return 'Use';
+      if (typeof TERRAIN_ITEM_NAMES !== 'undefined' && spec.type === 'terrain' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1) return 'Build';
+      if (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') return 'Equip';
+      return 'Use';
+    }
+
     function buildItemCard(item, index, isCurrentPlayer) {
       const el = document.createElement('div');
       el.className = 'item-card';
@@ -932,64 +945,73 @@
       el.dataset.itemName = item.name;
       el.dataset.player = '1';
 
+      const face = document.createElement('div');
+      face.className = 'item-card__face';
+
       const img = document.createElement('img');
       img.className = 'item-card-img';
       img.src = getItemCardImagePath(item.name);
       img.alt = '';
       img.setAttribute('role', 'presentation');
       img.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
-      el.appendChild(img);
+      face.appendChild(img);
 
       const nameSpan = document.createElement('span');
       nameSpan.className = 'item-card__name';
       nameSpan.textContent = item.name;
-      el.appendChild(nameSpan);
+      face.appendChild(nameSpan);
+
+      const actions = document.createElement('div');
+      actions.className = 'item-card__actions';
+
+      const seeBtn = document.createElement('button');
+      seeBtn.type = 'button';
+      seeBtn.className = 'item-card__see btn btn--small';
+      seeBtn.textContent = 'See';
+      seeBtn.dataset.itemName = item.name;
+      actions.appendChild(seeBtn);
 
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[item.name];
-      if (spec && spec.effect) {
-        const effectDiv = document.createElement('div');
-        effectDiv.className = 'item-card__effect';
-        effectDiv.textContent = spec.effect;
-        effectDiv.setAttribute('aria-hidden', 'true');
-        el.appendChild(effectDiv);
-      }
 
       if (isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && canPlaySingleUse(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
-        useBtn.textContent = 'Use';
+        useBtn.textContent = primaryLabelForItem(spec, item.name);
         useBtn.dataset.itemIndex = String(index);
         useBtn.dataset.itemName = item.name;
-        el.appendChild(useBtn);
+        actions.appendChild(useBtn);
       }
       if (isCurrentPlayer && isUseItems && spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && canPlayGear(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
-        useBtn.textContent = 'Use';
+        useBtn.textContent = primaryLabelForItem(spec, item.name);
         useBtn.dataset.itemIndex = String(index);
         useBtn.dataset.itemName = item.name;
-        el.appendChild(useBtn);
+        actions.appendChild(useBtn);
       }
       if (isCurrentPlayer && isUseItems && typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(item.name) !== -1 && countEmptyTerrainSlots() > 0) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
-        useBtn.textContent = 'Use';
+        useBtn.textContent = primaryLabelForItem(spec, item.name);
         useBtn.dataset.itemIndex = String(index);
         useBtn.dataset.itemName = item.name;
-        el.appendChild(useBtn);
+        actions.appendChild(useBtn);
       }
       if (isCurrentPlayer && isUseItems && item.name === 'Tectonic Spike' && countTilesWithTerrain() > 0) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
-        useBtn.textContent = 'Use';
+        useBtn.textContent = primaryLabelForItem(spec, item.name);
         useBtn.dataset.itemIndex = String(index);
         useBtn.dataset.itemName = item.name;
-        el.appendChild(useBtn);
+        actions.appendChild(useBtn);
       }
+
+      el.appendChild(face);
+      el.appendChild(actions);
 
       if (el.querySelector('.item-card__use')) {
         el.classList.add('item-card--playable');
@@ -1005,6 +1027,7 @@
       el.dataset.player = '2';
       itemHandP2El.appendChild(el);
     });
+
   }
 
   function renderTurnUI() {
@@ -1899,6 +1922,15 @@
   }
 
   function handleItemHandClick(e) {
+    const seeBtn = e.target.closest('.item-card__see');
+    if (seeBtn && state.phase === 'playing') {
+      const card = e.target.closest('.item-card');
+      if (card && card.dataset.itemName) {
+        e.preventDefault();
+        openItemZoom(card.dataset.itemName);
+      }
+      return;
+    }
     if (state.phase !== 'playing' || state.actionStep !== 'use_items' || state.itemTargeting || state.obscuringReorder) return;
     const useBtn = e.target.closest('.item-card__use');
     const card = e.target.closest('.item-card');
@@ -1925,9 +1957,6 @@
       renderTurnUI();
       renderBoard();
       return;
-    }
-    if (card && !useBtn && card.querySelector('.item-card__effect')) {
-      card.classList.toggle('item-card--expanded');
     }
   }
 
@@ -2081,6 +2110,12 @@
     if (discardZoomBackdrop && discardZoomModal) {
       discardZoomBackdrop.addEventListener('click', closeDiscardZoom);
     }
+    if (itemZoomCloseBtn && itemZoomModal) {
+      itemZoomCloseBtn.addEventListener('click', closeItemZoom);
+    }
+    if (itemZoomBackdrop && itemZoomModal) {
+      itemZoomBackdrop.addEventListener('click', closeItemZoom);
+    }
   });
 
   function openUnitZoom(player, col) {
@@ -2154,5 +2189,31 @@
 
   function closeDiscardZoom() {
     if (discardZoomModal) discardZoomModal.hidden = true;
+  }
+
+  function openItemZoom(itemName) {
+    if (!itemZoomModal || !itemZoomImgWrap || !itemZoomTitle) return;
+    const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
+    itemZoomTitle.textContent = itemName || 'Item';
+    itemZoomImgWrap.innerHTML = '';
+    const zImg = document.createElement('img');
+    zImg.src = getItemCardImagePath(itemName);
+    zImg.alt = itemName || '';
+    zImg.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
+    itemZoomImgWrap.appendChild(zImg);
+    if (itemZoomEffect) {
+      if (spec && spec.effect) {
+        itemZoomEffect.textContent = spec.effect;
+        itemZoomEffect.hidden = false;
+      } else {
+        itemZoomEffect.textContent = '';
+        itemZoomEffect.hidden = true;
+      }
+    }
+    itemZoomModal.hidden = false;
+  }
+
+  function closeItemZoom() {
+    if (itemZoomModal) itemZoomModal.hidden = true;
   }
 })();

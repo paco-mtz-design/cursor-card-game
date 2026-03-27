@@ -76,7 +76,9 @@
       <div class="board__center">
         <!-- Opponent item hand (top); shown when playing -->
         <section class="item-hand item-hand--opponent" id="item-hands-p2" hidden aria-label="Player 2 item hand">
-          <div class="item-hand__list" id="item-hand-p2" role="list"></div>
+          <div class="item-hand__inner">
+            <div class="item-hand__list" id="item-hand-p2" role="list"></div>
+          </div>
         </section>
 
         <div class="board" aria-label="Battlefield">
@@ -98,7 +100,9 @@
 
         <!-- Player item hand (bottom); shown when playing -->
         <section class="item-hand item-hand--player" id="item-hands-p1" hidden aria-label="Player 1 item hand">
-          <div class="item-hand__list" id="item-hand-p1" role="list"></div>
+          <div class="item-hand__inner">
+            <div class="item-hand__list" id="item-hand-p1" role="list"></div>
+          </div>
         </section>
       </div>
 
@@ -170,6 +174,19 @@
             <div class="unit-zoom__img-wrap" id="unit-zoom-terrain"></div>
             <span class="unit-zoom__label">Terrain</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Item card zoom (hand "See") -->
+    <div class="modal" id="item-zoom-modal" role="dialog" aria-modal="true" aria-labelledby="item-zoom-title" hidden>
+      <div class="modal__backdrop" id="item-zoom-backdrop"></div>
+      <div class="modal__content modal__content--item-zoom">
+        <button type="button" class="modal__close" id="item-zoom-close" aria-label="Close">×</button>
+        <h2 class="modal__title" id="item-zoom-title">Item</h2>
+        <div class="item-zoom__body">
+          <div class="item-zoom__img-wrap" id="item-zoom-img-wrap"></div>
+          <p class="item-zoom__effect" id="item-zoom-effect" hidden></p>
         </div>
       </div>
     </div>
