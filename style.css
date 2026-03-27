@@ -664,10 +664,7 @@ textarea {
   cursor: pointer;
 }
 
-.item-hand .item-card--playable .item-card__face {
-  border-color: #7a9;
-  box-shadow: 0 0 0 1px rgba(122, 170, 153, 0.45);
-}
+/* Hand cards no longer receive a playable highlight ring. */
 
 .board__right {
   flex: 0 0 128px;
@@ -1186,7 +1183,7 @@ textarea {
 
 .slot--selectable {
   border-color: #22c55e;
-  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.7);
 }
 
 .slot--selectable:hover {
@@ -1196,7 +1193,7 @@ textarea {
 
 .slot--selected {
   border-color: #22c55e;
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.6);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.7);
 }
 
 .slot--occupied {
