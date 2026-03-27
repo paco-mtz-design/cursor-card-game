@@ -15,6 +15,8 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ## Phase 14 — Board & unit UI
 
+**Status:** Concluded.
+
 **Scope:** Board presentation for units with gear and terrain: fixed slot, layered mini-cards, full-size unit art, readable status markers, hand-placed feel.
 
 **Implementations:**
