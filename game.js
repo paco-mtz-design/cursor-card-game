@@ -13,6 +13,12 @@
   const placeTitle = document.getElementById('place-title');
   const placeHint = document.getElementById('place-hint');
   const placementHand = document.getElementById('placement-hand');
+  const placementHandFilterEl = document.getElementById('placement-hand-filter');
+  const placementUnitPickWrapEl = document.getElementById('placement-unit-pick-wrap');
+  const placementUnitPickSearchEl = document.getElementById('placement-unit-pick-search');
+  const placementUnitPickListEl = document.getElementById('placement-unit-pick-list');
+  const btnPlacementReplaceWithPick = document.getElementById('btn-placement-replace-with-pick');
+  const btnPlacementUnitPickClose = document.getElementById('btn-placement-unit-pick-close');
   const btnNewGame = document.getElementById('btn-new-game');
   const turnBanner = document.getElementById('turn-banner');
   const turnLabel = document.getElementById('turn-label');
@@ -234,6 +240,109 @@
   function getEffectiveAttackerClass(attCell) {
     if (!attCell) return null;
     return attCell.nextAttackAsCaster ? 'Caster' : attCell.unit.class;
+  }
+
+  function getVeteranBuff(cell) {
+    if (!cell || !cell.unit || cell.unit.level !== 'Veteran') return null;
+    return cell.unit.veteranBuff || null;
+  }
+
+  function hasVeteranBuff(cell, buffKey) {
+    return getVeteranBuff(cell) === buffKey;
+  }
+
+  function isCounterRangeForLancerCell(attackerCol, lancerCol, lancerCell) {
+    if (!lancerCell) return false;
+    const dist = Math.abs(attackerCol - lancerCol);
+    return (lancerCell.gear && lancerCell.gear.name === 'Vanguard Lance') ? (dist >= 1 && dist <= 2) : (dist === 1);
+  }
+
+  function findAdjacentAllyLancerCols(player, col) {
+    const result = [];
+    const left = col - 1;
+    const right = col + 1;
+    if (left >= 0) {
+      const leftCell = state.board[player][left];
+      if (leftCell && leftCell.unit.class === 'Lancer') result.push(left);
+    }
+    if (right <= 4) {
+      const rightCell = state.board[player][right];
+      if (rightCell && rightCell.unit.class === 'Lancer') result.push(right);
+    }
+    return result;
+  }
+
+  function getCounterGuaranteeInfo(defenderPlayer, lancerCol, lancerCell) {
+    const info = { guaranteed: false, reason: null, revealCol: null };
+    if (!lancerCell || lancerCell.unit.class !== 'Lancer') return info;
+
+    if (hasVeteranBuff(lancerCell, 'nyss') && !lancerCell.faceUp) {
+      info.guaranteed = true;
+      info.reason = 'nyss';
+      return info;
+    }
+
+    const adjacentLancers = findAdjacentAllyLancerCols(defenderPlayer, lancerCol);
+    if (adjacentLancers.length === 0) return info;
+
+    if (hasVeteranBuff(lancerCell, 'rowka')) {
+      info.guaranteed = true;
+      info.reason = 'rowka';
+      info.revealCol = adjacentLancers[0];
+      return info;
+    }
+
+    for (let i = 0; i < adjacentLancers.length; i++) {
+      const allyCol = adjacentLancers[i];
+      const allyCell = state.board[defenderPlayer][allyCol];
+      if (hasVeteranBuff(allyCell, 'rowka')) {
+        info.guaranteed = true;
+        info.reason = 'rowka';
+        info.revealCol = allyCol;
+        return info;
+      }
+    }
+
+    return info;
+  }
+
+  function attackerIsProtectedByBraskin(attackerPlayer, attackerCol) {
+    const left = attackerCol - 1;
+    const right = attackerCol + 1;
+    if (left >= 0) {
+      const leftCell = state.board[attackerPlayer][left];
+      if (leftCell && leftCell.unit.class === 'Lancer' && hasVeteranBuff(leftCell, 'braskin')) return true;
+    }
+    if (right <= 4) {
+      const rightCell = state.board[attackerPlayer][right];
+      if (rightCell && rightCell.unit.class === 'Lancer' && hasVeteranBuff(rightCell, 'braskin')) return true;
+    }
+    return false;
+  }
+
+  function resolveKeeraCounterExtra(defenderPlayer, keeraCol, attackerPlayer, attackerCol) {
+    const keeraCell = state.board[defenderPlayer][keeraCol];
+    if (!keeraCell || !hasVeteranBuff(keeraCell, 'keera')) return;
+    const validTargetCols = [];
+    for (let c = 0; c < 5; c++) {
+      if (c === attackerCol) continue;
+      const enemyCell = state.board[attackerPlayer][c];
+      if (!enemyCell) continue;
+      if (isCounterRangeForLancerCell(c, keeraCol, keeraCell)) validTargetCols.push(c);
+    }
+    if (validTargetCols.length === 0) return;
+
+    validTargetCols.sort(function (a, b) {
+      const da = Math.abs(a - keeraCol);
+      const db = Math.abs(b - keeraCol);
+      if (da !== db) return da - db;
+      return a - b;
+    });
+    const targetCol = validTargetCols[0];
+    const targetCell = state.board[attackerPlayer][targetCol];
+    if (!targetCell) return;
+    log("Keera's Double Sword — extra 1 damage to " + targetCell.unit.name + ".");
+    applyDamage(attackerPlayer, targetCol, 1, "");
   }
 
   /** Lancer range: attacker column is diagonal to defender (defender at defCol). */
@@ -604,6 +713,8 @@
     if (unitsDiscardPileEl) unitsDiscardPileEl.hidden = true;
     if (gameLogEl) gameLogEl.hidden = true;
     if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
+    if (placementHandFilterEl) placementHandFilterEl.value = '';
+    closePlacementUnitPickList();
     if (gameOverEl) gameOverEl.hidden = true;
     showStep('goal');
   }
@@ -630,17 +741,180 @@
     state.placementPlayer = 1;
     state.phase = 'setup_place_p1';
     showStep('place');
+    if (placementHandFilterEl) placementHandFilterEl.value = '';
+    closePlacementUnitPickList();
     renderPlacementStep();
     renderBoard();
+  }
+
+  function findUnitObjectLocation(unitObj) {
+    if (!unitObj) return null;
+    for (let i = 0; i < state.p1Hand.length; i++) {
+      if (state.p1Hand[i] === unitObj) return { kind: 'p1Hand', i: i };
+    }
+    for (let i = 0; i < state.p2Hand.length; i++) {
+      if (state.p2Hand[i] === unitObj) return { kind: 'p2Hand', i: i };
+    }
+    for (let i = 0; i < state.unitDeck.length; i++) {
+      if (state.unitDeck[i] === unitObj) return { kind: 'unitDeck', i: i };
+    }
+    for (let p = 1; p <= 2; p++) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[p][c];
+        if (cell && cell.unit === unitObj) return { kind: 'board', player: p, col: c };
+      }
+    }
+    return null;
+  }
+
+  function replacePlacementHandSlotWithUnit(player, handIndex, targetUnitObj) {
+    if (typeof CHARACTERS === 'undefined' || !targetUnitObj) return;
+    const hand = player === 1 ? state.p1Hand : state.p2Hand;
+    if (handIndex < 0 || handIndex >= hand.length) return;
+    const oldUnit = hand[handIndex];
+    if (oldUnit === targetUnitObj) return;
+
+    const loc = findUnitObjectLocation(targetUnitObj);
+    if (!loc) {
+      log('Debug: placement replace — target unit not found in pool.');
+      return;
+    }
+    if (loc.kind === 'board') {
+      log('Debug: placement replace — ' + targetUnitObj.name + ' is already on the board.');
+      return;
+    }
+
+    if (loc.kind === 'unitDeck') {
+      hand[handIndex] = targetUnitObj;
+      state.unitDeck.splice(loc.i, 1);
+      state.unitDeck.push(oldUnit);
+      log('Debug: Placement — replaced ' + oldUnit.name + ' with ' + targetUnitObj.name + ' (from unit deck).');
+      return;
+    }
+
+    if (loc.kind === 'p1Hand') {
+      if (player === 1) {
+        if (loc.i === handIndex) return;
+        state.p1Hand[loc.i] = oldUnit;
+        state.p1Hand[handIndex] = targetUnitObj;
+        log('Debug: Placement — swapped P1 hand slots for ' + targetUnitObj.name + '.');
+      } else {
+        state.p1Hand[loc.i] = oldUnit;
+        state.p2Hand[handIndex] = targetUnitObj;
+        log('Debug: Placement — replaced with unit from P1 hand (' + targetUnitObj.name + ').');
+      }
+      return;
+    }
+
+    if (loc.kind === 'p2Hand') {
+      if (player === 2) {
+        if (loc.i === handIndex) return;
+        state.p2Hand[loc.i] = oldUnit;
+        state.p2Hand[handIndex] = targetUnitObj;
+        log('Debug: Placement — swapped P2 hand slots for ' + targetUnitObj.name + '.');
+      } else {
+        state.p2Hand[loc.i] = oldUnit;
+        state.p1Hand[handIndex] = targetUnitObj;
+        log('Debug: Placement — replaced with unit from P2 hand (' + targetUnitObj.name + ').');
+      }
+    }
+  }
+
+  function renderPlacementUnitPickList(filter) {
+    if (!placementUnitPickListEl || typeof CHARACTERS === 'undefined') return;
+    placementUnitPickListEl.innerHTML = '';
+    const q = (filter || '').trim().toLowerCase();
+    const rows = CHARACTERS.slice().sort(function (a, b) {
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    const matches = q
+      ? rows.filter(function (u) {
+        const hay = ((u.name || '') + ' ' + (u.class || '') + ' ' + (u.level || '') + ' ' + (u.veteranBuff || '')).toLowerCase();
+        return hay.indexOf(q) !== -1;
+      })
+      : rows;
+    if (matches.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'setup__hand--empty-filter';
+      p.textContent = 'No units match your filter.';
+      placementUnitPickListEl.appendChild(p);
+      return;
+    }
+    matches.forEach(function (u) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn--small btn--secondary setup__placement-unit-pick-btn';
+      btn.setAttribute('role', 'listitem');
+      btn.dataset.unitName = u.name;
+      var label = u.name;
+      if (u.class) label += ' (' + u.class + ')';
+      if (u.level === 'Veteran' && u.veteranBuff) label += ' — ' + u.veteranBuff;
+      btn.textContent = label;
+      placementUnitPickListEl.appendChild(btn);
+    });
+  }
+
+  function openPlacementUnitPickList() {
+    if (!placementUnitPickWrapEl || !placementUnitPickListEl) return;
+    if (state.phase !== 'setup_place_p1' && state.phase !== 'setup_place_p2') return;
+    if (state.selectedPlacementIndex == null) {
+      log('Select a unit in your hand first, then use Replace with pick.');
+      return;
+    }
+    const hand = state.placementPlayer === 1 ? state.p1Hand : state.p2Hand;
+    if (state.selectedPlacementIndex < 0 || state.selectedPlacementIndex >= hand.length) return;
+    if (placementUnitPickSearchEl) {
+      placementUnitPickSearchEl.value = '';
+      placementUnitPickSearchEl.focus();
+    }
+    renderPlacementUnitPickList('');
+    placementUnitPickWrapEl.removeAttribute('hidden');
+  }
+
+  function closePlacementUnitPickList() {
+    if (placementUnitPickWrapEl) placementUnitPickWrapEl.setAttribute('hidden', '');
+  }
+
+  function applyPlacementUnitPick(unitName) {
+    if (typeof CHARACTERS === 'undefined') return;
+    const targetUnitObj = CHARACTERS.find(function (u) { return u.name === unitName; });
+    if (!targetUnitObj) return;
+    const player = state.placementPlayer;
+    const idx = state.selectedPlacementIndex;
+    if (idx == null) return;
+    replacePlacementHandSlotWithUnit(player, idx, targetUnitObj);
+    closePlacementUnitPickList();
+    renderPlacementStep();
+    renderBoard();
+  }
+
+  function unitMatchesPlacementFilter(unit, queryLower) {
+    if (!queryLower) return true;
+    const parts = [
+      unit.name || '',
+      unit.class || '',
+      unit.level || '',
+      unit.veteranBuff || '',
+    ];
+    const hay = parts.join(' ').toLowerCase();
+    return hay.indexOf(queryLower) !== -1;
   }
 
   function renderPlacementStep() {
     const player = state.placementPlayer;
     const hand = player === 1 ? state.p1Hand : state.p2Hand;
     placeTitle.textContent = 'Player ' + player + ': Place your units';
-    placeHint.textContent = 'Click a unit below, then click an empty slot on your row.';
+    placeHint.textContent = 'Filter or use Replace with pick for the full roster, select a unit, then place on your row.';
     placementHand.innerHTML = '';
+    const q = placementHandFilterEl ? placementHandFilterEl.value.trim().toLowerCase() : '';
+    if (state.selectedPlacementIndex != null) {
+      const sel = hand[state.selectedPlacementIndex];
+      if (!sel || !unitMatchesPlacementFilter(sel, q)) state.selectedPlacementIndex = null;
+    }
+    let anyVisible = false;
     hand.forEach(function (unit, index) {
+      if (!unitMatchesPlacementFilter(unit, q)) return;
+      anyVisible = true;
       const div = document.createElement('div');
       div.className = 'hand-card' + (state.selectedPlacementIndex === index ? ' hand-card--selected' : '');
       div.setAttribute('role', 'listitem');
@@ -648,6 +922,13 @@
       div.innerHTML = createUnitCardHTML(unit, { faceUp: true, damage: 0, paralyzed: false });
       placementHand.appendChild(div);
     });
+    if (!anyVisible && hand.length > 0) {
+      const empty = document.createElement('p');
+      empty.className = 'setup__hand--empty-filter';
+      empty.setAttribute('role', 'status');
+      empty.textContent = 'No units match your filter.';
+      placementHand.appendChild(empty);
+    }
   }
 
   function placeUnit(player, slotIndex) {
@@ -655,7 +936,7 @@
     const idx = state.selectedPlacementIndex;
     if (idx == null || idx < 0 || idx >= hand.length) return;
     const unit = hand[idx];
-    state.board[player][slotIndex] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null };
+    state.board[player][slotIndex] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
     if (getTerrain(player, slotIndex) === 'Divine Light') state.board[player][slotIndex].faceUp = true;
     hand.splice(idx, 1);
     state.selectedPlacementIndex = null;
@@ -677,7 +958,7 @@
     const n = Math.min(shuffled.length, emptySlots.length);
     for (let i = 0; i < n; i++) {
       const slot = emptySlots[i];
-      state.board[player][slot] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false, gear: null };
+      state.board[player][slot] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
       if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
     }
     const placedSet = new Set(shuffled.slice(0, n));
@@ -696,6 +977,8 @@
     if (player === 1) {
       state.placementPlayer = 2;
       state.phase = 'setup_place_p2';
+      if (placementHandFilterEl) placementHandFilterEl.value = '';
+      closePlacementUnitPickList();
       renderPlacementStep();
       renderBoard();
     } else {
@@ -778,7 +1061,7 @@
     for (let i = 0; i < count && state.unitDeck.length > 0 && openSlots.length > 0; i++) {
       const unit = state.unitDeck.shift();
       const slot = openSlots.shift();
-      state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null };
+      state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
       if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
     }
   }
@@ -1196,8 +1479,8 @@
       log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and moves.");
     }
 
-    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null, veteranState: otherCell.veteranState || {} };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
     state.selectedUnit.column = next;
     state.moveDone = true;
     state.actionStep = 'attack';
@@ -1243,13 +1526,13 @@
     }
 
     if (targetCell == null) {
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
       state.board[p][fromCol] = null;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
       log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
     } else {
-      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null };
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null, veteranState: targetCell.veteranState || {} };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
       state.selectedUnit.column = toCol;
       if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
@@ -1631,45 +1914,81 @@
     let attackBlocked = false;
 
     if (!trueStrike) {
-      let lancerCol = null;
-      for (let c = 0; c < 5; c++) {
-        const cell = state.board[defenderPlayer][c];
-        if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
-        const dist = Math.abs(attackerCol - c);
-        const inCounterRange = (cell.gear && cell.gear.name === 'Vanguard Lance') ? (dist >= 1 && dist <= 2) : (dist === 1);
-        if (inCounterRange) {
-          lancerCol = c;
-          break;
+      const braskinProtected = attackerIsProtectedByBraskin(attackerPlayer, attackerCol);
+      if (braskinProtected) {
+        log("Braskin's Uncanny Block — this attack cannot be countered by enemy Lancers.");
+      } else {
+        const candidates = [];
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[defenderPlayer][c];
+          if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
+          if (!isCounterRangeForLancerCell(attackerCol, c, cell)) continue;
+          const guarantee = getCounterGuaranteeInfo(defenderPlayer, c, cell);
+          candidates.push({ col: c, guarantee: guarantee });
         }
-      }
 
-      if (lancerCol !== null) {
-        const lancerCell = state.board[defenderPlayer][lancerCol];
-        lancerCell.faceUp = true;
-        log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
-        if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
-          const unstableHeads = Math.random() < 0.5;
-          if (!unstableHeads) {
-            log("Unstable Ground (Lancer's tile): tails — counter canceled.");
-          } else {
-            log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
-            const heads = Math.random() < 0.5;
-            if (heads) {
-              log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
-              attackBlocked = true;
-              applyDamage(attackerPlayer, attackerCol, 1, "");
-            } else {
-              log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+        if (candidates.length > 0) {
+          let selected = null;
+          for (let i = 0; i < candidates.length; i++) {
+            if (candidates[i].guarantee.guaranteed) {
+              selected = candidates[i];
+              break;
             }
           }
-        } else {
-          const heads = Math.random() < 0.5;
-          if (heads) {
-            log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
-            attackBlocked = true;
-            applyDamage(attackerPlayer, attackerCol, 1, "");
-          } else {
-            log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+          if (!selected) selected = candidates[0];
+
+          const lancerCol = selected.col;
+          const lancerCell = state.board[defenderPlayer][lancerCol];
+          if (lancerCell) {
+            const guarantee = selected.guarantee;
+            lancerCell.faceUp = true;
+            log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
+
+            if (guarantee.revealCol !== null) {
+              const allyCell = state.board[defenderPlayer][guarantee.revealCol];
+              if (allyCell && !allyCell.faceUp) {
+                allyCell.faceUp = true;
+                log("Rowka's Twin Guard reveals " + allyCell.unit.name + ".");
+              }
+            }
+
+            if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
+              const unstableHeads = Math.random() < 0.5;
+              if (!unstableHeads) {
+                log("Unstable Ground (Lancer's tile): tails — counter canceled.");
+              } else {
+                log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
+                const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
+                if (guarantee.guaranteed && guarantee.reason === 'rowka') {
+                  log("Rowka's Twin Guard — counter is guaranteed.");
+                } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
+                  log("Nyss's Phantom Posture — face-down counter is guaranteed.");
+                }
+                if (counterHeads) {
+                  log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
+                  attackBlocked = true;
+                  applyDamage(attackerPlayer, attackerCol, 1, "");
+                  resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
+                } else {
+                  log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+                }
+              }
+            } else {
+              const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
+              if (guarantee.guaranteed && guarantee.reason === 'rowka') {
+                log("Rowka's Twin Guard — counter is guaranteed.");
+              } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
+                log("Nyss's Phantom Posture — face-down counter is guaranteed.");
+              }
+              if (counterHeads) {
+                log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
+                attackBlocked = true;
+                applyDamage(attackerPlayer, attackerCol, 1, "");
+                resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
+              } else {
+                log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+              }
+            }
           }
         }
       }
@@ -2079,6 +2398,29 @@
 
     document.getElementById('btn-place-randomly').addEventListener('click', placeAllRandomly);
 
+    if (btnPlacementReplaceWithPick) {
+      btnPlacementReplaceWithPick.addEventListener('click', function () {
+        openPlacementUnitPickList();
+      });
+    }
+    if (btnPlacementUnitPickClose) {
+      btnPlacementUnitPickClose.addEventListener('click', function (e) {
+        e.stopPropagation();
+        closePlacementUnitPickList();
+      });
+    }
+    if (placementUnitPickListEl) {
+      placementUnitPickListEl.addEventListener('click', function (e) {
+        const btn = e.target.closest('.setup__placement-unit-pick-btn');
+        if (btn && btn.dataset.unitName) applyPlacementUnitPick(btn.dataset.unitName);
+      });
+    }
+    if (placementUnitPickSearchEl) {
+      placementUnitPickSearchEl.addEventListener('input', function () {
+        renderPlacementUnitPickList(placementUnitPickSearchEl.value);
+      });
+    }
+
     btnMoveLeft.addEventListener('click', function () { if (!state.gameOver) doMove('left'); });
     btnMoveRight.addEventListener('click', function () { if (!state.gameOver) doMove('right'); });
     btnSkipMove.addEventListener('click', function () { if (!state.gameOver) doSkipMove(); });
@@ -2090,6 +2432,11 @@
     if (btnWardstoneNo) btnWardstoneNo.addEventListener('click', function () { if (!state.gameOver) doWardstoneNo(); });
 
     placementHand.addEventListener('click', handlePlacementHandClick);
+    if (placementHandFilterEl) {
+      placementHandFilterEl.addEventListener('input', function () {
+        if (state.phase === 'setup_place_p1' || state.phase === 'setup_place_p2') renderPlacementStep();
+      });
+    }
     document.querySelector('.board').addEventListener('click', handleSlotClick);
     const boardContainer = document.getElementById('board-container');
     if (boardContainer) boardContainer.addEventListener('click', handleItemHandClick);

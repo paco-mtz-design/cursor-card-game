@@ -10,6 +10,39 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 - Prefer logging **what moved the game forward** toward roadmap goals—especially changes that **nail requirements** you’re happy to keep.
 - **Handoff:** read the newest section first; compare intent with [ROADMAP.md](ROADMAP.md).
 - Phases **8–9** are summarized in ROADMAP and code history; this log’s detailed sections start at **Phase 10** for granularity.
+- **Rules clarifications** for players (what stops counters, veteran interactions, edge cases) are maintained in **[RULES.md](RULES.md)** and updated when implementation behavior is agreed.
+
+---
+
+## Phase 15 — Veteran buffs (partial) + placement QA tools
+
+**Status:** In progress (Lancer suite + infrastructure shipped; other veterans pending per roadmap).
+
+**Scope:** Per-character `veteranBuff` keys in [`data.js`](data.js); combat hooks for Braskin, Rowka, Nyss, Keera; cell `veteranState` placeholder; setup **filter hand** and **replace selected with pick** (full `CHARACTERS` roster via swaps with unit deck / other hand).
+
+### Data and helpers
+
+- **`veteranBuff`:** String id on each Veteran row (e.g. `braskin`, `rowka`, `nyss`, `keera`). Helpers: `getVeteranBuff(cell)`, `hasVeteranBuff(cell, key)` in [`game.js`](game.js).
+- **`veteranState`:** `{}` on new board cells; copied on move/teleport swap (for future per-unit veteran cooldowns/flags).
+
+### Lancer counter resolution (`resolveCombat`)
+
+**Order (early → late):**
+
+1. **True strike** (`trueStrike` in code): Vorpal Honing Amulet, True-Strike Lens (Shooter/Caster), Sharpshooter’s Scope (Shooter). Skips **entire** Lancer counter block (and attacker Unstable Ground, defender terrain per existing true-strike rules). Veteran “guaranteed counter” effects do **not** apply because no counter step runs — matches QA expectation.
+2. **Braskin (Uncanny Block):** If the **attacker** is **adjacent** (same row, `|Δcol| === 1`) to an allied Braskin (Veteran), **no** enemy Lancer counter is attempted for that attack. Checked **before** any defending Lancer is selected. This **short-circuits** Rowka’s Twin Guard and Nyss’s Phantom Posture for that attack: no counter candidate, so no guaranteed counter. Intentional: Braskin is a hard “no counter” gate for qualifying attacks.
+3. **Otherwise:** Build all defending Lancers in counter range (respecting Vanguard Lance distance 1–2 vs 1), excluding Lancers with `cannotAttackNextTurn` (e.g. Tangle-Vine Bola).
+4. **Candidate selection:** If any candidate has a **guaranteed** counter (Rowka + adjacent ally Lancer, or Nyss face-down), that Lancer is chosen first; else **lowest column index** (left-to-right scan behavior).
+5. **Unstable Ground (Lancer’s tile):** Coin **before** the counter success coin. On **tails**, the counter attempt is canceled entirely — Rowka/Nyss “force heads” does **not** apply, because the attempt never reaches the counter flip. On **heads**, proceed to counter resolution.
+6. **Counter coin:** Rowka (Twin Guard) and Nyss (face-down) force **heads** on this flip (log lines distinguish). Nyss flips face-up when revealed for counter; if already face-up, Phantom Posture does not apply.
+7. **Keera (Double Sword):** After a **successful** counter (`attackBlocked`), if the countering Lancer is Keera (Veteran), apply **+1 damage** to one additional enemy in Keera’s Lancer counter range from Keera’s column (excluding the original attacker). **Auto-target:** nearest column to Keera by distance, tie-break lower column index (no UI pick in this chunk).
+
+### QA / setup tooling
+
+- **Filter hand:** Search narrows visible placement cards; indices remain real hand indices.
+- **Replace selected with pick:** Picks any unit from full `CHARACTERS`; swaps references with unit deck or other hand; refuses if target is already on the board. Log lines prefixed `Debug: Placement —`.
+
+**Files touched:** `data.js`, `game.js`, `index.html`, `style.css`, `RULES.md`, `DEV_LOG.md`, `README.md`.
 
 ---
 
