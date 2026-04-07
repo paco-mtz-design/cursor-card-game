@@ -345,6 +345,173 @@
     applyDamage(attackerPlayer, targetCol, 1, "");
   }
 
+  function revealAndParalyze(player, col, reasonLabel) {
+    const cell = state.board[player][col];
+    if (!cell) return false;
+    if (!cell.faceUp) {
+      cell.faceUp = true;
+      log(cell.unit.name + " is revealed.");
+    }
+    cell.paralyzed = true;
+    log(cell.unit.name + " is paralyzed (" + reasonLabel + ").");
+    return true;
+  }
+
+  function healCellDamage(player, col, amount, reasonLabel) {
+    const cell = state.board[player][col];
+    if (!cell) return;
+    const current = cell.damage || 0;
+    if (current <= 0) {
+      log(reasonLabel + " — " + cell.unit.name + " is already at full HP.");
+      return;
+    }
+    const next = Math.max(0, current - amount);
+    const recovered = current - next;
+    cell.damage = next;
+    log(reasonLabel + " — " + cell.unit.name + " recovers " + recovered + " HP.");
+  }
+
+  function maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol) {
+    if (!hasVeteranBuff(attCell, 'torra')) return;
+    const heads = Math.random() < 0.5;
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!heads) {
+      log("Torra's Shattering Hammer: tails — no gear destroyed.");
+      return;
+    }
+    if (!defCell || !defCell.gear) {
+      log("Torra's Shattering Hammer: heads — target has no gear.");
+      return;
+    }
+    const removed = defCell.gear;
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(removed);
+    defCell.gear = null;
+    log("Torra's Shattering Hammer: heads — " + removed.name + " on " + defCell.unit.name + " is destroyed before damage.");
+  }
+
+  function getRokkloDamageBonus(attCell) {
+    if (!hasVeteranBuff(attCell, 'rokklo')) return 0;
+    const heads = Math.random() < 0.5;
+    if (!heads) {
+      log("Rokklo's Returning Hit: tails — no bonus damage.");
+      return 0;
+    }
+    log("Rokklo's Returning Hit: heads — +1 damage.");
+    return 1;
+  }
+
+  function maybeApplyHaskelSteal(attCell, attackerPlayer, defenderPlayer) {
+    if (!hasVeteranBuff(attCell, 'haskel')) return;
+    const attackerHand = attackerPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const defenderHand = defenderPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    if (!defenderHand || defenderHand.length === 0) {
+      log("Haskel's Pirate Claw — opponent has no item cards to steal.");
+      return;
+    }
+    const idx = Math.floor(Math.random() * defenderHand.length);
+    const stolen = defenderHand.splice(idx, 1)[0];
+    attackerHand.push(stolen);
+    log("Haskel's Pirate Claw — steals " + stolen.name + " from Player " + defenderPlayer + ".");
+  }
+
+  function maybeApplyLyraEcho(attCell, attackerCol, defenderPlayer, defenderCol) {
+    if (!hasVeteranBuff(attCell, 'lyra')) return;
+    const heads = Math.random() < 0.5;
+    if (!heads) {
+      log("Lyra's Blast Echo: tails — no extra hit.");
+      return;
+    }
+    const dist = Math.abs(defenderCol - attackerCol);
+    if (dist < 2) {
+      log("Lyra's Blast Echo: heads — no between tile for this attack.");
+      return;
+    }
+    const betweenCol = defenderCol > attackerCol ? defenderCol - 1 : defenderCol + 1;
+    if (betweenCol < 0 || betweenCol > 4) {
+      log("Lyra's Blast Echo: heads — no enemy unit in the between tile.");
+      return;
+    }
+    const betweenCell = state.board[defenderPlayer][betweenCol];
+    if (!betweenCell) {
+      log("Lyra's Blast Echo: heads — no enemy unit in the between tile.");
+      return;
+    }
+    log("Lyra's Blast Echo: heads — extra 1 damage to " + betweenCell.unit.name + ".");
+    applyDamage(defenderPlayer, betweenCol, 1, "");
+  }
+
+  function maybeApplySolomonFrontParalyze(attCell, attackerCol, defenderPlayer) {
+    if (!hasVeteranBuff(attCell, 'solomon')) return;
+    const frontCol = attackerCol;
+    const frontCell = state.board[defenderPlayer][frontCol];
+    if (!frontCell) {
+      log("Solomon's Lunar Dazzle — no enemy directly in front.");
+      return;
+    }
+    revealAndParalyze(defenderPlayer, frontCol, 'Lunar Dazzle');
+  }
+
+  function maybeApplyChronirAdjacentParalyze(attCell, defenderPlayer, defenderCol) {
+    if (!hasVeteranBuff(attCell, 'chronir')) return;
+    const cols = [];
+    if (defenderCol - 1 >= 0 && state.board[defenderPlayer][defenderCol - 1]) cols.push(defenderCol - 1);
+    if (defenderCol + 1 <= 4 && state.board[defenderPlayer][defenderCol + 1]) cols.push(defenderCol + 1);
+    if (cols.length === 0) {
+      log("Chronir's Frozen Chain — no adjacent enemy to paralyze.");
+      return;
+    }
+    if (cols.length === 1) {
+      revealAndParalyze(defenderPlayer, cols[0], 'Frozen Chain');
+      return;
+    }
+    state.pendingChronirChoice = { defenderPlayer: defenderPlayer, targetCols: cols.slice() };
+    log("Chronir's Frozen Chain — choose an adjacent enemy to paralyze.");
+  }
+
+  function finishResolvedCombatTurn() {
+    replaceCapturedUnitsBeforePass();
+    var winner = checkGameOver();
+    if (winner !== null) {
+      showGameOver(winner);
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      updateCaptureDisplay();
+      renderBoard();
+      return;
+    }
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    updateCaptureDisplay();
+    renderBoard();
+    endTurn();
+  }
+
+  function resolvePendingChronirChoice(column) {
+    const pending = state.pendingChronirChoice;
+    if (!pending) return;
+    if (pending.targetCols.indexOf(column) === -1) return;
+    const target = state.board[pending.defenderPlayer][column];
+    state.pendingChronirChoice = null;
+    if (!target) {
+      log("Chronir's Frozen Chain — chosen target is no longer valid.");
+      finishResolvedCombatTurn();
+      return;
+    }
+    revealAndParalyze(pending.defenderPlayer, column, 'Frozen Chain');
+    finishResolvedCombatTurn();
+  }
+
+  function maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, didCapture) {
+    if (!hasVeteranBuff(attCell, 'grolk') || !didCapture) return;
+    const heads = Math.random() < 0.5;
+    if (!heads) {
+      log("Grolk's Bloodthirst: tails — no healing.");
+      return;
+    }
+    healCellDamage(attackerPlayer, attackerCol, 1, "Grolk's Bloodthirst");
+  }
+
   /** Lancer range: attacker column is diagonal to defender (defender at defCol). */
   function isLancerCounterRange(attackerCol, defenderCol) {
     return Math.abs(attackerCol - defenderCol) === 1;
@@ -571,6 +738,15 @@
       slot.classList.remove('slot--selectable', 'slot--selected');
     });
     if (state.pendingWardstone) return;
+    if (state.pendingChronirChoice) {
+      const pending = state.pendingChronirChoice;
+      for (let i = 0; i < pending.targetCols.length; i++) {
+        const c = pending.targetCols[i];
+        const slot = document.querySelector('.row--player' + pending.defenderPlayer + ' .slot[data-column="' + c + '"]');
+        if (slot) slot.classList.add('slot--selectable');
+      }
+      return;
+    }
     const p = state.currentPlayer;
     const step = state.actionStep;
     const sel = state.selectedUnit;
@@ -1341,6 +1517,10 @@
       if (btnWardstoneNo) btnWardstoneNo.hidden = false;
       return;
     }
+    if (state.pendingChronirChoice) {
+      turnStep.textContent = "Chronir's Frozen Chain: choose an adjacent enemy to paralyze.";
+      return;
+    }
 
     if (step === 'use_items') {
       if (state.obscuringReorder) {
@@ -2030,13 +2210,16 @@
         attackHitDefender = true;
         const vorpalLethal = (state.vorpalNextAttack === attackerPlayer);
         const archmageMulti = effectiveClass === 'Caster' && attCell.unit.class === 'Caster' && attCell.gear && attCell.gear.name === "Archmage's Tome" && !attCell.nextAttackAsCaster;
-        let damage = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol))
+        maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol);
+        const shooterLongshot = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol));
+        let damage = shooterLongshot
           ? 2
           : 1;
+        damage += getRokkloDamageBonus(attCell);
         if (vorpalLethal) {
           damage = Math.max(1, getMaxHP(defCell) - (defCell.damage || 0));
           log("Vorpal Honing Amulet — lethal strike (" + damage + " damage).");
-        } else if (effectiveClass === 'Shooter' && damage === 2) {
+        } else if (shooterLongshot) {
           log("Longshot (edge to edge): 2 damage.");
         }
         if (archmageMulti) {
@@ -2051,6 +2234,11 @@
             state.board[defenderPlayer][defenderCol].paralyzed = true;
             log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
           }
+          maybeApplyHaskelSteal(attCell, attackerPlayer, defenderPlayer);
+          maybeApplyLyraEcho(attCell, attackerCol, defenderPlayer, defenderCol);
+          maybeApplySolomonFrontParalyze(attCell, attackerCol, defenderPlayer);
+          maybeApplyChronirAdjacentParalyze(attCell, defenderPlayer, defenderCol);
+          maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, captured);
         }
       }
     }
@@ -2084,21 +2272,12 @@
       state.vorpalNextAttack = null;
     }
 
-    replaceCapturedUnitsBeforePass();
-    var winner = checkGameOver();
-    if (winner !== null) {
-      showGameOver(winner);
-      state.selectedUnit = null;
-      state.actionStep = 'select_unit';
-      updateCaptureDisplay();
+    if (state.pendingChronirChoice) {
+      renderTurnUI();
       renderBoard();
       return;
     }
-    state.selectedUnit = null;
-    state.actionStep = 'select_unit';
-    updateCaptureDisplay();
-    renderBoard();
-    endTurn();
+    finishResolvedCombatTurn();
   }
 
   function continueArchmageMulti() {
@@ -2211,6 +2390,14 @@
 
     const p = state.currentPlayer;
     const step = state.actionStep;
+
+    if (state.pendingChronirChoice) {
+      const pending = state.pendingChronirChoice;
+      if (player !== pending.defenderPlayer) return;
+      if (pending.targetCols.indexOf(column) === -1) return;
+      resolvePendingChronirChoice(column);
+      return;
+    }
 
     if (step === 'use_items' && state.obscuringReorder) {
       const reord = state.obscuringReorder;

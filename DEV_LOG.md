@@ -16,9 +16,9 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ## Phase 15 — Veteran buffs (partial) + placement QA tools
 
-**Status:** In progress (Lancer suite + infrastructure shipped; other veterans pending per roadmap).
+**Status:** In progress (Lancer suite + on-hit subset + infrastructure shipped; other veterans pending per roadmap).
 
-**Scope:** Per-character `veteranBuff` keys in [`data.js`](data.js); combat hooks for Braskin, Rowka, Nyss, Keera; cell `veteranState` placeholder; setup **filter hand** and **replace selected with pick** (full `CHARACTERS` roster via swaps with unit deck / other hand).
+**Scope:** Per-character `veteranBuff` keys in [`data.js`](data.js); combat hooks for Braskin, Rowka, Nyss, Keera plus on-hit veterans (Torra, Haskel, Lyra, Rokklo, Solomon, Chronir, Grolk); cell `veteranState` placeholder; setup **filter hand** and **replace selected with pick** (full `CHARACTERS` roster via swaps with unit deck / other hand).
 
 ### Data and helpers
 
@@ -37,12 +37,31 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 6. **Counter coin:** Rowka (Twin Guard) and Nyss (face-down) force **heads** on this flip (log lines distinguish). Nyss flips face-up when revealed for counter; if already face-up, Phantom Posture does not apply.
 7. **Keera (Double Sword):** After a **successful** counter (`attackBlocked`), if the countering Lancer is Keera (Veteran), apply **+1 damage** to one additional enemy in Keera’s Lancer counter range from Keera’s column (excluding the original attacker). **Auto-target:** nearest column to Keera by distance, tie-break lower column index (no UI pick in this chunk).
 
+### On-hit veteran resolution (`resolveCombat`)
+
+These run only when the attack **actually hits** the defender (not canceled by true-strike gating, counter block, Wardstone negation, or defender terrain fail):
+
+- **Torra (Shattering Hammer):** Before damage, flip coin; on heads destroy target gear (if any), sending it to item discard.
+- **Rokklo (Returning Hit):** Before damage, flip coin; on heads gain **+1** attack damage.
+- **Haskel (Pirate Claw):** After hit, steal 1 random card from defender’s item hand.
+- **Lyra (Blast Echo):** After hit, flip coin; on heads deal 1 damage to enemy in the tile between attacker and target (if occupied).
+- **Solomon (Lunar Dazzle):** After hit, paralyze and reveal (if needed) the enemy directly in front of Solomon’s column.
+- **Chronir (Frozen Chain):** After hit, paralyze and reveal (if needed) one enemy adjacent to the target column. **Auto-target:** lower adjacent column first.
+- **Grolk (Bloodthirst):** If the hit captured the target, flip coin; on heads heal attacker by 1 damage (if not already full HP).
+
+### QA follow-up (on-hit chunk adjustments)
+
+- **Rokklo log fix:** Longshot log now prints only when attack is actually edge-to-edge; Rokklo +1 no longer produces a false Longshot message on non-edge tiles.
+- **Lyra target refinement:** "Between" tile now resolves from the target side toward the attacker (more natural line-of-fire behavior). Log text clarified for cases with no enemy in that tile.
+- **Chronir selection UX:** When two adjacent enemies are valid, combat pauses and player selects which adjacent target to paralyze using standard board slot highlighting + turn helper text. If only one adjacent enemy exists, it resolves automatically.
+
 ### QA / setup tooling
 
 - **Filter hand:** Search narrows visible placement cards; indices remain real hand indices.
 - **Replace selected with pick:** Picks any unit from full `CHARACTERS`; swaps references with unit deck or other hand; refuses if target is already on the board. Log lines prefixed `Debug: Placement —`.
 
 **Files touched:** `data.js`, `game.js`, `index.html`, `style.css`, `RULES.md`, `DEV_LOG.md`, `README.md`.
+**Chunk update files:** `game.js`, `DEV_LOG.md`.
 
 ---
 
