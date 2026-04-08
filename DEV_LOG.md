@@ -55,6 +55,23 @@ These run only when the attack **actually hits** the defender (not canceled by t
 - **Lyra target refinement:** "Between" tile now resolves from the target side toward the attacker (more natural line-of-fire behavior). Log text clarified for cases with no enemy in that tile.
 - **Chronir selection UX:** When two adjacent enemies are valid, combat pauses and player selects which adjacent target to paralyze using standard board slot highlighting + turn helper text. If only one adjacent enemy exists, it resolves automatically.
 
+### R1 interrupt flow implementation (ready for QA)
+
+- **Jorren (Berserker):** Tracks consecutive turns where Jorren attacks via `veteranState`; adds +1 damage on consecutive-turn attacks (non-stacking).
+- **Tival (Quick Reload):** When an attack fails to land from Unstable Ground cancel, Lancer counter block, defender terrain block, or Wardstone negation, Tival can immediately retry the same target.
+- **Harlund (Pack Shield):** On incoming hit to an adjacent ally, player can confirm swap so Harlund takes the hit instead (wired for regular combat + Archmage per-target flow).
+- **Vaela (Instinctive Strike):** On enemy move/swap into Vaela’s front column, coin flip; heads deals 1 damage to mover and ends that turn.
+- **Cassa (Twin Arc):** If attacking a face-up target while at least two face-up enemies are in range, player can enable Twin Arc to perform a second attack this turn; Twin Arc is then blocked on the unit’s next turn.
+
+### R1 QA fixes
+
+- **Harlund + Archmage:** Pack Shield can trigger at most once per attack sequence (including Archmage multi-target chains).
+- **Harlund protect-sequence rule:** When Pack Shield is used, the originally protected ally is immune to any remaining hit packets/effects from the same attack sequence.
+- **Vaela reinforcement timing:** When Vaela captures a mover, the active player's captured-unit reinforcement now runs before turn pass, avoiding delayed replacement.
+- **Vaela + Obscuring bomb:** Vaela does not trigger during Obscuring bomb reorder swaps.
+- **Cassa second target:** When multiple valid Twin Arc follow-up targets exist, player now picks the second target via board-highlight selection instead of deterministic auto-pick.
+- **Prompt UX:** Tival retry and Cassa Twin Arc prompts now use the header action-strip buttons (Wardstone-style), not browser-native confirm dialogs.
+
 ### QA / setup tooling
 
 - **Filter hand:** Search narrows visible placement cards; indices remain real hand indices.

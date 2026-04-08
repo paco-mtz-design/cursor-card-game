@@ -512,6 +512,425 @@
     healCellDamage(attackerPlayer, attackerCol, 1, "Grolk's Bloodthirst");
   }
 
+  function getJorrenDamageBonus(attCell) {
+    if (!hasVeteranBuff(attCell, 'jorren')) return 0;
+    if (!attCell.veteranState) attCell.veteranState = {};
+    const bonus = attCell.veteranState.jorrenAttackedLastOwnTurn ? 1 : 0;
+    if (bonus > 0) log("Jorren's Berserker — consecutive-turn attack deals +1 damage.");
+    return bonus;
+  }
+
+  function markJorrenAttackThisTurn(attCell) {
+    if (!hasVeteranBuff(attCell, 'jorren')) return;
+    if (!attCell.veteranState) attCell.veteranState = {};
+    attCell.veteranState.jorrenAttackedThisTurn = true;
+  }
+
+  function updateJorrenFlagsAtTurnEnd(player) {
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[player][c];
+      if (!cell || !hasVeteranBuff(cell, 'jorren')) continue;
+      if (!cell.veteranState) cell.veteranState = {};
+      cell.veteranState.jorrenAttackedLastOwnTurn = !!cell.veteranState.jorrenAttackedThisTurn;
+      cell.veteranState.jorrenAttackedThisTurn = false;
+    }
+  }
+
+  function refreshCassaCooldownForTurn(player) {
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[player][c];
+      if (!cell || !hasVeteranBuff(cell, 'cassa')) continue;
+      if (!cell.veteranState) cell.veteranState = {};
+      if (cell.veteranState.cassaBlockNextTurn) {
+        cell.veteranState.cassaBlockedThisTurn = true;
+        cell.veteranState.cassaBlockNextTurn = false;
+      } else {
+        cell.veteranState.cassaBlockedThisTurn = false;
+      }
+    }
+  }
+
+  function getFaceUpEnemyColsInRange(attackerPlayer, attackerCol, attCell, defenderPlayer) {
+    const cols = [];
+    for (let c = 0; c < 5; c++) {
+      const enemyCell = state.board[defenderPlayer][c];
+      if (!enemyCell || !enemyCell.faceUp) continue;
+      if (!isInRangeWithCell(attackerCol, c, attCell)) continue;
+      cols.push(c);
+    }
+    return cols;
+  }
+
+  function prepareCassaTwinArcOpportunity(attackerPlayer, attackerCol, defenderPlayer, firstDefCol) {
+    const attCell = state.board[attackerPlayer][attackerCol];
+    const targetCell = state.board[defenderPlayer][firstDefCol];
+    if (!attCell || !targetCell || !hasVeteranBuff(attCell, 'cassa')) return;
+    if (!attCell.veteranState) attCell.veteranState = {};
+    if (attCell.veteranState.cassaBlockedThisTurn) {
+      log("Cassa's Twin Arc is on cooldown this turn.");
+      return;
+    }
+    if (state.cassaSecondAttackInProgress) return;
+    if (!targetCell.faceUp) return;
+    const faceUpInRange = getFaceUpEnemyColsInRange(attackerPlayer, attackerCol, attCell, defenderPlayer);
+    if (faceUpInRange.length < 2) return;
+    const options = faceUpInRange.filter(function (c) { return c !== firstDefCol; });
+    if (options.length === 0) return;
+    state.pendingCassaOpportunity = {
+      attPlayer: attackerPlayer,
+      attCol: attackerCol,
+      defPlayer: defenderPlayer,
+      firstDefCol: firstDefCol,
+      options: options.slice(),
+    };
+  }
+
+  function runPendingCassaSecondAttackIfAvailable() {
+    const pending = state.pendingCassaSecondAttack;
+    if (!pending) return false;
+    if (checkGameOver() !== null) {
+      state.pendingCassaSecondAttack = null;
+      return false;
+    }
+    state.pendingCassaSecondAttack = null;
+    const attCell = state.board[pending.attPlayer][pending.attCol];
+    const defCell = state.board[pending.defPlayer][pending.defCol];
+    if (!attCell || !defCell) return false;
+    log("Cassa's Twin Arc — second attack on column " + pending.defCol + ".");
+    state.cassaSecondAttackInProgress = true;
+    beginAttackAgainstTarget(pending.attPlayer, pending.attCol, pending.defPlayer, pending.defCol);
+    state.cassaSecondAttackInProgress = false;
+    return true;
+  }
+
+  function hasAdjacentHarlundForTarget(defenderPlayer, defenderCol) {
+    const targetCell = state.board[defenderPlayer][defenderCol];
+    if (!targetCell) return false;
+    const left = defenderCol - 1;
+    const right = defenderCol + 1;
+    if (left >= 0) {
+      const leftCell = state.board[defenderPlayer][left];
+      if (leftCell && hasVeteranBuff(leftCell, 'harlund')) return true;
+    }
+    if (right <= 4) {
+      const rightCell = state.board[defenderPlayer][right];
+      if (rightCell && hasVeteranBuff(rightCell, 'harlund')) return true;
+    }
+    return false;
+  }
+
+  function beginAttackAgainstTarget(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
+    const opts = options || {};
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!defCell) return false;
+    if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') {
+      state.pendingWardstone = { attPlayer: attackerPlayer, attCol: attackerCol, defPlayer: defenderPlayer, defCol: defenderCol };
+      renderTurnUI();
+      renderBoard();
+      return true;
+    }
+    resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, opts);
+    return true;
+  }
+
+  function maybeRedirectToHarlund(defenderPlayer, defenderCol, attackContext) {
+    if (attackContext && attackContext.harlundUsed) {
+      if (typeof attackContext.protectedCol === 'number' && defenderCol === attackContext.protectedCol) {
+        return null;
+      }
+      return defenderCol;
+    }
+    const left = defenderCol - 1;
+    const right = defenderCol + 1;
+    let harlundCol = null;
+    if (left >= 0) {
+      const leftCell = state.board[defenderPlayer][left];
+      if (leftCell && hasVeteranBuff(leftCell, 'harlund')) harlundCol = left;
+    }
+    if (harlundCol == null && right <= 4) {
+      const rightCell = state.board[defenderPlayer][right];
+      if (rightCell && hasVeteranBuff(rightCell, 'harlund')) harlundCol = right;
+    }
+    if (harlundCol == null) return defenderCol;
+    const allyCell = state.board[defenderPlayer][defenderCol];
+    const harlundCell = state.board[defenderPlayer][harlundCol];
+    if (!allyCell || !harlundCell) return defenderCol;
+    const useShield = !!(attackContext && attackContext.harlundDecision === 'use');
+    if (!useShield) {
+      if (!attackContext || !attackContext.harlundDeclineLogged) {
+        log("Harlund's Pack Shield not used.");
+        if (attackContext) attackContext.harlundDeclineLogged = true;
+      }
+      return defenderCol;
+    }
+    state.board[defenderPlayer][defenderCol] = harlundCell;
+    state.board[defenderPlayer][harlundCol] = allyCell;
+    state.board[defenderPlayer][defenderCol].faceUp = true;
+    if (attackContext) {
+      attackContext.harlundUsed = true;
+      attackContext.protectedCol = harlundCol;
+    }
+    log("Harlund's Pack Shield — " + harlundCell.unit.name + " swaps in and takes the hit.");
+    return defenderCol;
+  }
+
+  function queueTivalRetryPrompt(attackerPlayer, attackerCol, defenderPlayer, defenderCol, reasonLabel) {
+    if (state.tivalRetryInProgress) return false;
+    const attCell = state.board[attackerPlayer][attackerCol];
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!attCell || !defCell) return false;
+    if (!hasVeteranBuff(attCell, 'tival')) return false;
+    state.pendingVeteranPrompt = {
+      type: 'tivalRetry',
+      message: "Tival's Quick Reload: " + reasonLabel + ". Retry attack on the same target now?",
+      useLabel: 'Retry attack',
+      noLabel: 'No',
+      attPlayer: attackerPlayer,
+      attCol: attackerCol,
+      defPlayer: defenderPlayer,
+      defCol: defenderCol,
+    };
+    return true;
+  }
+
+  function maybeTriggerVaelaFrontStrike(moverPlayer, moverCol) {
+    const moverCell = state.board[moverPlayer][moverCol];
+    if (!moverCell) return false;
+    const opp = moverPlayer === 1 ? 2 : 1;
+    const vaelaCell = state.board[opp][moverCol];
+    if (!vaelaCell || !hasVeteranBuff(vaelaCell, 'vaela')) return false;
+    const heads = Math.random() < 0.5;
+    if (!heads) {
+      log("Vaela's Instinctive Strike: tails — no interruption.");
+      return false;
+    }
+    log("Vaela's Instinctive Strike: heads — " + moverCell.unit.name + " takes 1 damage and turn ends.");
+    applyDamage(moverPlayer, moverCol, 1, "");
+    replaceCapturedUnitsBeforePass();
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    renderTurnUI();
+    renderBoard();
+    endTurn();
+    return true;
+  }
+
+  function queueCassaUsePromptIfReady(attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
+    if (state.cassaSecondAttackInProgress) return false;
+    const opp = state.pendingCassaOpportunity;
+    if (!opp) return false;
+    if (opp.attPlayer !== attackerPlayer || opp.attCol !== attackerCol || opp.defPlayer !== defenderPlayer || opp.firstDefCol !== defenderCol) return false;
+    const attCell = state.board[attackerPlayer][attackerCol];
+    if (!attCell || !hasVeteranBuff(attCell, 'cassa')) {
+      state.pendingCassaOpportunity = null;
+      return false;
+    }
+    if (!attCell.veteranState) attCell.veteranState = {};
+    if (attCell.veteranState.cassaBlockedThisTurn) {
+      state.pendingCassaOpportunity = null;
+      return false;
+    }
+    const options = opp.options.filter(function (c) {
+      const cell = state.board[defenderPlayer][c];
+      return !!(cell && cell.faceUp && isInRangeWithCell(attackerCol, c, attCell));
+    });
+    state.pendingCassaOpportunity = null;
+    if (options.length === 0) return false;
+    state.pendingVeteranPrompt = {
+      type: 'cassaTwinArc',
+      message: "Cassa's Twin Arc is available. Use it for a second attack?",
+      useLabel: 'Use Twin Arc',
+      noLabel: 'No',
+      attPlayer: attackerPlayer,
+      attCol: attackerCol,
+      defPlayer: defenderPlayer,
+      options: options.slice(),
+    };
+    return true;
+  }
+
+  function resolvePendingCassaChoice(column) {
+    const pending = state.pendingCassaChoice;
+    if (!pending) return;
+    if (pending.targetCols.indexOf(column) === -1) return;
+    state.pendingCassaChoice = null;
+    state.pendingCassaSecondAttack = {
+      attPlayer: pending.attPlayer,
+      attCol: pending.attCol,
+      defPlayer: pending.defPlayer,
+      defCol: column,
+    };
+    const attCell = state.board[pending.attPlayer][pending.attCol];
+    if (attCell) {
+      if (!attCell.veteranState) attCell.veteranState = {};
+      attCell.veteranState.cassaBlockNextTurn = true;
+    }
+    log("Cassa's Twin Arc — second attack prepared (column " + column + ").");
+    if (runPendingCassaSecondAttackIfAvailable()) return;
+    finishResolvedCombatTurn();
+  }
+
+  function resolveHarlundSinglePrompt(useShield) {
+    const prompt = state.pendingVeteranPrompt;
+    if (!prompt || prompt.type !== 'harlundOnHitSingle') return;
+    state.pendingVeteranPrompt = null;
+    const attCell = state.board[prompt.attPlayer][prompt.attCol];
+    if (!attCell) {
+      finishResolvedCombatTurn();
+      return;
+    }
+    const attackContext = {
+      harlundUsed: false,
+      harlundDecision: useShield ? 'use' : 'no',
+      harlundDeclineLogged: false,
+      harlundPromptResolved: true,
+      protectedCol: null,
+    };
+    const hitCol = maybeRedirectToHarlund(prompt.defPlayer, prompt.defCol, attackContext);
+    if (hitCol == null) {
+      log("Harlund's Pack Shield — protected ally ignores the rest of this attack sequence.");
+      if (queueCassaUsePromptIfReady(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol)) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      if (runPendingCassaSecondAttackIfAvailable()) return;
+      finishResolvedCombatTurn();
+      return;
+    }
+    const captured = applyDamage(prompt.defPlayer, hitCol, prompt.damage, "");
+    if (!captured && state.board[prompt.defPlayer][hitCol] && prompt.effectiveClass === 'Caster') {
+      state.board[prompt.defPlayer][hitCol].paralyzed = true;
+      log(state.board[prompt.defPlayer][hitCol].unit.name + " is paralyzed (Magic Paralysis).");
+    }
+    maybeApplyHaskelSteal(attCell, prompt.attPlayer, prompt.defPlayer);
+    maybeApplyLyraEcho(attCell, prompt.attCol, prompt.defPlayer, hitCol);
+    maybeApplySolomonFrontParalyze(attCell, prompt.attCol, prompt.defPlayer);
+    maybeApplyChronirAdjacentParalyze(attCell, prompt.defPlayer, hitCol);
+    maybeApplyGrolkCaptureHeal(attCell, prompt.attPlayer, prompt.attCol, captured);
+    const attCellAfter = state.board[prompt.attPlayer][prompt.attCol];
+    if (attCellAfter && attCellAfter.nextAttackAsCaster) {
+      attCellAfter.nextAttackAsCaster = false;
+    }
+    if (prompt.defenderHadBarbedGauntlets && (prompt.attClassForBarbed === 'Brawler' || prompt.attClassForBarbed === 'Lancer')) {
+      const heads = Math.random() < 0.5;
+      if (heads) {
+        const attRef = state.board[prompt.attPlayer][prompt.attCol];
+        if (attRef) {
+          const maxHP = getMaxHP(attRef);
+          const current = attRef.damage || 0;
+          const newTotal = current + 1;
+          if (newTotal >= maxHP) {
+            log("Barbed Gauntlets: heads — " + attRef.unit.name + " takes 1 damage from the defender's gauntlets and is captured.");
+          } else {
+            log("Barbed Gauntlets: heads — " + attRef.unit.name + " takes 1 damage from the defender's gauntlets (" + newTotal + "/" + maxHP + " HP).");
+          }
+          applyDamage(prompt.attPlayer, prompt.attCol, 1, null, true);
+        }
+      } else {
+        log("Barbed Gauntlets: tails — no reflected damage.");
+      }
+    }
+    if (state.vorpalNextAttack === prompt.attPlayer) {
+      state.vorpalNextAttack = null;
+    }
+    if (state.pendingChronirChoice) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (queueCassaUsePromptIfReady(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol)) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (runPendingCassaSecondAttackIfAvailable()) return;
+    finishResolvedCombatTurn();
+  }
+
+  function resolveHarlundArchmagePrompt(useShield) {
+    const prompt = state.pendingVeteranPrompt;
+    if (!prompt || prompt.type !== 'harlundOnHitArchmage') return;
+    state.pendingVeteranPrompt = null;
+    const ar = state.archmageMultiResolving;
+    if (!ar) return;
+    ar.harlundPromptResolved = true;
+    ar.harlundDecision = useShield ? 'use' : 'no';
+    if (!useShield) ar.protectedCol = null;
+    continueArchmageMulti();
+  }
+
+  function doVeteranPromptUse() {
+    const prompt = state.pendingVeteranPrompt;
+    if (!prompt) return;
+    if (prompt.type === 'tivalRetry') {
+      state.pendingVeteranPrompt = null;
+      log("Tival's Quick Reload — immediate retry on the same target.");
+      state.tivalRetryInProgress = true;
+      beginAttackAgainstTarget(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol);
+      state.tivalRetryInProgress = false;
+      return;
+    }
+    if (prompt.type === 'harlundOnHitSingle') {
+      resolveHarlundSinglePrompt(true);
+      return;
+    }
+    if (prompt.type === 'harlundOnHitArchmage') {
+      resolveHarlundArchmagePrompt(true);
+      return;
+    }
+    if (prompt.type === 'cassaTwinArc') {
+      state.pendingVeteranPrompt = null;
+      if (prompt.options.length === 1) {
+        const onlyCol = prompt.options[0];
+        state.pendingCassaSecondAttack = { attPlayer: prompt.attPlayer, attCol: prompt.attCol, defPlayer: prompt.defPlayer, defCol: onlyCol };
+        const attCell = state.board[prompt.attPlayer][prompt.attCol];
+        if (attCell) {
+          if (!attCell.veteranState) attCell.veteranState = {};
+          attCell.veteranState.cassaBlockNextTurn = true;
+        }
+        log("Cassa's Twin Arc — second attack prepared (column " + onlyCol + ").");
+        if (runPendingCassaSecondAttackIfAvailable()) return;
+        finishResolvedCombatTurn();
+        return;
+      }
+      state.pendingCassaChoice = {
+        attPlayer: prompt.attPlayer,
+        attCol: prompt.attCol,
+        defPlayer: prompt.defPlayer,
+        targetCols: prompt.options.slice(),
+      };
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+  }
+
+  function doVeteranPromptNo() {
+    const prompt = state.pendingVeteranPrompt;
+    if (!prompt) return;
+    if (prompt.type === 'tivalRetry') {
+      state.pendingVeteranPrompt = null;
+      log("Tival's Quick Reload not used.");
+      finishResolvedCombatTurn();
+      return;
+    }
+    if (prompt.type === 'harlundOnHitSingle') {
+      resolveHarlundSinglePrompt(false);
+      return;
+    }
+    if (prompt.type === 'harlundOnHitArchmage') {
+      resolveHarlundArchmagePrompt(false);
+      return;
+    }
+    if (prompt.type === 'cassaTwinArc') {
+      state.pendingVeteranPrompt = null;
+      log("Cassa's Twin Arc not used.");
+      finishResolvedCombatTurn();
+      return;
+    }
+  }
+
   /** Lancer range: attacker column is diagonal to defender (defender at defCol). */
   function isLancerCounterRange(attackerCol, defenderCol) {
     return Math.abs(attackerCol - defenderCol) === 1;
@@ -738,6 +1157,15 @@
       slot.classList.remove('slot--selectable', 'slot--selected');
     });
     if (state.pendingWardstone) return;
+    if (state.pendingCassaChoice) {
+      const pendingCassa = state.pendingCassaChoice;
+      for (let i = 0; i < pendingCassa.targetCols.length; i++) {
+        const c = pendingCassa.targetCols[i];
+        const slot = document.querySelector('.row--player' + pendingCassa.defPlayer + ' .slot[data-column="' + c + '"]');
+        if (slot) slot.classList.add('slot--selectable');
+      }
+      return;
+    }
     if (state.pendingChronirChoice) {
       const pending = state.pendingChronirChoice;
       for (let i = 0; i < pending.targetCols.length; i++) {
@@ -1193,6 +1621,7 @@
     state.selectedUnit = null;
     state.moveDone = false;
     state.itemTargeting = null;
+    refreshCassaCooldownForTurn(p);
 
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
@@ -1515,6 +1944,26 @@
       turnActions.hidden = false;
       if (btnWardstoneUse) btnWardstoneUse.hidden = false;
       if (btnWardstoneNo) btnWardstoneNo.hidden = false;
+      if (btnWardstoneUse) btnWardstoneUse.textContent = 'Use Wardstone';
+      if (btnWardstoneNo) btnWardstoneNo.textContent = 'No';
+      return;
+    }
+    if (state.pendingVeteranPrompt) {
+      const pv = state.pendingVeteranPrompt;
+      turnStep.textContent = pv.message || 'Use veteran effect?';
+      turnActions.hidden = false;
+      if (btnWardstoneUse) {
+        btnWardstoneUse.hidden = false;
+        btnWardstoneUse.textContent = pv.useLabel || 'Use';
+      }
+      if (btnWardstoneNo) {
+        btnWardstoneNo.hidden = false;
+        btnWardstoneNo.textContent = pv.noLabel || 'No';
+      }
+      return;
+    }
+    if (state.pendingCassaChoice) {
+      turnStep.textContent = "Cassa's Twin Arc: choose the second target.";
       return;
     }
     if (state.pendingChronirChoice) {
@@ -1666,6 +2115,7 @@
     state.actionStep = 'attack';
     if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) state.board[p][c].faceUp = true;
     if (getTerrain(p, next) === 'Divine Light' && state.board[p][next]) state.board[p][next].faceUp = true;
+    if (maybeTriggerVaelaFrontStrike(p, next)) return;
     let moveLog = "Player " + p + "'s " + myCell.unit.name + " moves " + direction + " (swaps with " + otherCell.unit.name + ").";
     if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) moveLog += " " + otherCell.unit.name + " is revealed (Divine Light).";
     log(moveLog);
@@ -1723,6 +2173,7 @@
     state.selectedUnit.column = toCol;
     state.moveDone = true;
     state.actionStep = 'attack';
+    if (maybeTriggerVaelaFrontStrike(p, toCol)) return;
     renderTurnUI();
     renderBoard();
   }
@@ -1755,7 +2206,12 @@
   }
 
   function doWardstoneUse() {
+    if (state.pendingVeteranPrompt) {
+      doVeteranPromptUse();
+      return;
+    }
     if (!state.pendingWardstone) return;
+    const pw = state.pendingWardstone;
     const defCell = state.board[state.pendingWardstone.defPlayer][state.pendingWardstone.defCol];
     if (!defCell || !defCell.gear || defCell.gear.name !== 'Wardstone Bracelet') {
       state.pendingWardstone = null;
@@ -1772,6 +2228,12 @@
       state.archmageMultiResolving.index++;
       continueArchmageMulti();
     } else {
+      if (runPendingCassaSecondAttackIfAvailable()) return;
+      if (queueTivalRetryPrompt(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol, "attack was negated by Wardstone")) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
       state.selectedUnit = null;
       state.actionStep = 'select_unit';
       renderTurnUI();
@@ -1781,14 +2243,19 @@
   }
 
   function doWardstoneNo() {
+    if (state.pendingVeteranPrompt) {
+      doVeteranPromptNo();
+      return;
+    }
     if (!state.pendingWardstone) return;
     const pw = state.pendingWardstone;
     state.pendingWardstone = null;
     if (state.archmageMultiResolving) {
-      applyDamage(pw.defPlayer, pw.defCol, 1, "");
-      if (state.board[pw.defPlayer][pw.defCol]) {
-        state.board[pw.defPlayer][pw.defCol].paralyzed = true;
-        log(state.board[pw.defPlayer][pw.defCol].unit.name + " is paralyzed (Magic Paralysis).");
+      const hitCol = maybeRedirectToHarlund(pw.defPlayer, pw.defCol, state.archmageMultiResolving);
+      applyDamage(pw.defPlayer, hitCol, 1, "");
+      if (state.board[pw.defPlayer][hitCol]) {
+        state.board[pw.defPlayer][hitCol].paralyzed = true;
+        log(state.board[pw.defPlayer][hitCol].unit.name + " is paralyzed (Magic Paralysis).");
       }
       state.archmageMultiResolving.index++;
       continueArchmageMulti();
@@ -2062,12 +2529,14 @@
     return false;
   }
 
-  function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
+  function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
     const attCell = state.board[attackerPlayer][attackerCol];
     const defCell = state.board[defenderPlayer][defenderCol];
     if (!attCell || !defCell) return;
+    markJorrenAttackThisTurn(attCell);
 
     const effectiveClass = getEffectiveAttackerClass(attCell);
+    const attackContext = { harlundUsed: false, harlundDeclineLogged: false, harlundPromptResolved: false, harlundDecision: 'no' };
     const trueStrike = (state.vorpalNextAttack === attackerPlayer) ||
       (attCell.gear && attCell.gear.name === 'True-Strike Lens' && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) ||
       (attCell.gear && attCell.gear.name === "Sharpshooter's Scope" && attCell.unit.class === 'Shooter');
@@ -2081,6 +2550,13 @@
       const heads = Math.random() < 0.5;
       if (!heads) {
         log("Unstable Ground (attacker's tile): tails — attack canceled.");
+        if (state.pendingCassaSecondAttack && !state.cassaSecondAttackInProgress) state.pendingCassaSecondAttack = null;
+        state.pendingCassaOpportunity = null;
+        if (queueTivalRetryPrompt(attackerPlayer, attackerCol, defenderPlayer, defenderCol, "attack was canceled by Unstable Ground")) {
+          renderTurnUI();
+          renderBoard();
+          return;
+        }
         state.selectedUnit = null;
         state.actionStep = 'select_unit';
         renderTurnUI();
@@ -2092,6 +2568,7 @@
     }
 
     let attackBlocked = false;
+    let tivalFailureReason = null;
 
     if (!trueStrike) {
       const braskinProtected = attackerIsProtectedByBraskin(attackerPlayer, attackerCol);
@@ -2147,6 +2624,7 @@
                 if (counterHeads) {
                   log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
                   attackBlocked = true;
+                  tivalFailureReason = "attack was blocked by a Lancer counter";
                   applyDamage(attackerPlayer, attackerCol, 1, "");
                   resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
                 } else {
@@ -2163,6 +2641,7 @@
               if (counterHeads) {
                 log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
                 attackBlocked = true;
+                tivalFailureReason = "attack was blocked by a Lancer counter";
                 applyDamage(attackerPlayer, attackerCol, 1, "");
                 resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
               } else {
@@ -2191,6 +2670,7 @@
           if (heads) {
             log("Elevated Ground: heads — attack fails.");
             defenderTerrainBlocked = true;
+            tivalFailureReason = "attack failed against Elevated Ground";
           } else {
             log("Elevated Ground: tails — attack proceeds.");
           }
@@ -2199,6 +2679,7 @@
           if (heads) {
             log("Reinforced Barricade: heads — attack fails.");
             defenderTerrainBlocked = true;
+            tivalFailureReason = "attack failed against Reinforced Barricade";
           } else {
             log("Reinforced Barricade: tails — attack proceeds.");
           }
@@ -2216,6 +2697,7 @@
           ? 2
           : 1;
         damage += getRokkloDamageBonus(attCell);
+        damage += getJorrenDamageBonus(attCell);
         if (vorpalLethal) {
           damage = Math.max(1, getMaxHP(defCell) - (defCell.damage || 0));
           log("Vorpal Honing Amulet — lethal strike (" + damage + " damage).");
@@ -2225,19 +2707,51 @@
         if (archmageMulti) {
           log("Archmage's Tome — attack affects target and adjacent enemies.");
           const cols = [defenderCol, defenderCol - 1, defenderCol + 1].filter(function (c) { return c >= 0 && c <= 4; });
-          state.archmageMultiResolving = { attPlayer: attackerPlayer, attCol: attackerCol, defPlayer: defenderPlayer, cols: cols, index: 0, trueStrike: trueStrike };
+          state.archmageMultiResolving = {
+            attPlayer: attackerPlayer,
+            attCol: attackerCol,
+            defPlayer: defenderPlayer,
+            cols: cols,
+            index: 0,
+            trueStrike: trueStrike,
+            harlundUsed: false,
+            harlundDeclineLogged: false,
+            harlundPromptResolved: false,
+            harlundDecision: 'no',
+            protectedCol: null
+          };
           continueArchmageMulti();
           return;
         } else {
-          const captured = applyDamage(defenderPlayer, defenderCol, damage, "");
-          if (!captured && state.board[defenderPlayer][defenderCol] && effectiveClass === 'Caster') {
-            state.board[defenderPlayer][defenderCol].paralyzed = true;
-            log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
+          if (hasAdjacentHarlundForTarget(defenderPlayer, defenderCol)) {
+            state.pendingVeteranPrompt = {
+              type: 'harlundOnHitSingle',
+              message: "Harlund's Pack Shield: adjacent ally is about to be hit. Swap Harlund in?",
+              useLabel: 'Use Pack Shield',
+              noLabel: 'No',
+              attPlayer: attackerPlayer,
+              attCol: attackerCol,
+              defPlayer: defenderPlayer,
+              defCol: defenderCol,
+              effectiveClass: effectiveClass,
+              damage: damage,
+              defenderHadBarbedGauntlets: defHasBarbed,
+              attClassForBarbed: attCell.unit.class,
+            };
+            renderTurnUI();
+            renderBoard();
+            return;
+          }
+          const hitCol = maybeRedirectToHarlund(defenderPlayer, defenderCol, attackContext);
+          const captured = applyDamage(defenderPlayer, hitCol, damage, "");
+          if (!captured && state.board[defenderPlayer][hitCol] && effectiveClass === 'Caster') {
+            state.board[defenderPlayer][hitCol].paralyzed = true;
+            log(state.board[defenderPlayer][hitCol].unit.name + " is paralyzed (Magic Paralysis).");
           }
           maybeApplyHaskelSteal(attCell, attackerPlayer, defenderPlayer);
-          maybeApplyLyraEcho(attCell, attackerCol, defenderPlayer, defenderCol);
+          maybeApplyLyraEcho(attCell, attackerCol, defenderPlayer, hitCol);
           maybeApplySolomonFrontParalyze(attCell, attackerCol, defenderPlayer);
-          maybeApplyChronirAdjacentParalyze(attCell, defenderPlayer, defenderCol);
+          maybeApplyChronirAdjacentParalyze(attCell, defenderPlayer, hitCol);
           maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, captured);
         }
       }
@@ -2277,6 +2791,19 @@
       renderBoard();
       return;
     }
+    if (queueCassaUsePromptIfReady(attackerPlayer, attackerCol, defenderPlayer, defenderCol)) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (runPendingCassaSecondAttackIfAvailable()) return;
+    if (!attackHitDefender && tivalFailureReason) {
+      if (queueTivalRetryPrompt(attackerPlayer, attackerCol, defenderPlayer, defenderCol, tivalFailureReason)) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+    }
     finishResolvedCombatTurn();
   }
 
@@ -2309,10 +2836,27 @@
         renderBoard();
         return;
       }
-      applyDamage(ar.defPlayer, c, 1, "");
-      if (state.board[ar.defPlayer][c]) {
-        state.board[ar.defPlayer][c].paralyzed = true;
-        log(state.board[ar.defPlayer][c].unit.name + " is paralyzed (Magic Paralysis).");
+      if (!ar.harlundPromptResolved && hasAdjacentHarlundForTarget(ar.defPlayer, c)) {
+        state.pendingVeteranPrompt = {
+          type: 'harlundOnHitArchmage',
+          message: "Harlund's Pack Shield: adjacent ally is about to be hit by Archmage's Tome. Swap Harlund in?",
+          useLabel: 'Use Pack Shield',
+          noLabel: 'No',
+        };
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      const hitCol = maybeRedirectToHarlund(ar.defPlayer, c, ar);
+      if (hitCol == null) {
+        log("Harlund's Pack Shield — protected ally ignores the rest of this attack sequence.");
+        ar.index++;
+        continue;
+      }
+      applyDamage(ar.defPlayer, hitCol, 1, "");
+      if (state.board[ar.defPlayer][hitCol]) {
+        state.board[ar.defPlayer][hitCol].paralyzed = true;
+        log(state.board[ar.defPlayer][hitCol].unit.name + " is paralyzed (Magic Paralysis).");
       }
       ar.index++;
     }
@@ -2354,6 +2898,7 @@
   function endTurn() {
     clearParalyzedForPlayer(state.currentPlayer);
     var playerWhoJustFinished = state.currentPlayer;
+    updateJorrenFlagsAtTurnEnd(playerWhoJustFinished);
     for (let c = 0; c < 5; c++) {
       const cell = state.board[playerWhoJustFinished][c];
       if (cell) cell.cannotAttackNextTurn = false;
@@ -2390,6 +2935,14 @@
 
     const p = state.currentPlayer;
     const step = state.actionStep;
+
+    if (state.pendingCassaChoice) {
+      const pendingCassa = state.pendingCassaChoice;
+      if (player !== pendingCassa.defPlayer) return;
+      if (pendingCassa.targetCols.indexOf(column) === -1) return;
+      resolvePendingCassaChoice(column);
+      return;
+    }
 
     if (state.pendingChronirChoice) {
       const pending = state.pendingChronirChoice;
@@ -2462,14 +3015,8 @@
       if (attCell && attCell.cannotAttackNextTurn) return;
       if (player === opp && state.board[opp][column]) {
         if (attCell && isInRangeWithCell(state.selectedUnit.column, column, attCell)) {
-          const defCell = state.board[opp][column];
-          if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') {
-            state.pendingWardstone = { attPlayer: p, attCol: state.selectedUnit.column, defPlayer: opp, defCol: column };
-            renderTurnUI();
-            renderBoard();
-            return;
-          }
-          resolveCombat(p, state.selectedUnit.column, opp, column);
+          prepareCassaTwinArcOpportunity(p, state.selectedUnit.column, opp, column);
+          beginAttackAgainstTarget(p, state.selectedUnit.column, opp, column);
         }
       }
       return;

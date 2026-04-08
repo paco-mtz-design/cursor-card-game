@@ -64,6 +64,20 @@ If Unstable Ground on the Lancer’s tile **cancels** the attempt (tails), Rowka
 
 ---
 
+## Interrupt veterans — clarifications
+
+These notes cover current prototype behavior for the first interrupt-flow veteran set.
+
+| Situation | What happens |
+|-----------|----------------|
+| **Tival retry after counter** | If Tival retries because the first attack did not land and the defender has a valid Lancer counter, that counter step runs again for the retry (normal rules apply again). |
+| **Harlund during Archmage multi-target** | Pack Shield can trigger at most **once per attack sequence**. In an Archmage's Tome multi-target attack, once Harlund is offered/resolved for that attack, later targets in the same sequence do not trigger Pack Shield again. If Pack Shield is used, the protected ally also ignores any remaining hits/effects from that same attack sequence. |
+| **Vaela and reinforcements** | If Vaela's Instinctive Strike captures a moving/swapping enemy and ends the turn, captured-unit replacement for the active player is processed before the pass so the next player does not start against a partially empty row from that event. |
+| **Vaela and Obscuring bomb reorder** | Vaela does **not** trigger from Obscuring bomb's reorder swaps. Reorder is treated as setup/rearrangement, not normal move/swap triggers for Instinctive Strike. |
+| **Cassa second target** | When Twin Arc is used and multiple valid second targets exist, the acting player chooses the second target from highlighted valid slots. |
+
+---
+
 ## Future topics (placeholder)
 
 Use this document for later clarifications, for example:
