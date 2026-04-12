@@ -90,6 +90,22 @@ These run only when the attack **actually hits** the defender (not canceled by t
 - **Still pending:** Remaining R2 matrix, especially Wardstone ordering, Archmage multi-packet defender-passive interactions, A3 (`Sharpshooter's Scope` does not ignore), and quick counter/terrain ordering regression checks.
 - **Tracking doc:** [`QA_PHASE15_R2_LOG_TEMPLATE.md`](QA_PHASE15_R2_LOG_TEMPLATE.md).
 
+### R3 Ardan (Veilstep) implementation (ready for QA)
+
+- **Scope completed:** Added Ardan's Veilstep trigger + UX flow as the deferred final caster-veteran implementation in Phase 15.
+- **Trigger gating:** Veilstep prompts only when Veteran Ardan lands at least one hit packet and has at least one face-down ally.
+- **Archmage behavior:** With Archmage's Tome, Veilstep now triggers at most once per full sequence (not per packet), and only if at least one packet landed.
+- **Reorder UX:** Reuses Obscuring-style swap UI, but scoped to Ardan + face-down allies via allowed-column gating; Done resumes combat/turn flow.
+- **Prompt flow:** Uses existing in-header action-strip buttons (`Use Veilstep` / `No`) consistent with Wardstone/veteran prompts.
+- **Flow safety:** Existing combat ordering remains intact; Ardan logic is appended after hit resolution and before turn finalization.
+- **Cross-path continuity:** Archmage packet continuation paths (including Wardstone No branch) now track landed-hit state for Veilstep eligibility.
+- **R2 QA status unchanged:** R2 remains partially validated and still tracked separately in [`QA_PHASE15_R2_LOG_TEMPLATE.md`](QA_PHASE15_R2_LOG_TEMPLATE.md).
+
+### R3 QA follow-up fix
+
+- **Ardan fog-of-war step corrected:** On Veilstep use, Ardan now flips face-down before entering the reorder/shuffle step.
+- **Rules alignment:** Updated player-facing rules text to clarify "flip face-down, then swap/shuffle with face-down allies."
+
 ### QA / setup tooling
 
 - **Filter hand:** Search narrows visible placement cards; indices remain real hand indices.

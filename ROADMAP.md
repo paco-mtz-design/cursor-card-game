@@ -32,7 +32,7 @@ Single source of truth for **phase order**, **scope**, and **status**. Implement
 | **12** | Remaining single-use + True-Strike Lens + true strike | Done | Corrosive Phial, Obscuring bomb, Vorpal, Magic Grenade; true strike in combat |
 | **13** | Promotions | Done | Champion's Crest, Vanguard Lance, Sharpshooter's Scope, Archmage's Tome |
 | **14** | Board & unit UI | Done | Unit tiles, gear/terrain stacks, hands, markers, spacing, contextual move controls, polish |
-| **15** | Veteran buffs | Current | Per-unit veteran definitions; combat hooks (`level` already in data). R2 defender-passives implemented; QA partial (A1/A2 done, remainder pending in `QA_PHASE15_R2_LOG_TEMPLATE.md`). |
+| **15** | Veteran buffs | Current | Per-unit veteran definitions; combat hooks (`level` already in data). R2 defender-passives implemented (QA partial, tracked in `QA_PHASE15_R2_LOG_TEMPLATE.md`) and R3 Ardan Veilstep flow implemented (targeted QA pending). |
 | **16** | Tarot cards | Planned | Mechanics + UI as designed for the full game |
 | **17** | Further UI improvements | Planned | Layout, polish, optional tooling — TBD |
 | **18** | CPU opponent | Planned | Autonomous opponent; fog-of-war for opponent face-down can align here |

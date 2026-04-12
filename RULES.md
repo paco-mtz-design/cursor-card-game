@@ -93,6 +93,21 @@ These notes cover current prototype behavior for the remaining defender-passive 
 
 ---
 
+## Ardan (Veilstep) — clarifications
+
+These notes cover the current prototype behavior for Ardan's R3 veteran implementation.
+
+| Situation | What happens |
+|-----------|----------------|
+| **Trigger condition** | Veilstep is offered only if Ardan's attack actually lands at least one hit packet on a unit. |
+| **Single-target attacks** | If Ardan lands a hit packet and has at least one face-down ally, Veilstep prompt appears after hit resolution. |
+| **Archmage's Tome attacks** | Veilstep is offered at most **once per full Archmage sequence** (not once per packet), and only if at least one packet landed. |
+| **Face-down + reorder behavior** | On Veilstep use, Ardan flips face-down first, then reorder is scoped to **Ardan plus face-down allies only**. Other columns are not selectable during Veilstep reorder. |
+| **No face-down ally available** | Veilstep is not offered; combat flow continues normally. |
+| **Use / No decision** | **Use** enters reorder mode and resumes turn flow after Done. **No** skips reorder and resumes turn flow immediately. |
+
+---
+
 ## Future topics (placeholder)
 
 Use this document for later clarifications, for example:

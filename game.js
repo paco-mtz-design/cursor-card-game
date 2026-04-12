@@ -562,6 +562,97 @@
     return result;
   }
 
+  function getArdanVeilstepEligibleCols(player, ardanCol) {
+    const cols = [ardanCol];
+    for (let c = 0; c < 5; c++) {
+      if (c === ardanCol) continue;
+      const allyCell = state.board[player][c];
+      if (!allyCell || allyCell.faceUp) continue;
+      cols.push(c);
+    }
+    return cols;
+  }
+
+  function queueArdanVeilstepPrompt(attackerPlayer, attackerCol, context) {
+    const attCell = state.board[attackerPlayer][attackerCol];
+    if (!attCell || !hasVeteranBuff(attCell, 'ardan')) return false;
+    const eligibleCols = getArdanVeilstepEligibleCols(attackerPlayer, attackerCol);
+    if (eligibleCols.length <= 1) {
+      log("Ardan's Veilstep — no face-down allies available to reorder.");
+      return false;
+    }
+    state.pendingVeteranPrompt = {
+      type: 'ardanVeilstep',
+      message: "Ardan's Veilstep: reorder Ardan with any face-down allies now?",
+      useLabel: 'Use Veilstep',
+      noLabel: 'No',
+      attPlayer: attackerPlayer,
+      attCol: attackerCol,
+      context: context,
+      eligibleCols: eligibleCols.slice(),
+    };
+    log("Ardan's Veilstep — choose Use or No.");
+    return true;
+  }
+
+  function completeArchmageAttack(attPlayer, attCol) {
+    const attCellAfter = state.board[attPlayer][attCol];
+    if (attCellAfter) attCellAfter.mustRestNextTurn = true;
+    replaceCapturedUnitsBeforePass();
+    var winner = checkGameOver();
+    if (winner !== null) {
+      showGameOver(winner);
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      updateCaptureDisplay();
+      renderBoard();
+      return;
+    }
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    updateCaptureDisplay();
+    renderBoard();
+    endTurn();
+  }
+
+  function continueAfterArdanVeilstep(context, attackerPlayer, attackerCol) {
+    if (context === 'archmage') {
+      completeArchmageAttack(attackerPlayer, attackerCol);
+      return;
+    }
+    finishResolvedCombatTurn();
+  }
+
+  function beginArdanVeilstepReorder(prompt) {
+    const attCell = state.board[prompt.attPlayer][prompt.attCol];
+    if (!attCell) {
+      continueAfterArdanVeilstep(prompt.context, prompt.attPlayer, prompt.attCol);
+      return;
+    }
+    const eligibleCols = getArdanVeilstepEligibleCols(prompt.attPlayer, prompt.attCol);
+    if (eligibleCols.length <= 1) {
+      log("Ardan's Veilstep — no face-down allies available to reorder.");
+      continueAfterArdanVeilstep(prompt.context, prompt.attPlayer, prompt.attCol);
+      return;
+    }
+    if (attCell.faceUp) {
+      attCell.faceUp = false;
+      log("Ardan's Veilstep — " + attCell.unit.name + " flips face-down.");
+    }
+    state.obscuringReorder = {
+      player: prompt.attPlayer,
+      selectedCol: null,
+      kind: 'ardan',
+      allowedCols: eligibleCols.slice(),
+      afterContext: prompt.context,
+      attackerPlayer: prompt.attPlayer,
+      attackerCol: prompt.attCol,
+    };
+    log("Ardan's Veilstep — reorder Ardan with face-down allies, then click Done reordering.");
+    renderTurnUI();
+    renderBoard();
+  }
+
   function finishResolvedCombatTurn() {
     replaceCapturedUnitsBeforePass();
     var winner = checkGameOver();
@@ -954,6 +1045,11 @@
       renderBoard();
       return;
     }
+    if (queueArdanVeilstepPrompt(prompt.attPlayer, prompt.attCol, 'single')) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
     if (queueCassaUsePromptIfReady(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol)) {
       renderTurnUI();
       renderBoard();
@@ -1026,6 +1122,11 @@
       renderBoard();
       return;
     }
+    if (prompt.type === 'ardanVeilstep') {
+      state.pendingVeteranPrompt = null;
+      beginArdanVeilstepReorder(prompt);
+      return;
+    }
   }
 
   function doVeteranPromptNo() {
@@ -1049,6 +1150,12 @@
       state.pendingVeteranPrompt = null;
       log("Cassa's Twin Arc not used.");
       finishResolvedCombatTurn();
+      return;
+    }
+    if (prompt.type === 'ardanVeilstep') {
+      state.pendingVeteranPrompt = null;
+      log("Ardan's Veilstep not used.");
+      continueAfterArdanVeilstep(prompt.context, prompt.attPlayer, prompt.attCol);
       return;
     }
   }
@@ -1305,6 +1412,7 @@
       const reord = state.obscuringReorder;
       for (let c = 0; c < 5; c++) {
         if (state.board[reord.player][c] == null) continue;
+        if (reord.allowedCols && reord.allowedCols.indexOf(c) === -1) continue;
         const slot = document.querySelector('.row--player' + reord.player + ' .slot[data-column="' + c + '"]');
         if (slot) {
           slot.classList.add('slot--selectable');
@@ -2093,36 +2201,41 @@
       turnStep.textContent = "Chronir's Frozen Chain: choose an adjacent enemy to paralyze.";
       return;
     }
+    if (state.obscuringReorder) {
+      const kind = state.obscuringReorder.kind || 'obscuring';
+      if (kind === 'ardan') {
+        turnStep.textContent = "Ardan's Veilstep: click one eligible slot, then another to swap. Then click Done reordering.";
+      } else {
+        turnStep.textContent = 'Reorder your units: click one slot, then another to swap. Then click Done reordering.';
+      }
+      turnActions.hidden = false;
+      if (btnPass) btnPass.hidden = true;
+      if (btnDoneWithItems) {
+        btnDoneWithItems.textContent = 'Done reordering';
+        btnDoneWithItems.hidden = false;
+      }
+      return;
+    }
 
     if (step === 'use_items') {
-      if (state.obscuringReorder) {
-        turnStep.textContent = 'Reorder your units: click one slot, then another to swap. Then click Done reordering.';
-        turnActions.hidden = false;
-        if (btnPass) btnPass.hidden = true;
-        if (btnDoneWithItems) {
-          btnDoneWithItems.textContent = 'Done reordering';
-          btnDoneWithItems.hidden = false;
-        }
+      const it = state.itemTargeting;
+      if (it) {
+        if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
+        else if (it.itemName === 'All revealing lantern-jar') turnStep.textContent = 'Choose a face-down enemy unit (All revealing lantern-jar).';
+        else if (it.itemName === 'Tangle-Vine Bola') turnStep.textContent = 'Choose an enemy unit (Tangle-Vine Bola).';
+        else if (it.itemName === 'Corrosive Phial') turnStep.textContent = 'Choose a face-up unit with gear (Corrosive Phial).';
+        else if (it.itemName === 'Magic Grenade') turnStep.textContent = 'Choose your unit to attack as Caster (Magic Grenade).';
+        else if (GEAR_EQUIP_ITEM_NAMES.indexOf(it.itemName) !== -1) {
+          var ac = getGearAllowedClasses(it.itemName);
+          turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
+        } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
       } else {
-        const it = state.itemTargeting;
-        if (it) {
-          if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
-          else if (it.itemName === 'All revealing lantern-jar') turnStep.textContent = 'Choose a face-down enemy unit (All revealing lantern-jar).';
-          else if (it.itemName === 'Tangle-Vine Bola') turnStep.textContent = 'Choose an enemy unit (Tangle-Vine Bola).';
-          else if (it.itemName === 'Corrosive Phial') turnStep.textContent = 'Choose a face-up unit with gear (Corrosive Phial).';
-          else if (it.itemName === 'Magic Grenade') turnStep.textContent = 'Choose your unit to attack as Caster (Magic Grenade).';
-          else if (GEAR_EQUIP_ITEM_NAMES.indexOf(it.itemName) !== -1) {
-            var ac = getGearAllowedClasses(it.itemName);
-            turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
-          } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
-        } else {
-          turnStep.textContent = 'Use items (optional), then continue to combat.';
-        }
-        turnActions.hidden = false;
-        if (btnPass) btnPass.hidden = true;
-        if (btnDoneWithItems) btnDoneWithItems.textContent = state.itemTargeting ? 'Cancel' : 'Done with items';
-        if (btnDoneWithItems) btnDoneWithItems.hidden = false;
+        turnStep.textContent = 'Use items (optional), then continue to combat.';
       }
+      turnActions.hidden = false;
+      if (btnPass) btnPass.hidden = true;
+      if (btnDoneWithItems) btnDoneWithItems.textContent = state.itemTargeting ? 'Cancel' : 'Done with items';
+      if (btnDoneWithItems) btnDoneWithItems.hidden = false;
     } else if (step === 'select_unit') {
       turnStep.textContent = 'Select a unit to act.';
     } else if (step === 'move') {
@@ -2312,11 +2425,11 @@
   }
 
   function doDoneWithItems() {
-    if (state.actionStep !== 'use_items') return;
     if (state.obscuringReorder) {
       doDoneObscuringReorder();
       return;
     }
+    if (state.actionStep !== 'use_items') return;
     if (state.itemTargeting) {
       state.itemTargeting = null;
       renderTurnUI();
@@ -2374,11 +2487,22 @@
     const pw = state.pendingWardstone;
     state.pendingWardstone = null;
     if (state.archmageMultiResolving) {
-      const hitCol = maybeRedirectToHarlund(pw.defPlayer, pw.defCol, state.archmageMultiResolving);
-      applyDamage(pw.defPlayer, hitCol, 1, "");
-      if (state.board[pw.defPlayer][hitCol]) {
-        state.board[pw.defPlayer][hitCol].paralyzed = true;
-        log(state.board[pw.defPlayer][hitCol].unit.name + " is paralyzed (Magic Paralysis).");
+      const ar = state.archmageMultiResolving;
+      const hitCol = maybeRedirectToHarlund(pw.defPlayer, pw.defCol, ar);
+      if (hitCol == null) {
+        log("Harlund's Pack Shield — protected ally ignores the rest of this attack sequence.");
+        state.archmageMultiResolving.index++;
+        continueArchmageMulti();
+        return;
+      }
+      const packet = resolveDefenderVeteranPacket(ar.attPlayer, ar.attCol, ar.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: ar.trueStrike && state.vorpalNextAttack === ar.attPlayer });
+      if (!packet.canceled) {
+        applyDamage(packet.finalPlayer, packet.finalCol, 1, "");
+        ar.ardanHitLanded = true;
+        if (state.board[packet.finalPlayer][packet.finalCol]) {
+          state.board[packet.finalPlayer][packet.finalCol].paralyzed = true;
+          log(state.board[packet.finalPlayer][packet.finalCol].unit.name + " is paralyzed (Magic Paralysis).");
+        }
       }
       state.archmageMultiResolving.index++;
       continueArchmageMulti();
@@ -2496,20 +2620,32 @@
 
   function doObscuringSwap(colA, colB) {
     if (!state.obscuringReorder || colA === colB) return;
-    const p = state.obscuringReorder.player;
+    const reord = state.obscuringReorder;
+    const p = reord.player;
+    if (reord.allowedCols && (reord.allowedCols.indexOf(colA) === -1 || reord.allowedCols.indexOf(colB) === -1)) return;
     const a = state.board[p][colA];
     const b = state.board[p][colB];
     state.board[p][colA] = b;
     state.board[p][colB] = a;
     state.obscuringReorder.selectedCol = null;
-    log("Swap: units at columns " + colA + " and " + colB + " exchanged.");
+    if (reord.kind === 'ardan') {
+      log("Ardan's Veilstep: columns " + colA + " and " + colB + " swapped.");
+    } else {
+      log("Swap: units at columns " + colA + " and " + colB + " exchanged.");
+    }
     renderTurnUI();
     renderBoard();
   }
 
   function doDoneObscuringReorder() {
     if (!state.obscuringReorder) return;
+    const reord = state.obscuringReorder;
     state.obscuringReorder = null;
+    if (reord.kind === 'ardan') {
+      log("Ardan's Veilstep complete.");
+      continueAfterArdanVeilstep(reord.afterContext, reord.attackerPlayer, reord.attackerCol);
+      return;
+    }
     renderTurnUI();
     renderBoard();
   }
@@ -2841,7 +2977,8 @@
             harlundDeclineLogged: false,
             harlundPromptResolved: false,
             harlundDecision: 'no',
-            protectedCol: null
+            protectedCol: null,
+            ardanHitLanded: false
           };
           continueArchmageMulti();
           return;
@@ -2930,6 +3067,11 @@
       renderBoard();
       return;
     }
+    if (attackAppliedToUnit && queueArdanVeilstepPrompt(attackerPlayer, attackerCol, 'single')) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
     if (queueCassaUsePromptIfReady(attackerPlayer, attackerCol, defenderPlayer, defenderCol)) {
       renderTurnUI();
       renderBoard();
@@ -2998,6 +3140,7 @@
         continue;
       }
       applyDamage(packet.finalPlayer, packet.finalCol, 1, "");
+      ar.ardanHitLanded = true;
       if (state.board[packet.finalPlayer][packet.finalCol]) {
         state.board[packet.finalPlayer][packet.finalCol].paralyzed = true;
         log(state.board[packet.finalPlayer][packet.finalCol].unit.name + " is paralyzed (Magic Paralysis).");
@@ -3011,23 +3154,12 @@
     const ar = state.archmageMultiResolving;
     if (!ar) return;
     state.archmageMultiResolving = null;
-    const attCellAfter = state.board[ar.attPlayer][ar.attCol];
-    if (attCellAfter) attCellAfter.mustRestNextTurn = true;
-    replaceCapturedUnitsBeforePass();
-    var winner = checkGameOver();
-    if (winner !== null) {
-      showGameOver(winner);
-      state.selectedUnit = null;
-      state.actionStep = 'select_unit';
-      updateCaptureDisplay();
+    if (ar.ardanHitLanded && queueArdanVeilstepPrompt(ar.attPlayer, ar.attCol, 'archmage')) {
+      renderTurnUI();
       renderBoard();
       return;
     }
-    state.selectedUnit = null;
-    state.actionStep = 'select_unit';
-    updateCaptureDisplay();
-    renderBoard();
-    endTurn();
+    completeArchmageAttack(ar.attPlayer, ar.attCol);
   }
 
   function replaceCapturedUnitsBeforePass() {
@@ -3096,9 +3228,10 @@
       return;
     }
 
-    if (step === 'use_items' && state.obscuringReorder) {
+    if (state.obscuringReorder) {
       const reord = state.obscuringReorder;
       if (player !== reord.player || state.board[player][column] == null) return;
+      if (reord.allowedCols && reord.allowedCols.indexOf(column) === -1) return;
       if (reord.selectedCol === null) {
         state.obscuringReorder.selectedCol = column;
         renderTurnUI();
