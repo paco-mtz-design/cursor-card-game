@@ -14,6 +14,38 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 15 — wrap-up snapshot for merge to main
+
+**Status:** Implementation complete (R1 + R2 + R3 shipped on `veteran-buffs`), with remaining QA intentionally deferred to a dedicated future sweep.
+
+### What is complete
+
+- **Lancer veteran suite:** Braskin, Rowka, Nyss, Keera.
+- **On-hit veteran suite:** Torra, Haskel, Lyra, Rokklo, Solomon, Chronir, Grolk.
+- **Interrupt veteran suite:** Jorren, Tival, Harlund, Vaela, Cassa.
+- **Defender-passive caster suite:** Senya, Iktha, Mivara.
+- **Ardan (R3):** Veilstep prompt + reorder flow (once per Archmage sequence), plus follow-up fix where Ardan flips face-down before shuffle/reorder.
+
+### Deferred QA decision (R4)
+
+- Team decision: treat **cross-regression at scale** as a separate upcoming scope (**Phase 19** in `ROADMAP.md`) so merge can proceed with clear QA debt tracking.
+- This keeps implementation velocity while making remaining validation explicit and auditable.
+
+### Open QA lists carried forward
+
+- `QA_PHASE15_R2_LOG_TEMPLATE.md`
+  - Already verified: A1 (Vorpal ignores defender veterancy), A2 (True-Strike Lens does not ignore defender veterancy).
+  - Still open: A3, Wardstone ordering, Archmage packet matrix, and quick ordering regressions.
+- `QA_TARGETED_REGRESSION_CHECKLIST.md`
+  - Open targeted regression checks for Wardstone priority, counter/terrain pre-hit gates, and legacy veteran/item interactions.
+- **R3 targeted follow-up (pending):**
+  - Ardan single-target prompt cadence + resume flow.
+  - Ardan + Archmage once-per-sequence behavior.
+  - Veilstep decline path continuity.
+  - Coexistence with Wardstone/Harlund/Chronir/Cassa continuation branches.
+
+---
+
 ## Phase 15 — Veteran buffs (partial) + placement QA tools
 
 **Status:** In progress (Lancer suite + on-hit subset + infrastructure shipped; other veterans pending per roadmap).
