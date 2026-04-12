@@ -1210,7 +1210,36 @@
   }
 
   /** Item card image path; falls back to placeholder. */
+  const ITEM_IMAGE_FILENAME_MAP = {
+    'Light Armor': 'Armor - Light Armor.png',
+    'Premium Light Armor': 'Armor - Premium Light Armor.png',
+    'Heavy Armor': 'Armor - Heavy Armor.png',
+    'Healing Potion': 'Single Use - Potion.png',
+    'Corrosive Phial': 'Single Use - Corrosive Phial.png',
+    'Tectonic Spike': 'Single Use - Tectonic Spike.png',
+    'All revealing lantern-jar': 'Single Use - All revealing lantern-jar.png',
+    'Tangle-Vine Bola': 'Single Use - Tangle-Vine Bola.png',
+    'Obscuring bomb': 'Single Use - Obscuring Bomb.png',
+    'Vorpal Honing Amulet': 'Single Use - Vorpal Honing Amulet.png',
+    'True-Strike Lens': 'Single Use - True-Strike Lens.png',
+    'Magic Grenade': 'Single Use - Magic Grenade.png',
+    'Barbed Gauntlets': 'Single Use - Barbed Gauntlets.png',
+    'Wardstone Bracelet': 'Single Use - Wardstone Bracelet.png',
+    'Teleport Boots': 'Single Use - Teleport Boots.png',
+    'Elevated Ground': 'Terrain - Elevated Ground.png',
+    'Reinforced Barricade': 'Terrain - Reinforced Barricade.png',
+    'Paralyzing Vines': 'Terrain - Paralyzing Vines.png',
+    'Divine Light': 'Terrain - Divine Light.png',
+    'Unstable Ground': 'Terrain - Unstable Ground.png',
+    "Champion's Crest": 'Promotion - Champions Crest.png',
+    'Vanguard Lance': 'Promotion - Vanguard Lance.png',
+    "Sharpshooter's Scope": 'Promotion - Sharpshooters Scope.png',
+    "Archmage's Tome": 'Promotion - Archmages Tome.png',
+  };
+
   function getItemCardImagePath(itemName) {
+    const mappedFilename = ITEM_IMAGE_FILENAME_MAP[itemName];
+    if (mappedFilename) return 'assets/items/' + mappedFilename;
     const slug = nameToSlug(itemName);
     return slug ? 'assets/items/' + slug + '.png' : 'assets/items/item-placeholder-for-dev.png';
   }
@@ -3555,13 +3584,13 @@
       markersEl.appendChild(m);
     }
     if (cell.gear && gearImgWrap) {
-      const gslug = (cell.gear.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      gearImgWrap.innerHTML = '<img src="assets/items/' + gslug + '.png" alt="' + (cell.gear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      const gsrc = getItemCardImagePath(cell.gear.name || '');
+      gearImgWrap.innerHTML = '<img src="' + gsrc + '" alt="' + (cell.gear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gearImgWrap) gearImgWrap.innerHTML = '';
     const terr = state.terrain && state.terrain[player] && state.terrain[player][col];
     if (terr && terrainImgWrap) {
-      const tslug = (terr.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      terrainImgWrap.innerHTML = '<img src="assets/items/' + tslug + '.png" alt="' + (terr.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      const tsrc = getItemCardImagePath(terr.name || '');
+      terrainImgWrap.innerHTML = '<img src="' + tsrc + '" alt="' + (terr.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (terrainImgWrap) terrainImgWrap.innerHTML = '';
     unitZoomModal.hidden = false;
   }
