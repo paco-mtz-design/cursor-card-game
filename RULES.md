@@ -78,6 +78,21 @@ These notes cover current prototype behavior for the first interrupt-flow vetera
 
 ---
 
+## Caster defender passives — Senya, Iktha, Mivara
+
+These notes cover current prototype behavior for the remaining defender-passive Veteran Casters in Phase 15 R2.
+
+| Situation | What happens |
+|-----------|----------------|
+| **Vorpal vs defender veterancy** | Only **Vorpal Honing Amulet** ignores defender veterancy (including Senya, Iktha, and Mivara). True-Strike Lens and Sharpshooter's Scope still allow these passives to trigger. |
+| **Iktha (Magma Skin)** | When Iktha is about to be hit, the attacker's gear is destroyed before damage is calculated. If the attacker has no gear, damage proceeds normally. |
+| **Senya (Hex Haze)** | Coin flip on incoming hit: **heads** negates that full hit packet and deals 1 damage to the attacker; **tails** does nothing. After a heads trigger, Hex Haze is unavailable on Senya's next own turn. |
+| **Mivara (False Self), heads + enemy in front** | The hit packet redirects to the enemy directly facing Mivara (same column, opposite row). |
+| **Mivara (False Self), heads + no enemy in front** | No redirected packet is created; Mivara takes no damage from that packet and no other unit takes damage from that packet. |
+| **Tival interaction** | If Senya or Mivara prevents Tival from landing on the intended target, Quick Reload can still offer a retry on the same original target. |
+
+---
+
 ## Future topics (placeholder)
 
 Use this document for later clarifications, for example:

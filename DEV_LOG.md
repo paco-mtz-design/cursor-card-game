@@ -72,6 +72,24 @@ These run only when the attack **actually hits** the defender (not canceled by t
 - **Cassa second target:** When multiple valid Twin Arc follow-up targets exist, player now picks the second target via board-highlight selection instead of deterministic auto-pick.
 - **Prompt UX:** Tival retry and Cassa Twin Arc prompts now use the header action-strip buttons (Wardstone-style), not browser-native confirm dialogs.
 
+### R2 caster defender-passives implementation (ready for QA)
+
+- **Scope completed:** Senya (Hex Haze), Iktha (Magma Skin), Mivara (False Self) in `resolveCombat`, Harlund single-hit resolution, and `continueArchmageMulti` packet loop.
+- **Shared defender-passive resolver:** Added `resolveDefenderVeteranPacket(...)` so defender-passive behavior is consistent across normal single hits and Archmage packet hits.
+- **Vorpal gating (confirmed rule):** Only `Vorpal Honing Amulet` bypasses these defender passives; True-Strike Lens and Sharpshooter's Scope do not.
+- **Iktha:** Destroys attacker gear before damage; logs both "gear destroyed" and "no gear to destroy" branches.
+- **Senya:** Coin flip on incoming hit; heads negates packet and reflects 1 damage to attacker. Added per-unit cooldown state (`senyaBlockNextTurn` / `senyaBlockedThisTurn`) refreshed at turn start via `refreshSenyaCooldownForTurn`.
+- **Mivara:** Coin flip on incoming hit; heads redirects packet to front enemy (same column, opposite row). If no front enemy exists, packet is fully voided (no damage to Mivara, no redirected damage).
+- **Tival compatibility:** Senya/Mivara deflections count as "attack didn't land on intended target," so Quick Reload retry remains available under existing survivability checks.
+- **Archmage packet behavior:** Each packet now independently runs defender-passive checks with explicit logs; packet can be negated/redirected/voided without breaking the sequence.
+
+### R2 QA progress snapshot (partial; pending completion)
+
+- **Current status:** QA intentionally paused to continue feature implementation; keep R2 QA open.
+- **Verified so far:** Senya core behavior/cooldown/Tival retry, Iktha geared+ungeared branches, Mivara heads/tails behavior + Tival retry, plus true-strike split **A1** (Vorpal ignore) and **A2** (True-Strike Lens does not ignore).
+- **Still pending:** Remaining R2 matrix, especially Wardstone ordering, Archmage multi-packet defender-passive interactions, A3 (`Sharpshooter's Scope` does not ignore), and quick counter/terrain ordering regression checks.
+- **Tracking doc:** [`QA_PHASE15_R2_LOG_TEMPLATE.md`](QA_PHASE15_R2_LOG_TEMPLATE.md).
+
 ### QA / setup tooling
 
 - **Filter hand:** Search narrows visible placement cards; indices remain real hand indices.
