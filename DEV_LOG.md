@@ -10,6 +10,141 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 - Prefer logging **what moved the game forward** toward roadmap goals—especially changes that **nail requirements** you’re happy to keep.
 - **Handoff:** read the newest section first; compare intent with [ROADMAP.md](ROADMAP.md).
 - Phases **8–9** are summarized in ROADMAP and code history; this log’s detailed sections start at **Phase 10** for granularity.
+- **Rules clarifications** for players (what stops counters, veteran interactions, edge cases) are maintained in **[RULES.md](RULES.md)** and updated when implementation behavior is agreed.
+
+---
+
+## Phase 15 — wrap-up snapshot for merge to main
+
+**Status:** Implementation complete (R1 + R2 + R3 shipped on `veteran-buffs`), with remaining QA intentionally deferred to a dedicated future sweep.
+
+### What is complete
+
+- **Lancer veteran suite:** Braskin, Rowka, Nyss, Keera.
+- **On-hit veteran suite:** Torra, Haskel, Lyra, Rokklo, Solomon, Chronir, Grolk.
+- **Interrupt veteran suite:** Jorren, Tival, Harlund, Vaela, Cassa.
+- **Defender-passive caster suite:** Senya, Iktha, Mivara.
+- **Ardan (R3):** Veilstep prompt + reorder flow (once per Archmage sequence), plus follow-up fix where Ardan flips face-down before shuffle/reorder.
+
+### Deferred QA decision (R4)
+
+- Team decision: treat **cross-regression at scale** as a separate upcoming scope (**Phase 19** in `ROADMAP.md`) so merge can proceed with clear QA debt tracking.
+- This keeps implementation velocity while making remaining validation explicit and auditable.
+
+### Open QA lists carried forward
+
+- `QA_PHASE15_R2_LOG_TEMPLATE.md`
+  - Already verified: A1 (Vorpal ignores defender veterancy), A2 (True-Strike Lens does not ignore defender veterancy).
+  - Still open: A3, Wardstone ordering, Archmage packet matrix, and quick ordering regressions.
+- `QA_TARGETED_REGRESSION_CHECKLIST.md`
+  - Open targeted regression checks for Wardstone priority, counter/terrain pre-hit gates, and legacy veteran/item interactions.
+- **R3 targeted follow-up (pending):**
+  - Ardan single-target prompt cadence + resume flow.
+  - Ardan + Archmage once-per-sequence behavior.
+  - Veilstep decline path continuity.
+  - Coexistence with Wardstone/Harlund/Chronir/Cassa continuation branches.
+
+---
+
+## Phase 15 — Veteran buffs (partial) + placement QA tools
+
+**Status:** In progress (Lancer suite + on-hit subset + infrastructure shipped; other veterans pending per roadmap).
+
+**Scope:** Per-character `veteranBuff` keys in [`data.js`](data.js); combat hooks for Braskin, Rowka, Nyss, Keera plus on-hit veterans (Torra, Haskel, Lyra, Rokklo, Solomon, Chronir, Grolk); cell `veteranState` placeholder; setup **filter hand** and **replace selected with pick** (full `CHARACTERS` roster via swaps with unit deck / other hand).
+
+### Data and helpers
+
+- **`veteranBuff`:** String id on each Veteran row (e.g. `braskin`, `rowka`, `nyss`, `keera`). Helpers: `getVeteranBuff(cell)`, `hasVeteranBuff(cell, key)` in [`game.js`](game.js).
+- **`veteranState`:** `{}` on new board cells; copied on move/teleport swap (for future per-unit veteran cooldowns/flags).
+
+### Lancer counter resolution (`resolveCombat`)
+
+**Order (early → late):**
+
+1. **True strike** (`trueStrike` in code): Vorpal Honing Amulet, True-Strike Lens (Shooter/Caster), Sharpshooter’s Scope (Shooter). Skips **entire** Lancer counter block (and attacker Unstable Ground, defender terrain per existing true-strike rules). Veteran “guaranteed counter” effects do **not** apply because no counter step runs — matches QA expectation.
+2. **Braskin (Uncanny Block):** If the **attacker** is **adjacent** (same row, `|Δcol| === 1`) to an allied Braskin (Veteran), **no** enemy Lancer counter is attempted for that attack. Checked **before** any defending Lancer is selected. This **short-circuits** Rowka’s Twin Guard and Nyss’s Phantom Posture for that attack: no counter candidate, so no guaranteed counter. Intentional: Braskin is a hard “no counter” gate for qualifying attacks.
+3. **Otherwise:** Build all defending Lancers in counter range (respecting Vanguard Lance distance 1–2 vs 1), excluding Lancers with `cannotAttackNextTurn` (e.g. Tangle-Vine Bola).
+4. **Candidate selection:** If any candidate has a **guaranteed** counter (Rowka + adjacent ally Lancer, or Nyss face-down), that Lancer is chosen first; else **lowest column index** (left-to-right scan behavior).
+5. **Unstable Ground (Lancer’s tile):** Coin **before** the counter success coin. On **tails**, the counter attempt is canceled entirely — Rowka/Nyss “force heads” does **not** apply, because the attempt never reaches the counter flip. On **heads**, proceed to counter resolution.
+6. **Counter coin:** Rowka (Twin Guard) and Nyss (face-down) force **heads** on this flip (log lines distinguish). Nyss flips face-up when revealed for counter; if already face-up, Phantom Posture does not apply.
+7. **Keera (Double Sword):** After a **successful** counter (`attackBlocked`), if the countering Lancer is Keera (Veteran), apply **+1 damage** to one additional enemy in Keera’s Lancer counter range from Keera’s column (excluding the original attacker). **Auto-target:** nearest column to Keera by distance, tie-break lower column index (no UI pick in this chunk).
+
+### On-hit veteran resolution (`resolveCombat`)
+
+These run only when the attack **actually hits** the defender (not canceled by true-strike gating, counter block, Wardstone negation, or defender terrain fail):
+
+- **Torra (Shattering Hammer):** Before damage, flip coin; on heads destroy target gear (if any), sending it to item discard.
+- **Rokklo (Returning Hit):** Before damage, flip coin; on heads gain **+1** attack damage.
+- **Haskel (Pirate Claw):** After hit, steal 1 random card from defender’s item hand.
+- **Lyra (Blast Echo):** After hit, flip coin; on heads deal 1 damage to enemy in the tile between attacker and target (if occupied).
+- **Solomon (Lunar Dazzle):** After hit, paralyze and reveal (if needed) the enemy directly in front of Solomon’s column.
+- **Chronir (Frozen Chain):** After hit, paralyze and reveal (if needed) one enemy adjacent to the target column. **Auto-target:** lower adjacent column first.
+- **Grolk (Bloodthirst):** If the hit captured the target, flip coin; on heads heal attacker by 1 damage (if not already full HP).
+
+### QA follow-up (on-hit chunk adjustments)
+
+- **Rokklo log fix:** Longshot log now prints only when attack is actually edge-to-edge; Rokklo +1 no longer produces a false Longshot message on non-edge tiles.
+- **Lyra target refinement:** "Between" tile now resolves from the target side toward the attacker (more natural line-of-fire behavior). Log text clarified for cases with no enemy in that tile.
+- **Chronir selection UX:** When two adjacent enemies are valid, combat pauses and player selects which adjacent target to paralyze using standard board slot highlighting + turn helper text. If only one adjacent enemy exists, it resolves automatically.
+
+### R1 interrupt flow implementation (ready for QA)
+
+- **Jorren (Berserker):** Tracks consecutive turns where Jorren attacks via `veteranState`; adds +1 damage on consecutive-turn attacks (non-stacking).
+- **Tival (Quick Reload):** When an attack fails to land from Unstable Ground cancel, Lancer counter block, defender terrain block, or Wardstone negation, Tival can immediately retry the same target.
+- **Harlund (Pack Shield):** On incoming hit to an adjacent ally, player can confirm swap so Harlund takes the hit instead (wired for regular combat + Archmage per-target flow).
+- **Vaela (Instinctive Strike):** On enemy move/swap into Vaela’s front column, coin flip; heads deals 1 damage to mover and ends that turn.
+- **Cassa (Twin Arc):** If attacking a face-up target while at least two face-up enemies are in range, player can enable Twin Arc to perform a second attack this turn; Twin Arc is then blocked on the unit’s next turn.
+
+### R1 QA fixes
+
+- **Harlund + Archmage:** Pack Shield can trigger at most once per attack sequence (including Archmage multi-target chains).
+- **Harlund protect-sequence rule:** When Pack Shield is used, the originally protected ally is immune to any remaining hit packets/effects from the same attack sequence.
+- **Vaela reinforcement timing:** When Vaela captures a mover, the active player's captured-unit reinforcement now runs before turn pass, avoiding delayed replacement.
+- **Vaela + Obscuring bomb:** Vaela does not trigger during Obscuring bomb reorder swaps.
+- **Cassa second target:** When multiple valid Twin Arc follow-up targets exist, player now picks the second target via board-highlight selection instead of deterministic auto-pick.
+- **Prompt UX:** Tival retry and Cassa Twin Arc prompts now use the header action-strip buttons (Wardstone-style), not browser-native confirm dialogs.
+
+### R2 caster defender-passives implementation (ready for QA)
+
+- **Scope completed:** Senya (Hex Haze), Iktha (Magma Skin), Mivara (False Self) in `resolveCombat`, Harlund single-hit resolution, and `continueArchmageMulti` packet loop.
+- **Shared defender-passive resolver:** Added `resolveDefenderVeteranPacket(...)` so defender-passive behavior is consistent across normal single hits and Archmage packet hits.
+- **Vorpal gating (confirmed rule):** Only `Vorpal Honing Amulet` bypasses these defender passives; True-Strike Lens and Sharpshooter's Scope do not.
+- **Iktha:** Destroys attacker gear before damage; logs both "gear destroyed" and "no gear to destroy" branches.
+- **Senya:** Coin flip on incoming hit; heads negates packet and reflects 1 damage to attacker. Added per-unit cooldown state (`senyaBlockNextTurn` / `senyaBlockedThisTurn`) refreshed at turn start via `refreshSenyaCooldownForTurn`.
+- **Mivara:** Coin flip on incoming hit; heads redirects packet to front enemy (same column, opposite row). If no front enemy exists, packet is fully voided (no damage to Mivara, no redirected damage).
+- **Tival compatibility:** Senya/Mivara deflections count as "attack didn't land on intended target," so Quick Reload retry remains available under existing survivability checks.
+- **Archmage packet behavior:** Each packet now independently runs defender-passive checks with explicit logs; packet can be negated/redirected/voided without breaking the sequence.
+
+### R2 QA progress snapshot (partial; pending completion)
+
+- **Current status:** QA intentionally paused to continue feature implementation; keep R2 QA open.
+- **Verified so far:** Senya core behavior/cooldown/Tival retry, Iktha geared+ungeared branches, Mivara heads/tails behavior + Tival retry, plus true-strike split **A1** (Vorpal ignore) and **A2** (True-Strike Lens does not ignore).
+- **Still pending:** Remaining R2 matrix, especially Wardstone ordering, Archmage multi-packet defender-passive interactions, A3 (`Sharpshooter's Scope` does not ignore), and quick counter/terrain ordering regression checks.
+- **Tracking doc:** [`QA_PHASE15_R2_LOG_TEMPLATE.md`](QA_PHASE15_R2_LOG_TEMPLATE.md).
+
+### R3 Ardan (Veilstep) implementation (ready for QA)
+
+- **Scope completed:** Added Ardan's Veilstep trigger + UX flow as the deferred final caster-veteran implementation in Phase 15.
+- **Trigger gating:** Veilstep prompts only when Veteran Ardan lands at least one hit packet and has at least one face-down ally.
+- **Archmage behavior:** With Archmage's Tome, Veilstep now triggers at most once per full sequence (not per packet), and only if at least one packet landed.
+- **Reorder UX:** Reuses Obscuring-style swap UI, but scoped to Ardan + face-down allies via allowed-column gating; Done resumes combat/turn flow.
+- **Prompt flow:** Uses existing in-header action-strip buttons (`Use Veilstep` / `No`) consistent with Wardstone/veteran prompts.
+- **Flow safety:** Existing combat ordering remains intact; Ardan logic is appended after hit resolution and before turn finalization.
+- **Cross-path continuity:** Archmage packet continuation paths (including Wardstone No branch) now track landed-hit state for Veilstep eligibility.
+- **R2 QA status unchanged:** R2 remains partially validated and still tracked separately in [`QA_PHASE15_R2_LOG_TEMPLATE.md`](QA_PHASE15_R2_LOG_TEMPLATE.md).
+
+### R3 QA follow-up fix
+
+- **Ardan fog-of-war step corrected:** On Veilstep use, Ardan now flips face-down before entering the reorder/shuffle step.
+- **Rules alignment:** Updated player-facing rules text to clarify "flip face-down, then swap/shuffle with face-down allies."
+
+### QA / setup tooling
+
+- **Filter hand:** Search narrows visible placement cards; indices remain real hand indices.
+- **Replace selected with pick:** Picks any unit from full `CHARACTERS`; swaps references with unit deck or other hand; refuses if target is already on the board. Log lines prefixed `Debug: Placement —`.
+
+**Files touched:** `data.js`, `game.js`, `index.html`, `style.css`, `RULES.md`, `DEV_LOG.md`, `README.md`.
+**Chunk update files:** `game.js`, `DEV_LOG.md`.
 
 ---
 

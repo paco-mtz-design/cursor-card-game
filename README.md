@@ -28,6 +28,7 @@ Wire per-character veteran buff definitions and combat hooks. Characters already
 |------|------|
 | **Phases, status, and order** | [ROADMAP.md](ROADMAP.md) |
 | **What shipped and which files changed** | [DEV_LOG.md](DEV_LOG.md) |
+| **Player-facing rules clarifications** (counters, edge cases, stacking) | [RULES.md](RULES.md) |
 
 ### Key code files
 

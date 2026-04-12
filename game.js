@@ -13,6 +13,12 @@
   const placeTitle = document.getElementById('place-title');
   const placeHint = document.getElementById('place-hint');
   const placementHand = document.getElementById('placement-hand');
+  const placementHandFilterEl = document.getElementById('placement-hand-filter');
+  const placementUnitPickWrapEl = document.getElementById('placement-unit-pick-wrap');
+  const placementUnitPickSearchEl = document.getElementById('placement-unit-pick-search');
+  const placementUnitPickListEl = document.getElementById('placement-unit-pick-list');
+  const btnPlacementReplaceWithPick = document.getElementById('btn-placement-replace-with-pick');
+  const btnPlacementUnitPickClose = document.getElementById('btn-placement-unit-pick-close');
   const btnNewGame = document.getElementById('btn-new-game');
   const turnBanner = document.getElementById('turn-banner');
   const turnLabel = document.getElementById('turn-label');
@@ -234,6 +240,924 @@
   function getEffectiveAttackerClass(attCell) {
     if (!attCell) return null;
     return attCell.nextAttackAsCaster ? 'Caster' : attCell.unit.class;
+  }
+
+  function getVeteranBuff(cell) {
+    if (!cell || !cell.unit || cell.unit.level !== 'Veteran') return null;
+    return cell.unit.veteranBuff || null;
+  }
+
+  function hasVeteranBuff(cell, buffKey) {
+    return getVeteranBuff(cell) === buffKey;
+  }
+
+  function isCounterRangeForLancerCell(attackerCol, lancerCol, lancerCell) {
+    if (!lancerCell) return false;
+    const dist = Math.abs(attackerCol - lancerCol);
+    return (lancerCell.gear && lancerCell.gear.name === 'Vanguard Lance') ? (dist >= 1 && dist <= 2) : (dist === 1);
+  }
+
+  function findAdjacentAllyLancerCols(player, col) {
+    const result = [];
+    const left = col - 1;
+    const right = col + 1;
+    if (left >= 0) {
+      const leftCell = state.board[player][left];
+      if (leftCell && leftCell.unit.class === 'Lancer') result.push(left);
+    }
+    if (right <= 4) {
+      const rightCell = state.board[player][right];
+      if (rightCell && rightCell.unit.class === 'Lancer') result.push(right);
+    }
+    return result;
+  }
+
+  function getCounterGuaranteeInfo(defenderPlayer, lancerCol, lancerCell) {
+    const info = { guaranteed: false, reason: null, revealCol: null };
+    if (!lancerCell || lancerCell.unit.class !== 'Lancer') return info;
+
+    if (hasVeteranBuff(lancerCell, 'nyss') && !lancerCell.faceUp) {
+      info.guaranteed = true;
+      info.reason = 'nyss';
+      return info;
+    }
+
+    const adjacentLancers = findAdjacentAllyLancerCols(defenderPlayer, lancerCol);
+    if (adjacentLancers.length === 0) return info;
+
+    if (hasVeteranBuff(lancerCell, 'rowka')) {
+      info.guaranteed = true;
+      info.reason = 'rowka';
+      info.revealCol = adjacentLancers[0];
+      return info;
+    }
+
+    for (let i = 0; i < adjacentLancers.length; i++) {
+      const allyCol = adjacentLancers[i];
+      const allyCell = state.board[defenderPlayer][allyCol];
+      if (hasVeteranBuff(allyCell, 'rowka')) {
+        info.guaranteed = true;
+        info.reason = 'rowka';
+        info.revealCol = allyCol;
+        return info;
+      }
+    }
+
+    return info;
+  }
+
+  function attackerIsProtectedByBraskin(attackerPlayer, attackerCol) {
+    const left = attackerCol - 1;
+    const right = attackerCol + 1;
+    if (left >= 0) {
+      const leftCell = state.board[attackerPlayer][left];
+      if (leftCell && leftCell.unit.class === 'Lancer' && hasVeteranBuff(leftCell, 'braskin')) return true;
+    }
+    if (right <= 4) {
+      const rightCell = state.board[attackerPlayer][right];
+      if (rightCell && rightCell.unit.class === 'Lancer' && hasVeteranBuff(rightCell, 'braskin')) return true;
+    }
+    return false;
+  }
+
+  function resolveKeeraCounterExtra(defenderPlayer, keeraCol, attackerPlayer, attackerCol) {
+    const keeraCell = state.board[defenderPlayer][keeraCol];
+    if (!keeraCell || !hasVeteranBuff(keeraCell, 'keera')) return;
+    const validTargetCols = [];
+    for (let c = 0; c < 5; c++) {
+      if (c === attackerCol) continue;
+      const enemyCell = state.board[attackerPlayer][c];
+      if (!enemyCell) continue;
+      if (isCounterRangeForLancerCell(c, keeraCol, keeraCell)) validTargetCols.push(c);
+    }
+    if (validTargetCols.length === 0) return;
+
+    validTargetCols.sort(function (a, b) {
+      const da = Math.abs(a - keeraCol);
+      const db = Math.abs(b - keeraCol);
+      if (da !== db) return da - db;
+      return a - b;
+    });
+    const targetCol = validTargetCols[0];
+    const targetCell = state.board[attackerPlayer][targetCol];
+    if (!targetCell) return;
+    log("Keera's Double Sword — extra 1 damage to " + targetCell.unit.name + ".");
+    applyDamage(attackerPlayer, targetCol, 1, "");
+  }
+
+  function revealAndParalyze(player, col, reasonLabel) {
+    const cell = state.board[player][col];
+    if (!cell) return false;
+    if (!cell.faceUp) {
+      cell.faceUp = true;
+      log(cell.unit.name + " is revealed.");
+    }
+    cell.paralyzed = true;
+    log(cell.unit.name + " is paralyzed (" + reasonLabel + ").");
+    return true;
+  }
+
+  function healCellDamage(player, col, amount, reasonLabel) {
+    const cell = state.board[player][col];
+    if (!cell) return;
+    const current = cell.damage || 0;
+    if (current <= 0) {
+      log(reasonLabel + " — " + cell.unit.name + " is already at full HP.");
+      return;
+    }
+    const next = Math.max(0, current - amount);
+    const recovered = current - next;
+    cell.damage = next;
+    log(reasonLabel + " — " + cell.unit.name + " recovers " + recovered + " HP.");
+  }
+
+  function maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol) {
+    if (!hasVeteranBuff(attCell, 'torra')) return;
+    const heads = Math.random() < 0.5;
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!heads) {
+      log("Torra's Shattering Hammer: tails — no gear destroyed.");
+      return;
+    }
+    if (!defCell || !defCell.gear) {
+      log("Torra's Shattering Hammer: heads — target has no gear.");
+      return;
+    }
+    const removed = defCell.gear;
+    if (!state.itemDiscard) state.itemDiscard = [];
+    state.itemDiscard.push(removed);
+    defCell.gear = null;
+    log("Torra's Shattering Hammer: heads — " + removed.name + " on " + defCell.unit.name + " is destroyed before damage.");
+  }
+
+  function getRokkloDamageBonus(attCell) {
+    if (!hasVeteranBuff(attCell, 'rokklo')) return 0;
+    const heads = Math.random() < 0.5;
+    if (!heads) {
+      log("Rokklo's Returning Hit: tails — no bonus damage.");
+      return 0;
+    }
+    log("Rokklo's Returning Hit: heads — +1 damage.");
+    return 1;
+  }
+
+  function maybeApplyHaskelSteal(attCell, attackerPlayer, defenderPlayer) {
+    if (!hasVeteranBuff(attCell, 'haskel')) return;
+    const attackerHand = attackerPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    const defenderHand = defenderPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
+    if (!defenderHand || defenderHand.length === 0) {
+      log("Haskel's Pirate Claw — opponent has no item cards to steal.");
+      return;
+    }
+    const idx = Math.floor(Math.random() * defenderHand.length);
+    const stolen = defenderHand.splice(idx, 1)[0];
+    attackerHand.push(stolen);
+    log("Haskel's Pirate Claw — steals " + stolen.name + " from Player " + defenderPlayer + ".");
+  }
+
+  function maybeApplyLyraEcho(attCell, attackerCol, defenderPlayer, defenderCol) {
+    if (!hasVeteranBuff(attCell, 'lyra')) return;
+    const heads = Math.random() < 0.5;
+    if (!heads) {
+      log("Lyra's Blast Echo: tails — no extra hit.");
+      return;
+    }
+    const dist = Math.abs(defenderCol - attackerCol);
+    if (dist < 2) {
+      log("Lyra's Blast Echo: heads — no between tile for this attack.");
+      return;
+    }
+    const betweenCol = defenderCol > attackerCol ? defenderCol - 1 : defenderCol + 1;
+    if (betweenCol < 0 || betweenCol > 4) {
+      log("Lyra's Blast Echo: heads — no enemy unit in the between tile.");
+      return;
+    }
+    const betweenCell = state.board[defenderPlayer][betweenCol];
+    if (!betweenCell) {
+      log("Lyra's Blast Echo: heads — no enemy unit in the between tile.");
+      return;
+    }
+    log("Lyra's Blast Echo: heads — extra 1 damage to " + betweenCell.unit.name + ".");
+    applyDamage(defenderPlayer, betweenCol, 1, "");
+  }
+
+  function maybeApplySolomonFrontParalyze(attCell, attackerCol, defenderPlayer) {
+    if (!hasVeteranBuff(attCell, 'solomon')) return;
+    const frontCol = attackerCol;
+    const frontCell = state.board[defenderPlayer][frontCol];
+    if (!frontCell) {
+      log("Solomon's Lunar Dazzle — no enemy directly in front.");
+      return;
+    }
+    revealAndParalyze(defenderPlayer, frontCol, 'Lunar Dazzle');
+  }
+
+  function maybeApplyChronirAdjacentParalyze(attCell, defenderPlayer, defenderCol) {
+    if (!hasVeteranBuff(attCell, 'chronir')) return;
+    const cols = [];
+    if (defenderCol - 1 >= 0 && state.board[defenderPlayer][defenderCol - 1]) cols.push(defenderCol - 1);
+    if (defenderCol + 1 <= 4 && state.board[defenderPlayer][defenderCol + 1]) cols.push(defenderCol + 1);
+    if (cols.length === 0) {
+      log("Chronir's Frozen Chain — no adjacent enemy to paralyze.");
+      return;
+    }
+    if (cols.length === 1) {
+      revealAndParalyze(defenderPlayer, cols[0], 'Frozen Chain');
+      return;
+    }
+    state.pendingChronirChoice = { defenderPlayer: defenderPlayer, targetCols: cols.slice() };
+    log("Chronir's Frozen Chain — choose an adjacent enemy to paralyze.");
+  }
+
+  function refreshSenyaCooldownForTurn(player) {
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[player][c];
+      if (!cell || !hasVeteranBuff(cell, 'senya')) continue;
+      if (!cell.veteranState) cell.veteranState = {};
+      if (cell.veteranState.senyaBlockNextTurn) {
+        cell.veteranState.senyaBlockedThisTurn = true;
+        cell.veteranState.senyaBlockNextTurn = false;
+      } else {
+        cell.veteranState.senyaBlockedThisTurn = false;
+      }
+    }
+  }
+
+  function resolveDefenderVeteranPacket(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
+    const opts = options || {};
+    const result = {
+      canceled: false,
+      finalPlayer: defenderPlayer,
+      finalCol: defenderCol,
+      landedOnOriginalTarget: true,
+      tivalFailureReason: null,
+    };
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!defCell) {
+      result.canceled = true;
+      return result;
+    }
+
+    const isVorpalPacket = !!opts.vorpalIgnoresDefenderVeterancy;
+    const hasDefenderPassive = hasVeteranBuff(defCell, 'senya') || hasVeteranBuff(defCell, 'iktha') || hasVeteranBuff(defCell, 'mivara');
+    if (isVorpalPacket && hasDefenderPassive) {
+      log("Vorpal Honing Amulet — ignores " + defCell.unit.name + "'s defender veterancy.");
+      return result;
+    }
+
+    if (hasVeteranBuff(defCell, 'iktha')) {
+      const attackerCell = state.board[attackerPlayer][attackerCol];
+      if (!attackerCell || !attackerCell.gear) {
+        log("Iktha's Magma Skin — attacker has no gear to destroy.");
+      } else {
+        const removed = attackerCell.gear;
+        if (!state.itemDiscard) state.itemDiscard = [];
+        state.itemDiscard.push(removed);
+        attackerCell.gear = null;
+        log("Iktha's Magma Skin — " + removed.name + " on " + attackerCell.unit.name + " is destroyed before damage.");
+      }
+    }
+
+    if (hasVeteranBuff(defCell, 'senya')) {
+      if (!defCell.veteranState) defCell.veteranState = {};
+      if (defCell.veteranState.senyaBlockedThisTurn) {
+        log("Senya's Hex Haze is on cooldown this turn — damage is not negated.");
+      } else {
+        const senyaHeads = Math.random() < 0.5;
+        if (!senyaHeads) {
+          log("Senya's Hex Haze: tails — damage is not negated.");
+        } else {
+          defCell.veteranState.senyaBlockNextTurn = true;
+          log("Senya's Hex Haze: heads — damage and effects are negated, attacker takes 1 damage.");
+          applyDamage(attackerPlayer, attackerCol, 1, "");
+          result.canceled = true;
+          result.landedOnOriginalTarget = false;
+          result.tivalFailureReason = "attack was negated by Senya's Hex Haze";
+          return result;
+        }
+      }
+    }
+
+    if (hasVeteranBuff(defCell, 'mivara')) {
+      const mivaraHeads = Math.random() < 0.5;
+      if (!mivaraHeads) {
+        log("Mivara's False Self: tails — no redirection.");
+      } else {
+        const redirectedCell = state.board[attackerPlayer][defenderCol];
+        if (!redirectedCell) {
+          log("Mivara's False Self: heads — no enemy in front, so no redirected damage or effects.");
+          result.canceled = true;
+          result.landedOnOriginalTarget = false;
+          result.tivalFailureReason = "attack was redirected by Mivara's False Self";
+          return result;
+        }
+        log("Mivara's False Self: heads — damage and effects redirect to " + redirectedCell.unit.name + ".");
+        result.finalPlayer = attackerPlayer;
+        result.finalCol = defenderCol;
+        result.landedOnOriginalTarget = false;
+        result.tivalFailureReason = "attack was redirected by Mivara's False Self";
+      }
+    }
+
+    return result;
+  }
+
+  function getArdanVeilstepEligibleCols(player, ardanCol) {
+    const cols = [ardanCol];
+    for (let c = 0; c < 5; c++) {
+      if (c === ardanCol) continue;
+      const allyCell = state.board[player][c];
+      if (!allyCell || allyCell.faceUp) continue;
+      cols.push(c);
+    }
+    return cols;
+  }
+
+  function queueArdanVeilstepPrompt(attackerPlayer, attackerCol, context) {
+    const attCell = state.board[attackerPlayer][attackerCol];
+    if (!attCell || !hasVeteranBuff(attCell, 'ardan')) return false;
+    const eligibleCols = getArdanVeilstepEligibleCols(attackerPlayer, attackerCol);
+    if (eligibleCols.length <= 1) {
+      log("Ardan's Veilstep — no face-down allies available to reorder.");
+      return false;
+    }
+    state.pendingVeteranPrompt = {
+      type: 'ardanVeilstep',
+      message: "Ardan's Veilstep: reorder Ardan with any face-down allies now?",
+      useLabel: 'Use Veilstep',
+      noLabel: 'No',
+      attPlayer: attackerPlayer,
+      attCol: attackerCol,
+      context: context,
+      eligibleCols: eligibleCols.slice(),
+    };
+    log("Ardan's Veilstep — choose Use or No.");
+    return true;
+  }
+
+  function completeArchmageAttack(attPlayer, attCol) {
+    const attCellAfter = state.board[attPlayer][attCol];
+    if (attCellAfter) attCellAfter.mustRestNextTurn = true;
+    replaceCapturedUnitsBeforePass();
+    var winner = checkGameOver();
+    if (winner !== null) {
+      showGameOver(winner);
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      updateCaptureDisplay();
+      renderBoard();
+      return;
+    }
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    updateCaptureDisplay();
+    renderBoard();
+    endTurn();
+  }
+
+  function continueAfterArdanVeilstep(context, attackerPlayer, attackerCol) {
+    if (context === 'archmage') {
+      completeArchmageAttack(attackerPlayer, attackerCol);
+      return;
+    }
+    finishResolvedCombatTurn();
+  }
+
+  function beginArdanVeilstepReorder(prompt) {
+    const attCell = state.board[prompt.attPlayer][prompt.attCol];
+    if (!attCell) {
+      continueAfterArdanVeilstep(prompt.context, prompt.attPlayer, prompt.attCol);
+      return;
+    }
+    const eligibleCols = getArdanVeilstepEligibleCols(prompt.attPlayer, prompt.attCol);
+    if (eligibleCols.length <= 1) {
+      log("Ardan's Veilstep — no face-down allies available to reorder.");
+      continueAfterArdanVeilstep(prompt.context, prompt.attPlayer, prompt.attCol);
+      return;
+    }
+    if (attCell.faceUp) {
+      attCell.faceUp = false;
+      log("Ardan's Veilstep — " + attCell.unit.name + " flips face-down.");
+    }
+    state.obscuringReorder = {
+      player: prompt.attPlayer,
+      selectedCol: null,
+      kind: 'ardan',
+      allowedCols: eligibleCols.slice(),
+      afterContext: prompt.context,
+      attackerPlayer: prompt.attPlayer,
+      attackerCol: prompt.attCol,
+    };
+    log("Ardan's Veilstep — reorder Ardan with face-down allies, then click Done reordering.");
+    renderTurnUI();
+    renderBoard();
+  }
+
+  function finishResolvedCombatTurn() {
+    replaceCapturedUnitsBeforePass();
+    var winner = checkGameOver();
+    if (winner !== null) {
+      showGameOver(winner);
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      updateCaptureDisplay();
+      renderBoard();
+      return;
+    }
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    updateCaptureDisplay();
+    renderBoard();
+    endTurn();
+  }
+
+  function resolvePendingChronirChoice(column) {
+    const pending = state.pendingChronirChoice;
+    if (!pending) return;
+    if (pending.targetCols.indexOf(column) === -1) return;
+    const target = state.board[pending.defenderPlayer][column];
+    state.pendingChronirChoice = null;
+    if (!target) {
+      log("Chronir's Frozen Chain — chosen target is no longer valid.");
+      finishResolvedCombatTurn();
+      return;
+    }
+    revealAndParalyze(pending.defenderPlayer, column, 'Frozen Chain');
+    finishResolvedCombatTurn();
+  }
+
+  function maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, didCapture) {
+    if (!hasVeteranBuff(attCell, 'grolk') || !didCapture) return;
+    const heads = Math.random() < 0.5;
+    if (!heads) {
+      log("Grolk's Bloodthirst: tails — no healing.");
+      return;
+    }
+    healCellDamage(attackerPlayer, attackerCol, 1, "Grolk's Bloodthirst");
+  }
+
+  function getJorrenDamageBonus(attCell) {
+    if (!hasVeteranBuff(attCell, 'jorren')) return 0;
+    if (!attCell.veteranState) attCell.veteranState = {};
+    const bonus = attCell.veteranState.jorrenAttackedLastOwnTurn ? 1 : 0;
+    if (bonus > 0) log("Jorren's Berserker — consecutive-turn attack deals +1 damage.");
+    return bonus;
+  }
+
+  function markJorrenAttackThisTurn(attCell) {
+    if (!hasVeteranBuff(attCell, 'jorren')) return;
+    if (!attCell.veteranState) attCell.veteranState = {};
+    attCell.veteranState.jorrenAttackedThisTurn = true;
+  }
+
+  function updateJorrenFlagsAtTurnEnd(player) {
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[player][c];
+      if (!cell || !hasVeteranBuff(cell, 'jorren')) continue;
+      if (!cell.veteranState) cell.veteranState = {};
+      cell.veteranState.jorrenAttackedLastOwnTurn = !!cell.veteranState.jorrenAttackedThisTurn;
+      cell.veteranState.jorrenAttackedThisTurn = false;
+    }
+  }
+
+  function refreshCassaCooldownForTurn(player) {
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[player][c];
+      if (!cell || !hasVeteranBuff(cell, 'cassa')) continue;
+      if (!cell.veteranState) cell.veteranState = {};
+      if (cell.veteranState.cassaBlockNextTurn) {
+        cell.veteranState.cassaBlockedThisTurn = true;
+        cell.veteranState.cassaBlockNextTurn = false;
+      } else {
+        cell.veteranState.cassaBlockedThisTurn = false;
+      }
+    }
+  }
+
+  function getFaceUpEnemyColsInRange(attackerPlayer, attackerCol, attCell, defenderPlayer) {
+    const cols = [];
+    for (let c = 0; c < 5; c++) {
+      const enemyCell = state.board[defenderPlayer][c];
+      if (!enemyCell || !enemyCell.faceUp) continue;
+      if (!isInRangeWithCell(attackerCol, c, attCell)) continue;
+      cols.push(c);
+    }
+    return cols;
+  }
+
+  function prepareCassaTwinArcOpportunity(attackerPlayer, attackerCol, defenderPlayer, firstDefCol) {
+    const attCell = state.board[attackerPlayer][attackerCol];
+    const targetCell = state.board[defenderPlayer][firstDefCol];
+    if (!attCell || !targetCell || !hasVeteranBuff(attCell, 'cassa')) return;
+    if (!attCell.veteranState) attCell.veteranState = {};
+    if (attCell.veteranState.cassaBlockedThisTurn) {
+      log("Cassa's Twin Arc is on cooldown this turn.");
+      return;
+    }
+    if (state.cassaSecondAttackInProgress) return;
+    if (!targetCell.faceUp) return;
+    const faceUpInRange = getFaceUpEnemyColsInRange(attackerPlayer, attackerCol, attCell, defenderPlayer);
+    if (faceUpInRange.length < 2) return;
+    const options = faceUpInRange.filter(function (c) { return c !== firstDefCol; });
+    if (options.length === 0) return;
+    state.pendingCassaOpportunity = {
+      attPlayer: attackerPlayer,
+      attCol: attackerCol,
+      defPlayer: defenderPlayer,
+      firstDefCol: firstDefCol,
+      options: options.slice(),
+    };
+  }
+
+  function runPendingCassaSecondAttackIfAvailable() {
+    const pending = state.pendingCassaSecondAttack;
+    if (!pending) return false;
+    if (checkGameOver() !== null) {
+      state.pendingCassaSecondAttack = null;
+      return false;
+    }
+    state.pendingCassaSecondAttack = null;
+    const attCell = state.board[pending.attPlayer][pending.attCol];
+    const defCell = state.board[pending.defPlayer][pending.defCol];
+    if (!attCell || !defCell) return false;
+    log("Cassa's Twin Arc — second attack on column " + pending.defCol + ".");
+    state.cassaSecondAttackInProgress = true;
+    beginAttackAgainstTarget(pending.attPlayer, pending.attCol, pending.defPlayer, pending.defCol);
+    state.cassaSecondAttackInProgress = false;
+    return true;
+  }
+
+  function hasAdjacentHarlundForTarget(defenderPlayer, defenderCol) {
+    const targetCell = state.board[defenderPlayer][defenderCol];
+    if (!targetCell) return false;
+    const left = defenderCol - 1;
+    const right = defenderCol + 1;
+    if (left >= 0) {
+      const leftCell = state.board[defenderPlayer][left];
+      if (leftCell && hasVeteranBuff(leftCell, 'harlund')) return true;
+    }
+    if (right <= 4) {
+      const rightCell = state.board[defenderPlayer][right];
+      if (rightCell && hasVeteranBuff(rightCell, 'harlund')) return true;
+    }
+    return false;
+  }
+
+  function beginAttackAgainstTarget(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
+    const opts = options || {};
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!defCell) return false;
+    if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') {
+      state.pendingWardstone = { attPlayer: attackerPlayer, attCol: attackerCol, defPlayer: defenderPlayer, defCol: defenderCol };
+      renderTurnUI();
+      renderBoard();
+      return true;
+    }
+    resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, opts);
+    return true;
+  }
+
+  function maybeRedirectToHarlund(defenderPlayer, defenderCol, attackContext) {
+    if (attackContext && attackContext.harlundUsed) {
+      if (typeof attackContext.protectedCol === 'number' && defenderCol === attackContext.protectedCol) {
+        return null;
+      }
+      return defenderCol;
+    }
+    const left = defenderCol - 1;
+    const right = defenderCol + 1;
+    let harlundCol = null;
+    if (left >= 0) {
+      const leftCell = state.board[defenderPlayer][left];
+      if (leftCell && hasVeteranBuff(leftCell, 'harlund')) harlundCol = left;
+    }
+    if (harlundCol == null && right <= 4) {
+      const rightCell = state.board[defenderPlayer][right];
+      if (rightCell && hasVeteranBuff(rightCell, 'harlund')) harlundCol = right;
+    }
+    if (harlundCol == null) return defenderCol;
+    const allyCell = state.board[defenderPlayer][defenderCol];
+    const harlundCell = state.board[defenderPlayer][harlundCol];
+    if (!allyCell || !harlundCell) return defenderCol;
+    const useShield = !!(attackContext && attackContext.harlundDecision === 'use');
+    if (!useShield) {
+      if (!attackContext || !attackContext.harlundDeclineLogged) {
+        log("Harlund's Pack Shield not used.");
+        if (attackContext) attackContext.harlundDeclineLogged = true;
+      }
+      return defenderCol;
+    }
+    state.board[defenderPlayer][defenderCol] = harlundCell;
+    state.board[defenderPlayer][harlundCol] = allyCell;
+    state.board[defenderPlayer][defenderCol].faceUp = true;
+    if (attackContext) {
+      attackContext.harlundUsed = true;
+      attackContext.protectedCol = harlundCol;
+    }
+    log("Harlund's Pack Shield — " + harlundCell.unit.name + " swaps in and takes the hit.");
+    return defenderCol;
+  }
+
+  function queueTivalRetryPrompt(attackerPlayer, attackerCol, defenderPlayer, defenderCol, reasonLabel) {
+    if (state.tivalRetryInProgress) return false;
+    const attCell = state.board[attackerPlayer][attackerCol];
+    const defCell = state.board[defenderPlayer][defenderCol];
+    if (!attCell || !defCell) return false;
+    if (!hasVeteranBuff(attCell, 'tival')) return false;
+    state.pendingVeteranPrompt = {
+      type: 'tivalRetry',
+      message: "Tival's Quick Reload: " + reasonLabel + ". Retry attack on the same target now?",
+      useLabel: 'Retry attack',
+      noLabel: 'No',
+      attPlayer: attackerPlayer,
+      attCol: attackerCol,
+      defPlayer: defenderPlayer,
+      defCol: defenderCol,
+    };
+    return true;
+  }
+
+  function maybeTriggerVaelaFrontStrike(moverPlayer, moverCol) {
+    const moverCell = state.board[moverPlayer][moverCol];
+    if (!moverCell) return false;
+    const opp = moverPlayer === 1 ? 2 : 1;
+    const vaelaCell = state.board[opp][moverCol];
+    if (!vaelaCell || !hasVeteranBuff(vaelaCell, 'vaela')) return false;
+    const heads = Math.random() < 0.5;
+    if (!heads) {
+      log("Vaela's Instinctive Strike: tails — no interruption.");
+      return false;
+    }
+    log("Vaela's Instinctive Strike: heads — " + moverCell.unit.name + " takes 1 damage and turn ends.");
+    applyDamage(moverPlayer, moverCol, 1, "");
+    replaceCapturedUnitsBeforePass();
+    state.selectedUnit = null;
+    state.actionStep = 'select_unit';
+    renderTurnUI();
+    renderBoard();
+    endTurn();
+    return true;
+  }
+
+  function queueCassaUsePromptIfReady(attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
+    if (state.cassaSecondAttackInProgress) return false;
+    const opp = state.pendingCassaOpportunity;
+    if (!opp) return false;
+    if (opp.attPlayer !== attackerPlayer || opp.attCol !== attackerCol || opp.defPlayer !== defenderPlayer || opp.firstDefCol !== defenderCol) return false;
+    const attCell = state.board[attackerPlayer][attackerCol];
+    if (!attCell || !hasVeteranBuff(attCell, 'cassa')) {
+      state.pendingCassaOpportunity = null;
+      return false;
+    }
+    if (!attCell.veteranState) attCell.veteranState = {};
+    if (attCell.veteranState.cassaBlockedThisTurn) {
+      state.pendingCassaOpportunity = null;
+      return false;
+    }
+    const options = opp.options.filter(function (c) {
+      const cell = state.board[defenderPlayer][c];
+      return !!(cell && cell.faceUp && isInRangeWithCell(attackerCol, c, attCell));
+    });
+    state.pendingCassaOpportunity = null;
+    if (options.length === 0) return false;
+    state.pendingVeteranPrompt = {
+      type: 'cassaTwinArc',
+      message: "Cassa's Twin Arc is available. Use it for a second attack?",
+      useLabel: 'Use Twin Arc',
+      noLabel: 'No',
+      attPlayer: attackerPlayer,
+      attCol: attackerCol,
+      defPlayer: defenderPlayer,
+      options: options.slice(),
+    };
+    return true;
+  }
+
+  function resolvePendingCassaChoice(column) {
+    const pending = state.pendingCassaChoice;
+    if (!pending) return;
+    if (pending.targetCols.indexOf(column) === -1) return;
+    state.pendingCassaChoice = null;
+    state.pendingCassaSecondAttack = {
+      attPlayer: pending.attPlayer,
+      attCol: pending.attCol,
+      defPlayer: pending.defPlayer,
+      defCol: column,
+    };
+    const attCell = state.board[pending.attPlayer][pending.attCol];
+    if (attCell) {
+      if (!attCell.veteranState) attCell.veteranState = {};
+      attCell.veteranState.cassaBlockNextTurn = true;
+    }
+    log("Cassa's Twin Arc — second attack prepared (column " + column + ").");
+    if (runPendingCassaSecondAttackIfAvailable()) return;
+    finishResolvedCombatTurn();
+  }
+
+  function resolveHarlundSinglePrompt(useShield) {
+    const prompt = state.pendingVeteranPrompt;
+    if (!prompt || prompt.type !== 'harlundOnHitSingle') return;
+    state.pendingVeteranPrompt = null;
+    const attCell = state.board[prompt.attPlayer][prompt.attCol];
+    if (!attCell) {
+      finishResolvedCombatTurn();
+      return;
+    }
+    const attackContext = {
+      harlundUsed: false,
+      harlundDecision: useShield ? 'use' : 'no',
+      harlundDeclineLogged: false,
+      harlundPromptResolved: true,
+      protectedCol: null,
+    };
+    const hitCol = maybeRedirectToHarlund(prompt.defPlayer, prompt.defCol, attackContext);
+    if (hitCol == null) {
+      log("Harlund's Pack Shield — protected ally ignores the rest of this attack sequence.");
+      if (queueCassaUsePromptIfReady(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol)) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      if (runPendingCassaSecondAttackIfAvailable()) return;
+      finishResolvedCombatTurn();
+      return;
+    }
+    const vorpalPacket = state.vorpalNextAttack === prompt.attPlayer;
+    const packet = resolveDefenderVeteranPacket(prompt.attPlayer, prompt.attCol, prompt.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket });
+    if (packet.canceled) {
+      if (queueCassaUsePromptIfReady(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol)) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      if (runPendingCassaSecondAttackIfAvailable()) return;
+      if (queueTivalRetryPrompt(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol, packet.tivalFailureReason || "attack did not land")) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      finishResolvedCombatTurn();
+      return;
+    }
+    const finalPlayer = packet.finalPlayer;
+    const finalCol = packet.finalCol;
+    const tivalFailureReason = (!packet.landedOnOriginalTarget && packet.tivalFailureReason) ? packet.tivalFailureReason : null;
+    const finalTargetCell = state.board[finalPlayer][finalCol];
+    const finalTargetHadBarbed = !!(finalTargetCell && finalTargetCell.gear && finalTargetCell.gear.name === 'Barbed Gauntlets');
+    const captured = applyDamage(finalPlayer, finalCol, prompt.damage, "");
+    if (!captured && state.board[finalPlayer][finalCol] && prompt.effectiveClass === 'Caster') {
+      state.board[finalPlayer][finalCol].paralyzed = true;
+      log(state.board[finalPlayer][finalCol].unit.name + " is paralyzed (Magic Paralysis).");
+    }
+    maybeApplyHaskelSteal(attCell, prompt.attPlayer, prompt.defPlayer);
+    maybeApplyLyraEcho(attCell, prompt.attCol, finalPlayer, finalCol);
+    maybeApplySolomonFrontParalyze(attCell, prompt.attCol, prompt.defPlayer);
+    maybeApplyChronirAdjacentParalyze(attCell, finalPlayer, finalCol);
+    maybeApplyGrolkCaptureHeal(attCell, prompt.attPlayer, prompt.attCol, captured);
+    const attCellAfter = state.board[prompt.attPlayer][prompt.attCol];
+    if (attCellAfter && attCellAfter.nextAttackAsCaster) {
+      attCellAfter.nextAttackAsCaster = false;
+    }
+    if (finalTargetHadBarbed && (prompt.attClassForBarbed === 'Brawler' || prompt.attClassForBarbed === 'Lancer')) {
+      const heads = Math.random() < 0.5;
+      if (heads) {
+        const attRef = state.board[prompt.attPlayer][prompt.attCol];
+        if (attRef) {
+          const maxHP = getMaxHP(attRef);
+          const current = attRef.damage || 0;
+          const newTotal = current + 1;
+          if (newTotal >= maxHP) {
+            log("Barbed Gauntlets: heads — " + attRef.unit.name + " takes 1 damage from the defender's gauntlets and is captured.");
+          } else {
+            log("Barbed Gauntlets: heads — " + attRef.unit.name + " takes 1 damage from the defender's gauntlets (" + newTotal + "/" + maxHP + " HP).");
+          }
+          applyDamage(prompt.attPlayer, prompt.attCol, 1, null, true);
+        }
+      } else {
+        log("Barbed Gauntlets: tails — no reflected damage.");
+      }
+    }
+    if (state.vorpalNextAttack === prompt.attPlayer) {
+      state.vorpalNextAttack = null;
+    }
+    if (state.pendingChronirChoice) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (queueArdanVeilstepPrompt(prompt.attPlayer, prompt.attCol, 'single')) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (queueCassaUsePromptIfReady(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol)) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (runPendingCassaSecondAttackIfAvailable()) return;
+    if (tivalFailureReason) {
+      if (queueTivalRetryPrompt(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol, tivalFailureReason)) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+    }
+    finishResolvedCombatTurn();
+  }
+
+  function resolveHarlundArchmagePrompt(useShield) {
+    const prompt = state.pendingVeteranPrompt;
+    if (!prompt || prompt.type !== 'harlundOnHitArchmage') return;
+    state.pendingVeteranPrompt = null;
+    const ar = state.archmageMultiResolving;
+    if (!ar) return;
+    ar.harlundPromptResolved = true;
+    ar.harlundDecision = useShield ? 'use' : 'no';
+    if (!useShield) ar.protectedCol = null;
+    continueArchmageMulti();
+  }
+
+  function doVeteranPromptUse() {
+    const prompt = state.pendingVeteranPrompt;
+    if (!prompt) return;
+    if (prompt.type === 'tivalRetry') {
+      state.pendingVeteranPrompt = null;
+      log("Tival's Quick Reload — immediate retry on the same target.");
+      state.tivalRetryInProgress = true;
+      beginAttackAgainstTarget(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol);
+      state.tivalRetryInProgress = false;
+      return;
+    }
+    if (prompt.type === 'harlundOnHitSingle') {
+      resolveHarlundSinglePrompt(true);
+      return;
+    }
+    if (prompt.type === 'harlundOnHitArchmage') {
+      resolveHarlundArchmagePrompt(true);
+      return;
+    }
+    if (prompt.type === 'cassaTwinArc') {
+      state.pendingVeteranPrompt = null;
+      if (prompt.options.length === 1) {
+        const onlyCol = prompt.options[0];
+        state.pendingCassaSecondAttack = { attPlayer: prompt.attPlayer, attCol: prompt.attCol, defPlayer: prompt.defPlayer, defCol: onlyCol };
+        const attCell = state.board[prompt.attPlayer][prompt.attCol];
+        if (attCell) {
+          if (!attCell.veteranState) attCell.veteranState = {};
+          attCell.veteranState.cassaBlockNextTurn = true;
+        }
+        log("Cassa's Twin Arc — second attack prepared (column " + onlyCol + ").");
+        if (runPendingCassaSecondAttackIfAvailable()) return;
+        finishResolvedCombatTurn();
+        return;
+      }
+      state.pendingCassaChoice = {
+        attPlayer: prompt.attPlayer,
+        attCol: prompt.attCol,
+        defPlayer: prompt.defPlayer,
+        targetCols: prompt.options.slice(),
+      };
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (prompt.type === 'ardanVeilstep') {
+      state.pendingVeteranPrompt = null;
+      beginArdanVeilstepReorder(prompt);
+      return;
+    }
+  }
+
+  function doVeteranPromptNo() {
+    const prompt = state.pendingVeteranPrompt;
+    if (!prompt) return;
+    if (prompt.type === 'tivalRetry') {
+      state.pendingVeteranPrompt = null;
+      log("Tival's Quick Reload not used.");
+      finishResolvedCombatTurn();
+      return;
+    }
+    if (prompt.type === 'harlundOnHitSingle') {
+      resolveHarlundSinglePrompt(false);
+      return;
+    }
+    if (prompt.type === 'harlundOnHitArchmage') {
+      resolveHarlundArchmagePrompt(false);
+      return;
+    }
+    if (prompt.type === 'cassaTwinArc') {
+      state.pendingVeteranPrompt = null;
+      log("Cassa's Twin Arc not used.");
+      finishResolvedCombatTurn();
+      return;
+    }
+    if (prompt.type === 'ardanVeilstep') {
+      state.pendingVeteranPrompt = null;
+      log("Ardan's Veilstep not used.");
+      continueAfterArdanVeilstep(prompt.context, prompt.attPlayer, prompt.attCol);
+      return;
+    }
   }
 
   /** Lancer range: attacker column is diagonal to defender (defender at defCol). */
@@ -462,6 +1386,24 @@
       slot.classList.remove('slot--selectable', 'slot--selected');
     });
     if (state.pendingWardstone) return;
+    if (state.pendingCassaChoice) {
+      const pendingCassa = state.pendingCassaChoice;
+      for (let i = 0; i < pendingCassa.targetCols.length; i++) {
+        const c = pendingCassa.targetCols[i];
+        const slot = document.querySelector('.row--player' + pendingCassa.defPlayer + ' .slot[data-column="' + c + '"]');
+        if (slot) slot.classList.add('slot--selectable');
+      }
+      return;
+    }
+    if (state.pendingChronirChoice) {
+      const pending = state.pendingChronirChoice;
+      for (let i = 0; i < pending.targetCols.length; i++) {
+        const c = pending.targetCols[i];
+        const slot = document.querySelector('.row--player' + pending.defenderPlayer + ' .slot[data-column="' + c + '"]');
+        if (slot) slot.classList.add('slot--selectable');
+      }
+      return;
+    }
     const p = state.currentPlayer;
     const step = state.actionStep;
     const sel = state.selectedUnit;
@@ -470,6 +1412,7 @@
       const reord = state.obscuringReorder;
       for (let c = 0; c < 5; c++) {
         if (state.board[reord.player][c] == null) continue;
+        if (reord.allowedCols && reord.allowedCols.indexOf(c) === -1) continue;
         const slot = document.querySelector('.row--player' + reord.player + ' .slot[data-column="' + c + '"]');
         if (slot) {
           slot.classList.add('slot--selectable');
@@ -604,6 +1547,8 @@
     if (unitsDiscardPileEl) unitsDiscardPileEl.hidden = true;
     if (gameLogEl) gameLogEl.hidden = true;
     if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
+    if (placementHandFilterEl) placementHandFilterEl.value = '';
+    closePlacementUnitPickList();
     if (gameOverEl) gameOverEl.hidden = true;
     showStep('goal');
   }
@@ -630,17 +1575,180 @@
     state.placementPlayer = 1;
     state.phase = 'setup_place_p1';
     showStep('place');
+    if (placementHandFilterEl) placementHandFilterEl.value = '';
+    closePlacementUnitPickList();
     renderPlacementStep();
     renderBoard();
+  }
+
+  function findUnitObjectLocation(unitObj) {
+    if (!unitObj) return null;
+    for (let i = 0; i < state.p1Hand.length; i++) {
+      if (state.p1Hand[i] === unitObj) return { kind: 'p1Hand', i: i };
+    }
+    for (let i = 0; i < state.p2Hand.length; i++) {
+      if (state.p2Hand[i] === unitObj) return { kind: 'p2Hand', i: i };
+    }
+    for (let i = 0; i < state.unitDeck.length; i++) {
+      if (state.unitDeck[i] === unitObj) return { kind: 'unitDeck', i: i };
+    }
+    for (let p = 1; p <= 2; p++) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[p][c];
+        if (cell && cell.unit === unitObj) return { kind: 'board', player: p, col: c };
+      }
+    }
+    return null;
+  }
+
+  function replacePlacementHandSlotWithUnit(player, handIndex, targetUnitObj) {
+    if (typeof CHARACTERS === 'undefined' || !targetUnitObj) return;
+    const hand = player === 1 ? state.p1Hand : state.p2Hand;
+    if (handIndex < 0 || handIndex >= hand.length) return;
+    const oldUnit = hand[handIndex];
+    if (oldUnit === targetUnitObj) return;
+
+    const loc = findUnitObjectLocation(targetUnitObj);
+    if (!loc) {
+      log('Debug: placement replace — target unit not found in pool.');
+      return;
+    }
+    if (loc.kind === 'board') {
+      log('Debug: placement replace — ' + targetUnitObj.name + ' is already on the board.');
+      return;
+    }
+
+    if (loc.kind === 'unitDeck') {
+      hand[handIndex] = targetUnitObj;
+      state.unitDeck.splice(loc.i, 1);
+      state.unitDeck.push(oldUnit);
+      log('Debug: Placement — replaced ' + oldUnit.name + ' with ' + targetUnitObj.name + ' (from unit deck).');
+      return;
+    }
+
+    if (loc.kind === 'p1Hand') {
+      if (player === 1) {
+        if (loc.i === handIndex) return;
+        state.p1Hand[loc.i] = oldUnit;
+        state.p1Hand[handIndex] = targetUnitObj;
+        log('Debug: Placement — swapped P1 hand slots for ' + targetUnitObj.name + '.');
+      } else {
+        state.p1Hand[loc.i] = oldUnit;
+        state.p2Hand[handIndex] = targetUnitObj;
+        log('Debug: Placement — replaced with unit from P1 hand (' + targetUnitObj.name + ').');
+      }
+      return;
+    }
+
+    if (loc.kind === 'p2Hand') {
+      if (player === 2) {
+        if (loc.i === handIndex) return;
+        state.p2Hand[loc.i] = oldUnit;
+        state.p2Hand[handIndex] = targetUnitObj;
+        log('Debug: Placement — swapped P2 hand slots for ' + targetUnitObj.name + '.');
+      } else {
+        state.p2Hand[loc.i] = oldUnit;
+        state.p1Hand[handIndex] = targetUnitObj;
+        log('Debug: Placement — replaced with unit from P2 hand (' + targetUnitObj.name + ').');
+      }
+    }
+  }
+
+  function renderPlacementUnitPickList(filter) {
+    if (!placementUnitPickListEl || typeof CHARACTERS === 'undefined') return;
+    placementUnitPickListEl.innerHTML = '';
+    const q = (filter || '').trim().toLowerCase();
+    const rows = CHARACTERS.slice().sort(function (a, b) {
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    const matches = q
+      ? rows.filter(function (u) {
+        const hay = ((u.name || '') + ' ' + (u.class || '') + ' ' + (u.level || '') + ' ' + (u.veteranBuff || '')).toLowerCase();
+        return hay.indexOf(q) !== -1;
+      })
+      : rows;
+    if (matches.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'setup__hand--empty-filter';
+      p.textContent = 'No units match your filter.';
+      placementUnitPickListEl.appendChild(p);
+      return;
+    }
+    matches.forEach(function (u) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn--small btn--secondary setup__placement-unit-pick-btn';
+      btn.setAttribute('role', 'listitem');
+      btn.dataset.unitName = u.name;
+      var label = u.name;
+      if (u.class) label += ' (' + u.class + ')';
+      if (u.level === 'Veteran' && u.veteranBuff) label += ' — ' + u.veteranBuff;
+      btn.textContent = label;
+      placementUnitPickListEl.appendChild(btn);
+    });
+  }
+
+  function openPlacementUnitPickList() {
+    if (!placementUnitPickWrapEl || !placementUnitPickListEl) return;
+    if (state.phase !== 'setup_place_p1' && state.phase !== 'setup_place_p2') return;
+    if (state.selectedPlacementIndex == null) {
+      log('Select a unit in your hand first, then use Replace with pick.');
+      return;
+    }
+    const hand = state.placementPlayer === 1 ? state.p1Hand : state.p2Hand;
+    if (state.selectedPlacementIndex < 0 || state.selectedPlacementIndex >= hand.length) return;
+    if (placementUnitPickSearchEl) {
+      placementUnitPickSearchEl.value = '';
+      placementUnitPickSearchEl.focus();
+    }
+    renderPlacementUnitPickList('');
+    placementUnitPickWrapEl.removeAttribute('hidden');
+  }
+
+  function closePlacementUnitPickList() {
+    if (placementUnitPickWrapEl) placementUnitPickWrapEl.setAttribute('hidden', '');
+  }
+
+  function applyPlacementUnitPick(unitName) {
+    if (typeof CHARACTERS === 'undefined') return;
+    const targetUnitObj = CHARACTERS.find(function (u) { return u.name === unitName; });
+    if (!targetUnitObj) return;
+    const player = state.placementPlayer;
+    const idx = state.selectedPlacementIndex;
+    if (idx == null) return;
+    replacePlacementHandSlotWithUnit(player, idx, targetUnitObj);
+    closePlacementUnitPickList();
+    renderPlacementStep();
+    renderBoard();
+  }
+
+  function unitMatchesPlacementFilter(unit, queryLower) {
+    if (!queryLower) return true;
+    const parts = [
+      unit.name || '',
+      unit.class || '',
+      unit.level || '',
+      unit.veteranBuff || '',
+    ];
+    const hay = parts.join(' ').toLowerCase();
+    return hay.indexOf(queryLower) !== -1;
   }
 
   function renderPlacementStep() {
     const player = state.placementPlayer;
     const hand = player === 1 ? state.p1Hand : state.p2Hand;
     placeTitle.textContent = 'Player ' + player + ': Place your units';
-    placeHint.textContent = 'Click a unit below, then click an empty slot on your row.';
+    placeHint.textContent = 'Filter or use Replace with pick for the full roster, select a unit, then place on your row.';
     placementHand.innerHTML = '';
+    const q = placementHandFilterEl ? placementHandFilterEl.value.trim().toLowerCase() : '';
+    if (state.selectedPlacementIndex != null) {
+      const sel = hand[state.selectedPlacementIndex];
+      if (!sel || !unitMatchesPlacementFilter(sel, q)) state.selectedPlacementIndex = null;
+    }
+    let anyVisible = false;
     hand.forEach(function (unit, index) {
+      if (!unitMatchesPlacementFilter(unit, q)) return;
+      anyVisible = true;
       const div = document.createElement('div');
       div.className = 'hand-card' + (state.selectedPlacementIndex === index ? ' hand-card--selected' : '');
       div.setAttribute('role', 'listitem');
@@ -648,6 +1756,13 @@
       div.innerHTML = createUnitCardHTML(unit, { faceUp: true, damage: 0, paralyzed: false });
       placementHand.appendChild(div);
     });
+    if (!anyVisible && hand.length > 0) {
+      const empty = document.createElement('p');
+      empty.className = 'setup__hand--empty-filter';
+      empty.setAttribute('role', 'status');
+      empty.textContent = 'No units match your filter.';
+      placementHand.appendChild(empty);
+    }
   }
 
   function placeUnit(player, slotIndex) {
@@ -655,7 +1770,7 @@
     const idx = state.selectedPlacementIndex;
     if (idx == null || idx < 0 || idx >= hand.length) return;
     const unit = hand[idx];
-    state.board[player][slotIndex] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null };
+    state.board[player][slotIndex] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
     if (getTerrain(player, slotIndex) === 'Divine Light') state.board[player][slotIndex].faceUp = true;
     hand.splice(idx, 1);
     state.selectedPlacementIndex = null;
@@ -677,7 +1792,7 @@
     const n = Math.min(shuffled.length, emptySlots.length);
     for (let i = 0; i < n; i++) {
       const slot = emptySlots[i];
-      state.board[player][slot] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false, gear: null };
+      state.board[player][slot] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
       if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
     }
     const placedSet = new Set(shuffled.slice(0, n));
@@ -696,6 +1811,8 @@
     if (player === 1) {
       state.placementPlayer = 2;
       state.phase = 'setup_place_p2';
+      if (placementHandFilterEl) placementHandFilterEl.value = '';
+      closePlacementUnitPickList();
       renderPlacementStep();
       renderBoard();
     } else {
@@ -734,6 +1851,8 @@
     state.selectedUnit = null;
     state.moveDone = false;
     state.itemTargeting = null;
+    refreshCassaCooldownForTurn(p);
+    refreshSenyaCooldownForTurn(p);
 
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
@@ -778,7 +1897,7 @@
     for (let i = 0; i < count && state.unitDeck.length > 0 && openSlots.length > 0; i++) {
       const unit = state.unitDeck.shift();
       const slot = openSlots.shift();
-      state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null };
+      state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
       if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
     }
   }
@@ -1056,38 +2175,67 @@
       turnActions.hidden = false;
       if (btnWardstoneUse) btnWardstoneUse.hidden = false;
       if (btnWardstoneNo) btnWardstoneNo.hidden = false;
+      if (btnWardstoneUse) btnWardstoneUse.textContent = 'Use Wardstone';
+      if (btnWardstoneNo) btnWardstoneNo.textContent = 'No';
+      return;
+    }
+    if (state.pendingVeteranPrompt) {
+      const pv = state.pendingVeteranPrompt;
+      turnStep.textContent = pv.message || 'Use veteran effect?';
+      turnActions.hidden = false;
+      if (btnWardstoneUse) {
+        btnWardstoneUse.hidden = false;
+        btnWardstoneUse.textContent = pv.useLabel || 'Use';
+      }
+      if (btnWardstoneNo) {
+        btnWardstoneNo.hidden = false;
+        btnWardstoneNo.textContent = pv.noLabel || 'No';
+      }
+      return;
+    }
+    if (state.pendingCassaChoice) {
+      turnStep.textContent = "Cassa's Twin Arc: choose the second target.";
+      return;
+    }
+    if (state.pendingChronirChoice) {
+      turnStep.textContent = "Chronir's Frozen Chain: choose an adjacent enemy to paralyze.";
+      return;
+    }
+    if (state.obscuringReorder) {
+      const kind = state.obscuringReorder.kind || 'obscuring';
+      if (kind === 'ardan') {
+        turnStep.textContent = "Ardan's Veilstep: click one eligible slot, then another to swap. Then click Done reordering.";
+      } else {
+        turnStep.textContent = 'Reorder your units: click one slot, then another to swap. Then click Done reordering.';
+      }
+      turnActions.hidden = false;
+      if (btnPass) btnPass.hidden = true;
+      if (btnDoneWithItems) {
+        btnDoneWithItems.textContent = 'Done reordering';
+        btnDoneWithItems.hidden = false;
+      }
       return;
     }
 
     if (step === 'use_items') {
-      if (state.obscuringReorder) {
-        turnStep.textContent = 'Reorder your units: click one slot, then another to swap. Then click Done reordering.';
-        turnActions.hidden = false;
-        if (btnPass) btnPass.hidden = true;
-        if (btnDoneWithItems) {
-          btnDoneWithItems.textContent = 'Done reordering';
-          btnDoneWithItems.hidden = false;
-        }
+      const it = state.itemTargeting;
+      if (it) {
+        if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
+        else if (it.itemName === 'All revealing lantern-jar') turnStep.textContent = 'Choose a face-down enemy unit (All revealing lantern-jar).';
+        else if (it.itemName === 'Tangle-Vine Bola') turnStep.textContent = 'Choose an enemy unit (Tangle-Vine Bola).';
+        else if (it.itemName === 'Corrosive Phial') turnStep.textContent = 'Choose a face-up unit with gear (Corrosive Phial).';
+        else if (it.itemName === 'Magic Grenade') turnStep.textContent = 'Choose your unit to attack as Caster (Magic Grenade).';
+        else if (GEAR_EQUIP_ITEM_NAMES.indexOf(it.itemName) !== -1) {
+          var ac = getGearAllowedClasses(it.itemName);
+          turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
+        } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
       } else {
-        const it = state.itemTargeting;
-        if (it) {
-          if (it.itemName === 'Healing Potion') turnStep.textContent = 'Choose a unit with at least 1 damage (target for Healing Potion).';
-          else if (it.itemName === 'All revealing lantern-jar') turnStep.textContent = 'Choose a face-down enemy unit (All revealing lantern-jar).';
-          else if (it.itemName === 'Tangle-Vine Bola') turnStep.textContent = 'Choose an enemy unit (Tangle-Vine Bola).';
-          else if (it.itemName === 'Corrosive Phial') turnStep.textContent = 'Choose a face-up unit with gear (Corrosive Phial).';
-          else if (it.itemName === 'Magic Grenade') turnStep.textContent = 'Choose your unit to attack as Caster (Magic Grenade).';
-          else if (GEAR_EQUIP_ITEM_NAMES.indexOf(it.itemName) !== -1) {
-            var ac = getGearAllowedClasses(it.itemName);
-            turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
-          } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
-        } else {
-          turnStep.textContent = 'Use items (optional), then continue to combat.';
-        }
-        turnActions.hidden = false;
-        if (btnPass) btnPass.hidden = true;
-        if (btnDoneWithItems) btnDoneWithItems.textContent = state.itemTargeting ? 'Cancel' : 'Done with items';
-        if (btnDoneWithItems) btnDoneWithItems.hidden = false;
+        turnStep.textContent = 'Use items (optional), then continue to combat.';
       }
+      turnActions.hidden = false;
+      if (btnPass) btnPass.hidden = true;
+      if (btnDoneWithItems) btnDoneWithItems.textContent = state.itemTargeting ? 'Cancel' : 'Done with items';
+      if (btnDoneWithItems) btnDoneWithItems.hidden = false;
     } else if (step === 'select_unit') {
       turnStep.textContent = 'Select a unit to act.';
     } else if (step === 'move') {
@@ -1196,13 +2344,14 @@
       log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and moves.");
     }
 
-    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null, veteranState: otherCell.veteranState || {} };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
     state.selectedUnit.column = next;
     state.moveDone = true;
     state.actionStep = 'attack';
     if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) state.board[p][c].faceUp = true;
     if (getTerrain(p, next) === 'Divine Light' && state.board[p][next]) state.board[p][next].faceUp = true;
+    if (maybeTriggerVaelaFrontStrike(p, next)) return;
     let moveLog = "Player " + p + "'s " + myCell.unit.name + " moves " + direction + " (swaps with " + otherCell.unit.name + ").";
     if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) moveLog += " " + otherCell.unit.name + " is revealed (Divine Light).";
     log(moveLog);
@@ -1243,13 +2392,13 @@
     }
 
     if (targetCell == null) {
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
       state.board[p][fromCol] = null;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
       log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
     } else {
-      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null };
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null };
+      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null, veteranState: targetCell.veteranState || {} };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
       state.selectedUnit.column = toCol;
       if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
@@ -1260,6 +2409,7 @@
     state.selectedUnit.column = toCol;
     state.moveDone = true;
     state.actionStep = 'attack';
+    if (maybeTriggerVaelaFrontStrike(p, toCol)) return;
     renderTurnUI();
     renderBoard();
   }
@@ -1275,11 +2425,11 @@
   }
 
   function doDoneWithItems() {
-    if (state.actionStep !== 'use_items') return;
     if (state.obscuringReorder) {
       doDoneObscuringReorder();
       return;
     }
+    if (state.actionStep !== 'use_items') return;
     if (state.itemTargeting) {
       state.itemTargeting = null;
       renderTurnUI();
@@ -1292,7 +2442,12 @@
   }
 
   function doWardstoneUse() {
+    if (state.pendingVeteranPrompt) {
+      doVeteranPromptUse();
+      return;
+    }
     if (!state.pendingWardstone) return;
+    const pw = state.pendingWardstone;
     const defCell = state.board[state.pendingWardstone.defPlayer][state.pendingWardstone.defCol];
     if (!defCell || !defCell.gear || defCell.gear.name !== 'Wardstone Bracelet') {
       state.pendingWardstone = null;
@@ -1309,6 +2464,12 @@
       state.archmageMultiResolving.index++;
       continueArchmageMulti();
     } else {
+      if (runPendingCassaSecondAttackIfAvailable()) return;
+      if (queueTivalRetryPrompt(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol, "attack was negated by Wardstone")) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
       state.selectedUnit = null;
       state.actionStep = 'select_unit';
       renderTurnUI();
@@ -1318,14 +2479,30 @@
   }
 
   function doWardstoneNo() {
+    if (state.pendingVeteranPrompt) {
+      doVeteranPromptNo();
+      return;
+    }
     if (!state.pendingWardstone) return;
     const pw = state.pendingWardstone;
     state.pendingWardstone = null;
     if (state.archmageMultiResolving) {
-      applyDamage(pw.defPlayer, pw.defCol, 1, "");
-      if (state.board[pw.defPlayer][pw.defCol]) {
-        state.board[pw.defPlayer][pw.defCol].paralyzed = true;
-        log(state.board[pw.defPlayer][pw.defCol].unit.name + " is paralyzed (Magic Paralysis).");
+      const ar = state.archmageMultiResolving;
+      const hitCol = maybeRedirectToHarlund(pw.defPlayer, pw.defCol, ar);
+      if (hitCol == null) {
+        log("Harlund's Pack Shield — protected ally ignores the rest of this attack sequence.");
+        state.archmageMultiResolving.index++;
+        continueArchmageMulti();
+        return;
+      }
+      const packet = resolveDefenderVeteranPacket(ar.attPlayer, ar.attCol, ar.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: ar.trueStrike && state.vorpalNextAttack === ar.attPlayer });
+      if (!packet.canceled) {
+        applyDamage(packet.finalPlayer, packet.finalCol, 1, "");
+        ar.ardanHitLanded = true;
+        if (state.board[packet.finalPlayer][packet.finalCol]) {
+          state.board[packet.finalPlayer][packet.finalCol].paralyzed = true;
+          log(state.board[packet.finalPlayer][packet.finalCol].unit.name + " is paralyzed (Magic Paralysis).");
+        }
       }
       state.archmageMultiResolving.index++;
       continueArchmageMulti();
@@ -1443,20 +2620,32 @@
 
   function doObscuringSwap(colA, colB) {
     if (!state.obscuringReorder || colA === colB) return;
-    const p = state.obscuringReorder.player;
+    const reord = state.obscuringReorder;
+    const p = reord.player;
+    if (reord.allowedCols && (reord.allowedCols.indexOf(colA) === -1 || reord.allowedCols.indexOf(colB) === -1)) return;
     const a = state.board[p][colA];
     const b = state.board[p][colB];
     state.board[p][colA] = b;
     state.board[p][colB] = a;
     state.obscuringReorder.selectedCol = null;
-    log("Swap: units at columns " + colA + " and " + colB + " exchanged.");
+    if (reord.kind === 'ardan') {
+      log("Ardan's Veilstep: columns " + colA + " and " + colB + " swapped.");
+    } else {
+      log("Swap: units at columns " + colA + " and " + colB + " exchanged.");
+    }
     renderTurnUI();
     renderBoard();
   }
 
   function doDoneObscuringReorder() {
     if (!state.obscuringReorder) return;
+    const reord = state.obscuringReorder;
     state.obscuringReorder = null;
+    if (reord.kind === 'ardan') {
+      log("Ardan's Veilstep complete.");
+      continueAfterArdanVeilstep(reord.afterContext, reord.attackerPlayer, reord.attackerCol);
+      return;
+    }
     renderTurnUI();
     renderBoard();
   }
@@ -1599,13 +2788,16 @@
     return false;
   }
 
-  function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
+  function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
     const attCell = state.board[attackerPlayer][attackerCol];
     const defCell = state.board[defenderPlayer][defenderCol];
     if (!attCell || !defCell) return;
+    markJorrenAttackThisTurn(attCell);
 
     const effectiveClass = getEffectiveAttackerClass(attCell);
-    const trueStrike = (state.vorpalNextAttack === attackerPlayer) ||
+    const attackContext = { harlundUsed: false, harlundDeclineLogged: false, harlundPromptResolved: false, harlundDecision: 'no' };
+    const vorpalPacket = (state.vorpalNextAttack === attackerPlayer);
+    const trueStrike = vorpalPacket ||
       (attCell.gear && attCell.gear.name === 'True-Strike Lens' && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) ||
       (attCell.gear && attCell.gear.name === "Sharpshooter's Scope" && attCell.unit.class === 'Shooter');
 
@@ -1618,6 +2810,13 @@
       const heads = Math.random() < 0.5;
       if (!heads) {
         log("Unstable Ground (attacker's tile): tails — attack canceled.");
+        if (state.pendingCassaSecondAttack && !state.cassaSecondAttackInProgress) state.pendingCassaSecondAttack = null;
+        state.pendingCassaOpportunity = null;
+        if (queueTivalRetryPrompt(attackerPlayer, attackerCol, defenderPlayer, defenderCol, "attack was canceled by Unstable Ground")) {
+          renderTurnUI();
+          renderBoard();
+          return;
+        }
         state.selectedUnit = null;
         state.actionStep = 'select_unit';
         renderTurnUI();
@@ -1629,47 +2828,86 @@
     }
 
     let attackBlocked = false;
+    let tivalFailureReason = null;
 
     if (!trueStrike) {
-      let lancerCol = null;
-      for (let c = 0; c < 5; c++) {
-        const cell = state.board[defenderPlayer][c];
-        if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
-        const dist = Math.abs(attackerCol - c);
-        const inCounterRange = (cell.gear && cell.gear.name === 'Vanguard Lance') ? (dist >= 1 && dist <= 2) : (dist === 1);
-        if (inCounterRange) {
-          lancerCol = c;
-          break;
+      const braskinProtected = attackerIsProtectedByBraskin(attackerPlayer, attackerCol);
+      if (braskinProtected) {
+        log("Braskin's Uncanny Block — this attack cannot be countered by enemy Lancers.");
+      } else {
+        const candidates = [];
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[defenderPlayer][c];
+          if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
+          if (!isCounterRangeForLancerCell(attackerCol, c, cell)) continue;
+          const guarantee = getCounterGuaranteeInfo(defenderPlayer, c, cell);
+          candidates.push({ col: c, guarantee: guarantee });
         }
-      }
 
-      if (lancerCol !== null) {
-        const lancerCell = state.board[defenderPlayer][lancerCol];
-        lancerCell.faceUp = true;
-        log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
-        if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
-          const unstableHeads = Math.random() < 0.5;
-          if (!unstableHeads) {
-            log("Unstable Ground (Lancer's tile): tails — counter canceled.");
-          } else {
-            log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
-            const heads = Math.random() < 0.5;
-            if (heads) {
-              log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
-              attackBlocked = true;
-              applyDamage(attackerPlayer, attackerCol, 1, "");
-            } else {
-              log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+        if (candidates.length > 0) {
+          let selected = null;
+          for (let i = 0; i < candidates.length; i++) {
+            if (candidates[i].guarantee.guaranteed) {
+              selected = candidates[i];
+              break;
             }
           }
-        } else {
-          const heads = Math.random() < 0.5;
-          if (heads) {
-            log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
-            attackBlocked = true;
-            applyDamage(attackerPlayer, attackerCol, 1, "");
-          } else {
-            log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+          if (!selected) selected = candidates[0];
+
+          const lancerCol = selected.col;
+          const lancerCell = state.board[defenderPlayer][lancerCol];
+          if (lancerCell) {
+            const guarantee = selected.guarantee;
+            lancerCell.faceUp = true;
+            log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
+
+            if (guarantee.revealCol !== null) {
+              const allyCell = state.board[defenderPlayer][guarantee.revealCol];
+              if (allyCell && !allyCell.faceUp) {
+                allyCell.faceUp = true;
+                log("Rowka's Twin Guard reveals " + allyCell.unit.name + ".");
+              }
+            }
+
+            if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
+              const unstableHeads = Math.random() < 0.5;
+              if (!unstableHeads) {
+                log("Unstable Ground (Lancer's tile): tails — counter canceled.");
+              } else {
+                log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
+                const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
+                if (guarantee.guaranteed && guarantee.reason === 'rowka') {
+                  log("Rowka's Twin Guard — counter is guaranteed.");
+                } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
+                  log("Nyss's Phantom Posture — face-down counter is guaranteed.");
+                }
+                if (counterHeads) {
+                  log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
+                  attackBlocked = true;
+                  tivalFailureReason = "attack was blocked by a Lancer counter";
+                  applyDamage(attackerPlayer, attackerCol, 1, "");
+                  resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
+                } else {
+                  log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+                }
+              }
+            } else {
+              const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
+              if (guarantee.guaranteed && guarantee.reason === 'rowka') {
+                log("Rowka's Twin Guard — counter is guaranteed.");
+              } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
+                log("Nyss's Phantom Posture — face-down counter is guaranteed.");
+              }
+              if (counterHeads) {
+                log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
+                attackBlocked = true;
+                tivalFailureReason = "attack was blocked by a Lancer counter";
+                applyDamage(attackerPlayer, attackerCol, 1, "");
+                resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
+              } else {
+                log("Lancer counterattack: tails — no counter. " + lancerCell.unit.name + " remains revealed.");
+              }
+            }
           }
         }
       }
@@ -1678,6 +2916,7 @@
     var defenderHadBarbedGauntlets = false;
     var attClassForBarbed = null;
     var attackHitDefender = false;
+    var attackAppliedToUnit = false;
     if (!attackBlocked) {
       defCell.faceUp = true;
       log("Target revealed: Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
@@ -1692,6 +2931,7 @@
           if (heads) {
             log("Elevated Ground: heads — attack fails.");
             defenderTerrainBlocked = true;
+            tivalFailureReason = "attack failed against Elevated Ground";
           } else {
             log("Elevated Ground: tails — attack proceeds.");
           }
@@ -1700,6 +2940,7 @@
           if (heads) {
             log("Reinforced Barricade: heads — attack fails.");
             defenderTerrainBlocked = true;
+            tivalFailureReason = "attack failed against Reinforced Barricade";
           } else {
             log("Reinforced Barricade: tails — attack proceeds.");
           }
@@ -1707,30 +2948,86 @@
       }
 
       if (!defenderTerrainBlocked) {
-        defenderHadBarbedGauntlets = defHasBarbed;
-        attackHitDefender = true;
-        const vorpalLethal = (state.vorpalNextAttack === attackerPlayer);
+        const vorpalLethal = vorpalPacket;
         const archmageMulti = effectiveClass === 'Caster' && attCell.unit.class === 'Caster' && attCell.gear && attCell.gear.name === "Archmage's Tome" && !attCell.nextAttackAsCaster;
-        let damage = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol))
+        maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol);
+        const shooterLongshot = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol));
+        let damage = shooterLongshot
           ? 2
           : 1;
+        damage += getRokkloDamageBonus(attCell);
+        damage += getJorrenDamageBonus(attCell);
         if (vorpalLethal) {
           damage = Math.max(1, getMaxHP(defCell) - (defCell.damage || 0));
           log("Vorpal Honing Amulet — lethal strike (" + damage + " damage).");
-        } else if (effectiveClass === 'Shooter' && damage === 2) {
+        } else if (shooterLongshot) {
           log("Longshot (edge to edge): 2 damage.");
         }
         if (archmageMulti) {
           log("Archmage's Tome — attack affects target and adjacent enemies.");
           const cols = [defenderCol, defenderCol - 1, defenderCol + 1].filter(function (c) { return c >= 0 && c <= 4; });
-          state.archmageMultiResolving = { attPlayer: attackerPlayer, attCol: attackerCol, defPlayer: defenderPlayer, cols: cols, index: 0, trueStrike: trueStrike };
+          state.archmageMultiResolving = {
+            attPlayer: attackerPlayer,
+            attCol: attackerCol,
+            defPlayer: defenderPlayer,
+            cols: cols,
+            index: 0,
+            trueStrike: trueStrike,
+            harlundUsed: false,
+            harlundDeclineLogged: false,
+            harlundPromptResolved: false,
+            harlundDecision: 'no',
+            protectedCol: null,
+            ardanHitLanded: false
+          };
           continueArchmageMulti();
           return;
         } else {
-          const captured = applyDamage(defenderPlayer, defenderCol, damage, "");
-          if (!captured && state.board[defenderPlayer][defenderCol] && effectiveClass === 'Caster') {
-            state.board[defenderPlayer][defenderCol].paralyzed = true;
-            log(state.board[defenderPlayer][defenderCol].unit.name + " is paralyzed (Magic Paralysis).");
+          if (hasAdjacentHarlundForTarget(defenderPlayer, defenderCol)) {
+            state.pendingVeteranPrompt = {
+              type: 'harlundOnHitSingle',
+              message: "Harlund's Pack Shield: adjacent ally is about to be hit. Swap Harlund in?",
+              useLabel: 'Use Pack Shield',
+              noLabel: 'No',
+              attPlayer: attackerPlayer,
+              attCol: attackerCol,
+              defPlayer: defenderPlayer,
+              defCol: defenderCol,
+              effectiveClass: effectiveClass,
+              damage: damage,
+              defenderHadBarbedGauntlets: defHasBarbed,
+              attClassForBarbed: attCell.unit.class,
+            };
+            renderTurnUI();
+            renderBoard();
+            return;
+          }
+          const hitCol = maybeRedirectToHarlund(defenderPlayer, defenderCol, attackContext);
+          const packet = resolveDefenderVeteranPacket(attackerPlayer, attackerCol, defenderPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket });
+          if (packet.canceled) {
+            attackHitDefender = false;
+            if (packet.tivalFailureReason) tivalFailureReason = packet.tivalFailureReason;
+          } else {
+            const finalPlayer = packet.finalPlayer;
+            const finalCol = packet.finalCol;
+            const finalTargetCell = state.board[finalPlayer][finalCol];
+            defenderHadBarbedGauntlets = !!(finalTargetCell && finalTargetCell.gear && finalTargetCell.gear.name === 'Barbed Gauntlets');
+            attClassForBarbed = attCell.unit.class;
+            attackAppliedToUnit = true;
+            attackHitDefender = packet.landedOnOriginalTarget;
+            if (!packet.landedOnOriginalTarget && packet.tivalFailureReason) {
+              tivalFailureReason = packet.tivalFailureReason;
+            }
+            const captured = applyDamage(finalPlayer, finalCol, damage, "");
+            if (!captured && state.board[finalPlayer][finalCol] && effectiveClass === 'Caster') {
+              state.board[finalPlayer][finalCol].paralyzed = true;
+              log(state.board[finalPlayer][finalCol].unit.name + " is paralyzed (Magic Paralysis).");
+            }
+            maybeApplyHaskelSteal(attCell, attackerPlayer, defenderPlayer);
+            maybeApplyLyraEcho(attCell, attackerCol, finalPlayer, finalCol);
+            maybeApplySolomonFrontParalyze(attCell, attackerCol, defenderPlayer);
+            maybeApplyChronirAdjacentParalyze(attCell, finalPlayer, finalCol);
+            maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, captured);
           }
         }
       }
@@ -1741,7 +3038,7 @@
       attCellAfter.nextAttackAsCaster = false;
     }
 
-    if (attackHitDefender && defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
+    if (attackAppliedToUnit && defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
       const heads = Math.random() < 0.5;
       if (heads) {
         const attCellRef = state.board[attackerPlayer][attackerCol];
@@ -1765,21 +3062,30 @@
       state.vorpalNextAttack = null;
     }
 
-    replaceCapturedUnitsBeforePass();
-    var winner = checkGameOver();
-    if (winner !== null) {
-      showGameOver(winner);
-      state.selectedUnit = null;
-      state.actionStep = 'select_unit';
-      updateCaptureDisplay();
+    if (state.pendingChronirChoice) {
+      renderTurnUI();
       renderBoard();
       return;
     }
-    state.selectedUnit = null;
-    state.actionStep = 'select_unit';
-    updateCaptureDisplay();
-    renderBoard();
-    endTurn();
+    if (attackAppliedToUnit && queueArdanVeilstepPrompt(attackerPlayer, attackerCol, 'single')) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (queueCassaUsePromptIfReady(attackerPlayer, attackerCol, defenderPlayer, defenderCol)) {
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (runPendingCassaSecondAttackIfAvailable()) return;
+    if (!attackHitDefender && tivalFailureReason) {
+      if (queueTivalRetryPrompt(attackerPlayer, attackerCol, defenderPlayer, defenderCol, tivalFailureReason)) {
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+    }
+    finishResolvedCombatTurn();
   }
 
   function continueArchmageMulti() {
@@ -1811,10 +3117,33 @@
         renderBoard();
         return;
       }
-      applyDamage(ar.defPlayer, c, 1, "");
-      if (state.board[ar.defPlayer][c]) {
-        state.board[ar.defPlayer][c].paralyzed = true;
-        log(state.board[ar.defPlayer][c].unit.name + " is paralyzed (Magic Paralysis).");
+      if (!ar.harlundPromptResolved && hasAdjacentHarlundForTarget(ar.defPlayer, c)) {
+        state.pendingVeteranPrompt = {
+          type: 'harlundOnHitArchmage',
+          message: "Harlund's Pack Shield: adjacent ally is about to be hit by Archmage's Tome. Swap Harlund in?",
+          useLabel: 'Use Pack Shield',
+          noLabel: 'No',
+        };
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      const hitCol = maybeRedirectToHarlund(ar.defPlayer, c, ar);
+      if (hitCol == null) {
+        log("Harlund's Pack Shield — protected ally ignores the rest of this attack sequence.");
+        ar.index++;
+        continue;
+      }
+      const packet = resolveDefenderVeteranPacket(ar.attPlayer, ar.attCol, ar.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: ar.trueStrike && state.vorpalNextAttack === ar.attPlayer });
+      if (packet.canceled) {
+        ar.index++;
+        continue;
+      }
+      applyDamage(packet.finalPlayer, packet.finalCol, 1, "");
+      ar.ardanHitLanded = true;
+      if (state.board[packet.finalPlayer][packet.finalCol]) {
+        state.board[packet.finalPlayer][packet.finalCol].paralyzed = true;
+        log(state.board[packet.finalPlayer][packet.finalCol].unit.name + " is paralyzed (Magic Paralysis).");
       }
       ar.index++;
     }
@@ -1825,23 +3154,12 @@
     const ar = state.archmageMultiResolving;
     if (!ar) return;
     state.archmageMultiResolving = null;
-    const attCellAfter = state.board[ar.attPlayer][ar.attCol];
-    if (attCellAfter) attCellAfter.mustRestNextTurn = true;
-    replaceCapturedUnitsBeforePass();
-    var winner = checkGameOver();
-    if (winner !== null) {
-      showGameOver(winner);
-      state.selectedUnit = null;
-      state.actionStep = 'select_unit';
-      updateCaptureDisplay();
+    if (ar.ardanHitLanded && queueArdanVeilstepPrompt(ar.attPlayer, ar.attCol, 'archmage')) {
+      renderTurnUI();
       renderBoard();
       return;
     }
-    state.selectedUnit = null;
-    state.actionStep = 'select_unit';
-    updateCaptureDisplay();
-    renderBoard();
-    endTurn();
+    completeArchmageAttack(ar.attPlayer, ar.attCol);
   }
 
   function replaceCapturedUnitsBeforePass() {
@@ -1856,6 +3174,7 @@
   function endTurn() {
     clearParalyzedForPlayer(state.currentPlayer);
     var playerWhoJustFinished = state.currentPlayer;
+    updateJorrenFlagsAtTurnEnd(playerWhoJustFinished);
     for (let c = 0; c < 5; c++) {
       const cell = state.board[playerWhoJustFinished][c];
       if (cell) cell.cannotAttackNextTurn = false;
@@ -1893,9 +3212,26 @@
     const p = state.currentPlayer;
     const step = state.actionStep;
 
-    if (step === 'use_items' && state.obscuringReorder) {
+    if (state.pendingCassaChoice) {
+      const pendingCassa = state.pendingCassaChoice;
+      if (player !== pendingCassa.defPlayer) return;
+      if (pendingCassa.targetCols.indexOf(column) === -1) return;
+      resolvePendingCassaChoice(column);
+      return;
+    }
+
+    if (state.pendingChronirChoice) {
+      const pending = state.pendingChronirChoice;
+      if (player !== pending.defenderPlayer) return;
+      if (pending.targetCols.indexOf(column) === -1) return;
+      resolvePendingChronirChoice(column);
+      return;
+    }
+
+    if (state.obscuringReorder) {
       const reord = state.obscuringReorder;
       if (player !== reord.player || state.board[player][column] == null) return;
+      if (reord.allowedCols && reord.allowedCols.indexOf(column) === -1) return;
       if (reord.selectedCol === null) {
         state.obscuringReorder.selectedCol = column;
         renderTurnUI();
@@ -1956,14 +3292,8 @@
       if (attCell && attCell.cannotAttackNextTurn) return;
       if (player === opp && state.board[opp][column]) {
         if (attCell && isInRangeWithCell(state.selectedUnit.column, column, attCell)) {
-          const defCell = state.board[opp][column];
-          if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') {
-            state.pendingWardstone = { attPlayer: p, attCol: state.selectedUnit.column, defPlayer: opp, defCol: column };
-            renderTurnUI();
-            renderBoard();
-            return;
-          }
-          resolveCombat(p, state.selectedUnit.column, opp, column);
+          prepareCassaTwinArcOpportunity(p, state.selectedUnit.column, opp, column);
+          beginAttackAgainstTarget(p, state.selectedUnit.column, opp, column);
         }
       }
       return;
@@ -2079,6 +3409,29 @@
 
     document.getElementById('btn-place-randomly').addEventListener('click', placeAllRandomly);
 
+    if (btnPlacementReplaceWithPick) {
+      btnPlacementReplaceWithPick.addEventListener('click', function () {
+        openPlacementUnitPickList();
+      });
+    }
+    if (btnPlacementUnitPickClose) {
+      btnPlacementUnitPickClose.addEventListener('click', function (e) {
+        e.stopPropagation();
+        closePlacementUnitPickList();
+      });
+    }
+    if (placementUnitPickListEl) {
+      placementUnitPickListEl.addEventListener('click', function (e) {
+        const btn = e.target.closest('.setup__placement-unit-pick-btn');
+        if (btn && btn.dataset.unitName) applyPlacementUnitPick(btn.dataset.unitName);
+      });
+    }
+    if (placementUnitPickSearchEl) {
+      placementUnitPickSearchEl.addEventListener('input', function () {
+        renderPlacementUnitPickList(placementUnitPickSearchEl.value);
+      });
+    }
+
     btnMoveLeft.addEventListener('click', function () { if (!state.gameOver) doMove('left'); });
     btnMoveRight.addEventListener('click', function () { if (!state.gameOver) doMove('right'); });
     btnSkipMove.addEventListener('click', function () { if (!state.gameOver) doSkipMove(); });
@@ -2090,6 +3443,11 @@
     if (btnWardstoneNo) btnWardstoneNo.addEventListener('click', function () { if (!state.gameOver) doWardstoneNo(); });
 
     placementHand.addEventListener('click', handlePlacementHandClick);
+    if (placementHandFilterEl) {
+      placementHandFilterEl.addEventListener('input', function () {
+        if (state.phase === 'setup_place_p1' || state.phase === 'setup_place_p2') renderPlacementStep();
+      });
+    }
     document.querySelector('.board').addEventListener('click', handleSlotClick);
     const boardContainer = document.getElementById('board-container');
     if (boardContainer) boardContainer.addEventListener('click', handleItemHandClick);

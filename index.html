@@ -55,6 +55,17 @@
         <p class="setup__hint" id="place-hint">Click a unit below, then click an empty slot on your row.</p>
         <div class="setup__place-actions">
           <button type="button" class="btn btn--secondary" id="btn-place-randomly">Place all randomly</button>
+          <button type="button" class="btn btn--secondary" id="btn-placement-replace-with-pick">Replace selected with pick…</button>
+        </div>
+        <div class="setup__placement-replace" id="placement-unit-pick-wrap" hidden>
+          <p class="setup__placement-replace-title">Pick a unit from the full roster (swaps with the rest of the unit pool).</p>
+          <input type="search" class="setup__placement-filter-input" id="placement-unit-pick-search" placeholder="Filter by name, class, veteran id…" autocomplete="off" aria-label="Filter unit pick list">
+          <div class="setup__placement-unit-pick-list" id="placement-unit-pick-list" role="list"></div>
+          <button type="button" class="btn btn--small btn--secondary" id="btn-placement-unit-pick-close">Close</button>
+        </div>
+        <div class="setup__placement-filter">
+          <label class="setup__placement-filter-label" for="placement-hand-filter">Filter hand</label>
+          <input type="search" class="setup__placement-filter-input" id="placement-hand-filter" placeholder="Name, class, or veteran id (e.g. rowka)…" autocomplete="off" aria-label="Filter placement hand">
         </div>
         <div class="setup__hand" id="placement-hand" role="list"></div>
       </div>
