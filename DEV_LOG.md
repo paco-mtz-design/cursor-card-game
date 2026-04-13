@@ -14,6 +14,31 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 16 — Seer's Bestiary wrap-up
+
+**Status:** Wrapped for current scope. Core ruleset + QA-driven fixes shipped; selected UX debt intentionally deferred.
+
+### What shipped
+
+- New advanced-rules setup toggle (default ON) for Seer's Bestiary mode.
+- Bestiary modal with faction/bestiary columns, forced reveal flow, milestone-driven progression, and debug controls.
+- Full Bestiary effect hooks integrated into combat, movement, items, and veterancy interactions.
+- QA-driven fixes for Unmaker, High-Aerie, Muzzled Beast, Fractured Hulk logging, and Berserker follow-up behavior.
+- Updated card assets tracked as production fixes:
+  - `assets/bestiary/7 – High-Aerie.png`
+  - `assets/bestiary/11 – Berserker.png`
+  - `assets/items/Single Use - Magic Grenade.png`
+- Iron-Clad Shield low-risk enhancement shipped: unit zoom modal now supports inspecting a second gear slot when the unit is affected by Iron-Clad Shield.
+
+### Deferred UX debt (intentional)
+
+- Battlefield layered card presentation for dual-gear units (Iron-Clad Shield) remains deferred to later UI refinement due to higher visual complexity/risk.
+- Bestiary reveal-flow lock remains documented as a known deferred issue with workaround and future-fix strategy (see section below).
+
+**Files touched (Phase 16):** `game.js`, `data.js`, `index.html`, `style.css`, `assets/bestiary/*`, `assets/factions/*`, `assets/items/Single Use - Magic Grenade.png`, `README.md`, `ROADMAP.md`, `DEV_LOG.md`.
+
+---
+
 ## Seer's Bestiary — deferred known issue (reveal-flow lock)
 
 **Status:** Known issue, intentionally deferred to a future phase (low priority due to manual workaround).
@@ -48,6 +73,15 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 - Feature remains playable with a reliable manual workaround.
 - Team priority is to shift focus to higher-impact work (including Iron-Clad Shield follow-up scope).
+
+---
+
+## Iron-Clad Shield — UX debt note (deferred)
+
+**Status:** Partial UX shipped; battlefield dual-gear layering intentionally deferred.
+
+- Added low-risk visibility improvement: unit zoom modal now includes an **extra gear column** so players can verify the second equipped gear from Iron-Clad Shield.
+- Deferred for a later refinement phase: showing both gear cards in the battlefield layered tile UI (higher visual/layout risk with current stacked card composition).
 
 ---
 

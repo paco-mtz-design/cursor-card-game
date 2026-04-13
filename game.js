@@ -4333,6 +4333,8 @@
     const unit = cell.unit;
     const unitImgWrap = document.getElementById('unit-zoom-unit');
     const gearImgWrap = document.getElementById('unit-zoom-gear');
+    const gear2Slot = document.getElementById('unit-zoom-gear-2-slot');
+    const gear2ImgWrap = document.getElementById('unit-zoom-gear-2');
     const terrainImgWrap = document.getElementById('unit-zoom-terrain');
     const markersEl = document.getElementById('unit-zoom-markers');
     if (!unitImgWrap || !markersEl) return;
@@ -4357,6 +4359,15 @@
       const gsrc = getItemCardImagePath(cell.gear.name || '');
       gearImgWrap.innerHTML = '<img src="' + gsrc + '" alt="' + (cell.gear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gearImgWrap) gearImgWrap.innerHTML = '';
+    const bestiaryEffects = getBestiaryEffectsForUnit(cell.unit);
+    const showExtraGearSlot = bestiaryEffects.ironCladShield > 0;
+    if (gear2Slot) gear2Slot.hidden = !showExtraGearSlot;
+    if (showExtraGearSlot && cell.bonusGear && gear2ImgWrap) {
+      const g2src = getItemCardImagePath(cell.bonusGear.name || '');
+      gear2ImgWrap.innerHTML = '<img src="' + g2src + '" alt="' + (cell.bonusGear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+    } else if (gear2ImgWrap) {
+      gear2ImgWrap.innerHTML = '';
+    }
     const terr = state.terrain && state.terrain[player] && state.terrain[player][col];
     if (terr && terrainImgWrap) {
       const tsrc = getItemCardImagePath(terr.name || '');

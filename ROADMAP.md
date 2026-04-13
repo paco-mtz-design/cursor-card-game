@@ -33,8 +33,8 @@ Single source of truth for **phase order**, **scope**, and **status**. Implement
 | **13** | Promotions | Done | Champion's Crest, Vanguard Lance, Sharpshooter's Scope, Archmage's Tome |
 | **14** | Board & unit UI | Done | Unit tiles, gear/terrain stacks, hands, markers, spacing, contextual move controls, polish |
 | **15** | Veteran buffs | Done | Veteran implementation complete through R3 (Lancer/on-hit/interrupt/caster + Ardan Veilstep). Remaining QA debt is documented and deferred to Phase 19 sweep. |
-| **16** | Tarot cards | Planned | Mechanics + UI as designed for the full game |
-| **17** | Further UI improvements | Planned | Layout, polish, optional tooling — TBD |
+| **16** | Seer's Bestiary (advanced ruleset) | Done | Optional default-on mode, milestone reveal flow, stacked faction effects, QA fixes, and documented deferred UX debt |
+| **17** | Further UI improvements | Planned | Layout, polish, and deferred Bestiary UX refinements (including battlefield dual-gear presentation) |
 | **18** | CPU opponent | Planned | Autonomous opponent; fog-of-war for opponent face-down can align here |
 | **19** | Cross regression sweep at scale (R4) | Planned | Large-scope validation pass for Veteran Buffs and related combat/item interactions before broad feature expansion. Includes completion of open QA checklists. |
 
@@ -45,6 +45,7 @@ Single source of truth for **phase order**, **scope**, and **status**. Implement
 - **Veteran implementation QA debt:** Core implementation is complete, but unfinished validation remains; consolidated into **Phase 19** (cross-regression sweep at scale).
 - **Open QA lists for Phase 19:** `QA_PHASE15_R2_LOG_TEMPLATE.md`, `QA_TARGETED_REGRESSION_CHECKLIST.md`, plus R3 targeted follow-up scenarios noted in `DEV_LOG.md`.
 - **Seer's Bestiary reveal-flow lock (deferred):** In certain milestone-reveal sequences, header can remain stuck on `"Seer's Bestiary reveal in progress."` after modal dismissal. Manual unblock exists (force affected column inactive). Detailed repro/theories documented in `DEV_LOG.md`.
+- **Seer's Bestiary battlefield dual-gear UX debt (deferred):** Unit zoom supports the second Iron-Clad Shield gear slot, but in-battle stacked-layer rendering for dual gear remains postponed for a later refinement pass.
 - **Fog of war:** Deferred to **Phase 18** with the CPU opponent. No need to hide opponent face-down during solo development.
 
 ### Resolved (historical)
@@ -55,6 +56,6 @@ Phases **8–14** delivered: use-items flow, discard piles, gear/terrain/single-
 
 ## Implementation order (reference)
 
-**Done:** Phases **1–15** (MVP through veteran-buff implementation). **Next:** **19** (cross-regression sweep at scale) → **16** → **17** → **18**.
+**Done:** Phases **1–16** (MVP through Seer's Bestiary implementation). **Next:** **17** → **18**, with **Phase 19** cross-regression sweep scheduled as dedicated QA hardening.
 
 Within the original items track, work landed in order: **8–9** (use-items + armor), **10** accessories, **11** terrain, **12** remaining single-use + True-Strike Lens + true strike, **13** promotions, then **14** UI.
