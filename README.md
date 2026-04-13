@@ -4,21 +4,21 @@ Web-based prototype of the Tacticlash card game.
 
 ## Current phase of development
 
-**Phase 15 — Veteran buffs**
+**Phase 16 — Seer's Bestiary (wrapped)**
 
-Wire per-character veteran buff definitions and combat hooks. Characters already expose `level: 'Rookie' | 'Veteran'` in data; this phase implements what “Veteran” means in play. See **[ROADMAP.md](ROADMAP.md)** for the full phase list and **[DEV_LOG.md](DEV_LOG.md)** for file-level shipped work.
+Phase 16 ships the advanced Seer's Bestiary ruleset: optional default-on mode, milestone reveal flow, stacked faction-wide effects, debug controls, and QA-driven fixes. One UX refinement is intentionally deferred: battlefield dual-gear layered rendering for Iron-Clad Shield (unit zoom support is already shipped). See **[ROADMAP.md](ROADMAP.md)** for phase status and **[DEV_LOG.md](DEV_LOG.md)** for shipped details and deferred notes.
 
 ---
 
 ## Previously completed phases
 
-**Phases 1–14** are complete: **MVP (Phases 1–7)** through **Phase 14 — Board & unit UI** (board/unit presentation, item hands, contextual move controls, polish). Summaries and status for every phase: **[ROADMAP.md](ROADMAP.md)**.
+**Phases 1–16** are complete: **MVP (Phases 1–7)** through **Phase 16 — Seer's Bestiary**. Summaries and status for every phase: **[ROADMAP.md](ROADMAP.md)**.
 
 ---
 
 ## Next on the roadmap
 
-**Phase 16** — Tarot cards · **Phase 17** — Further UI improvements · **Phase 18** — CPU opponent (optional fog-of-war for opponent face-down units). Full plan: **[ROADMAP.md](ROADMAP.md)**.
+**Phase 17** — Further UI improvements (including deferred Bestiary UX refinements) · **Phase 18** — CPU opponent (optional fog-of-war for opponent face-down units) · **Phase 19** — cross-regression QA sweep. Full plan: **[ROADMAP.md](ROADMAP.md)**.
 
 ---
 

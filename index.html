@@ -14,6 +14,7 @@
     <div class="header__row header__row--brand">
       <h1 class="header__title">Tacticlash</h1>
       <div class="header__toolbar">
+        <button type="button" class="btn btn-bestiary" id="btn-bestiary-open" hidden>Seer's Bestiary</button>
         <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
         <button type="button" class="btn btn--debug-header" id="btn-debug-open" aria-label="Open debug controls">Debug controls</button>
       </div>
@@ -42,6 +43,12 @@
         <div class="setup__actions">
           <button type="button" class="btn btn--goal" data-goal="10">10 captures</button>
           <button type="button" class="btn btn--goal" data-goal="15">15 captures</button>
+        </div>
+        <div class="setup__rules-toggle">
+          <label class="setup__rules-checkbox">
+            <input type="checkbox" id="setup-bestiary-enabled" checked>
+            <span>Play with Seer's Bestiary rules (advanced)</span>
+          </label>
         </div>
       </div>
       <div class="setup__step setup__step--coin" id="setup-coin" hidden>
@@ -183,6 +190,10 @@
             <div class="unit-zoom__img-wrap" id="unit-zoom-gear"></div>
             <span class="unit-zoom__label">Equipped gear</span>
           </div>
+          <div class="unit-zoom__card-slot" id="unit-zoom-gear-2-slot" hidden>
+            <div class="unit-zoom__img-wrap" id="unit-zoom-gear-2"></div>
+            <span class="unit-zoom__label">Extra gear (Iron-Clad Shield)</span>
+          </div>
           <div class="unit-zoom__card-slot">
             <div class="unit-zoom__img-wrap" id="unit-zoom-terrain"></div>
             <span class="unit-zoom__label">Terrain</span>
@@ -211,6 +222,21 @@
         <button type="button" class="modal__close" id="discard-zoom-close" aria-label="Close">×</button>
         <h2 class="modal__title" id="discard-zoom-title">Discard pile</h2>
         <div class="discard-zoom__grid" id="discard-zoom-grid"></div>
+      </div>
+    </div>
+
+    <div class="modal" id="bestiary-modal" role="dialog" aria-modal="true" aria-labelledby="bestiary-title" hidden>
+      <div class="modal__backdrop" id="bestiary-backdrop"></div>
+      <div class="modal__content modal__content--bestiary">
+        <button type="button" class="modal__close" id="bestiary-close" aria-label="Close">×</button>
+        <h2 class="modal__title" id="bestiary-title">Seer's Bestiary</h2>
+        <p class="bestiary__status" id="bestiary-status"></p>
+        <div class="bestiary__grid" id="bestiary-grid"></div>
+        <div class="bestiary__prompt" id="bestiary-prompt" hidden>
+          <p class="bestiary__prompt-text" id="bestiary-prompt-text"></p>
+          <button type="button" class="btn" id="btn-bestiary-reveal">Reveal next fortune</button>
+          <button type="button" class="btn btn--secondary" id="btn-bestiary-continue" hidden>Continue</button>
+        </div>
       </div>
     </div>
   </main>

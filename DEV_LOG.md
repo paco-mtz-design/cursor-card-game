@@ -14,6 +14,77 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 16 — Seer's Bestiary wrap-up
+
+**Status:** Wrapped for current scope. Core ruleset + QA-driven fixes shipped; selected UX debt intentionally deferred.
+
+### What shipped
+
+- New advanced-rules setup toggle (default ON) for Seer's Bestiary mode.
+- Bestiary modal with faction/bestiary columns, forced reveal flow, milestone-driven progression, and debug controls.
+- Full Bestiary effect hooks integrated into combat, movement, items, and veterancy interactions.
+- QA-driven fixes for Unmaker, High-Aerie, Muzzled Beast, Fractured Hulk logging, and Berserker follow-up behavior.
+- Updated card assets tracked as production fixes:
+  - `assets/bestiary/7 – High-Aerie.png`
+  - `assets/bestiary/11 – Berserker.png`
+  - `assets/items/Single Use - Magic Grenade.png`
+- Iron-Clad Shield low-risk enhancement shipped: unit zoom modal now supports inspecting a second gear slot when the unit is affected by Iron-Clad Shield.
+
+### Deferred UX debt (intentional)
+
+- Battlefield layered card presentation for dual-gear units (Iron-Clad Shield) remains deferred to later UI refinement due to higher visual complexity/risk.
+- Bestiary reveal-flow lock remains documented as a known deferred issue with workaround and future-fix strategy (see section below).
+
+**Files touched (Phase 16):** `game.js`, `data.js`, `index.html`, `style.css`, `assets/bestiary/*`, `assets/factions/*`, `assets/items/Single Use - Magic Grenade.png`, `README.md`, `ROADMAP.md`, `DEV_LOG.md`.
+
+---
+
+## Seer's Bestiary — deferred known issue (reveal-flow lock)
+
+**Status:** Known issue, intentionally deferred to a future phase (low priority due to manual workaround).
+
+### Repro confirmed (manual QA)
+
+- Start a new game and force-activate a Bestiary column early (before natural milestone reveal).
+- Continue until natural reveal trigger (e.g. 10-capture mode at 4 captures).
+- Bestiary modal appears; reveal/continue flow completes and the next column is revealed.
+- **Issue:** header remains stuck on `"Seer's Bestiary reveal in progress."`, turn cannot proceed.
+- Also reproducible in baseline path (no force-activation) in some runs.
+
+### Current workaround
+
+- In Bestiary modal debug controls, set the newly revealed/pending column to **Force inactive**, which clears the lock and resumes turn flow.
+
+### Likely root-cause theories
+
+1. **Reveal state desync:** `pendingBestiaryReveal` / `pendingBestiaryContinue` can remain truthy after modal dismissal, even when no actionable reveal UI remains.
+2. **UI state race:** modal-close path and turn-render path may run out of order, leaving `renderTurnUI` believing reveal flow is still active.
+3. **Column status mismatch:** natural reveal pointer and effective column state (`revealed` vs debug force-active) can diverge, causing stale "in-progress" gating.
+
+### Suggested future fix approach
+
+- Create a single authoritative reveal state machine (`idle -> awaitingRevealClick -> awaitingContinue -> idle`) with invariant checks.
+- Centralize all transitions in one reducer-like function and block direct state mutation outside it.
+- Add a hard guard in turn render:
+  - if header says reveal in progress but no modal action is possible, auto-heal state to `idle`.
+- Add debug telemetry logs around each transition (`enter`, `exit`, `cleanup`) to verify order.
+
+### Why deferred
+
+- Feature remains playable with a reliable manual workaround.
+- Team priority is to shift focus to higher-impact work (including Iron-Clad Shield follow-up scope).
+
+---
+
+## Iron-Clad Shield — UX debt note (deferred)
+
+**Status:** Partial UX shipped; battlefield dual-gear layering intentionally deferred.
+
+- Added low-risk visibility improvement: unit zoom modal now includes an **extra gear column** so players can verify the second equipped gear from Iron-Clad Shield.
+- Deferred for a later refinement phase: showing both gear cards in the battlefield layered tile UI (higher visual/layout risk with current stacked card composition).
+
+---
+
 ## Phase 15 — wrap-up snapshot for merge to main
 
 **Status:** Implementation complete (R1 + R2 + R3 shipped on `veteran-buffs`), with remaining QA intentionally deferred to a dedicated future sweep.

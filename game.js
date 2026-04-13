@@ -19,7 +19,9 @@
   const placementUnitPickListEl = document.getElementById('placement-unit-pick-list');
   const btnPlacementReplaceWithPick = document.getElementById('btn-placement-replace-with-pick');
   const btnPlacementUnitPickClose = document.getElementById('btn-placement-unit-pick-close');
+  const setupBestiaryEnabledEl = document.getElementById('setup-bestiary-enabled');
   const btnNewGame = document.getElementById('btn-new-game');
+  const btnBestiaryOpen = document.getElementById('btn-bestiary-open');
   const turnBanner = document.getElementById('turn-banner');
   const turnLabel = document.getElementById('turn-label');
   const turnStep = document.getElementById('turn-step');
@@ -65,6 +67,15 @@
   const discardZoomModal = document.getElementById('discard-zoom-modal');
   const discardZoomCloseBtn = document.getElementById('discard-zoom-close');
   const discardZoomBackdrop = document.getElementById('discard-zoom-backdrop');
+  const bestiaryModal = document.getElementById('bestiary-modal');
+  const bestiaryBackdrop = document.getElementById('bestiary-backdrop');
+  const bestiaryCloseBtn = document.getElementById('bestiary-close');
+  const bestiaryGrid = document.getElementById('bestiary-grid');
+  const bestiaryStatus = document.getElementById('bestiary-status');
+  const bestiaryPrompt = document.getElementById('bestiary-prompt');
+  const bestiaryPromptText = document.getElementById('bestiary-prompt-text');
+  const btnBestiaryReveal = document.getElementById('btn-bestiary-reveal');
+  const btnBestiaryContinue = document.getElementById('btn-bestiary-continue');
   const itemZoomModal = document.getElementById('item-zoom-modal');
   const itemZoomCloseBtn = document.getElementById('item-zoom-close');
   const itemZoomBackdrop = document.getElementById('item-zoom-backdrop');
@@ -89,6 +100,7 @@
     return {
       phase: 'idle',
       captureGoal: 15,
+      useBestiaryRules: true,
       firstPlayer: null,
       unitDeck: [],
       p1Hand: [],
@@ -97,6 +109,9 @@
       terrain: { 1: [null, null, null, null, null], 2: [null, null, null, null, null] },
       placementPlayer: null,
       selectedPlacementIndex: null,
+      bestiary: null,
+      pendingBestiaryReveal: null,
+      pendingBestiaryContinue: false,
       gameOver: false,
       winner: null,
     };
@@ -136,6 +151,395 @@
     return arr;
   }
 
+  function getCaptureMilestonesForGoal(goal) {
+    return goal === 10 ? [4, 8] : [5, 10];
+  }
+
+  function makeInitialBestiaryState() {
+    if (typeof FACTION_CARD_DEFS === 'undefined' || typeof BESTIARY_CARD_DEFS === 'undefined') return null;
+    const factions = [];
+    const bestiaryDeck = shuffle(BESTIARY_CARD_DEFS);
+    for (let i = 0; i < 4; i++) {
+      const factionCard = FACTION_CARD_DEFS[Math.floor(Math.random() * FACTION_CARD_DEFS.length)];
+      const bestiaryCard = bestiaryDeck[i];
+      factions.push({
+        index: i,
+        factionCardId: factionCard.id,
+        bestiaryCardId: bestiaryCard.id,
+        revealed: false,
+        debugActivation: 'auto',
+        debugFactionCardId: '',
+        debugBestiaryCardId: '',
+        revealedByMilestone: null,
+      });
+    }
+    return {
+      columns: factions,
+      nextRevealColumn: 0,
+      p1MilestonesHit: {},
+      p2MilestonesHit: {},
+      revealQueue: [],
+    };
+  }
+
+  function getBestiaryColumn(index) {
+    if (!state.bestiary || !state.bestiary.columns) return null;
+    return state.bestiary.columns[index] || null;
+  }
+
+  function getFactionCardDefById(id) {
+    if (!id || typeof FACTION_CARD_DEFS === 'undefined') return null;
+    for (let i = 0; i < FACTION_CARD_DEFS.length; i++) {
+      if (FACTION_CARD_DEFS[i].id === id) return FACTION_CARD_DEFS[i];
+    }
+    return null;
+  }
+
+  function getBestiaryCardDefById(id) {
+    if (!id || typeof BESTIARY_CARD_DEFS === 'undefined') return null;
+    for (let i = 0; i < BESTIARY_CARD_DEFS.length; i++) {
+      if (BESTIARY_CARD_DEFS[i].id === id) return BESTIARY_CARD_DEFS[i];
+    }
+    return null;
+  }
+
+  function getFactionForUnit(unit) {
+    if (!unit || typeof UNIT_FACTION_BY_NAME === 'undefined') return null;
+    return UNIT_FACTION_BY_NAME[unit.name] || null;
+  }
+
+  function getColumnEffectiveFactionId(col) {
+    if (!col) return null;
+    if (col.debugFactionCardId) return col.debugFactionCardId;
+    return col.factionCardId;
+  }
+
+  function getColumnEffectiveBestiaryId(col) {
+    if (!col) return null;
+    if (col.debugBestiaryCardId) return col.debugBestiaryCardId;
+    return col.bestiaryCardId;
+  }
+
+  function isBestiaryColumnActive(col) {
+    if (!col) return false;
+    if (col.debugActivation === 'force_inactive') return false;
+    if (col.debugActivation === 'force_active') return true;
+    return !!col.revealed;
+  }
+
+  function getBestiaryEffectsForUnit(unit) {
+    const result = {
+      primalAlpha: 0,
+      royalCaravan: 0,
+      hoarderOfGlimmer: 0,
+      ironCladShield: 0,
+      eternalCarapace: 0,
+      rootedColossus: 0,
+      highAerie: 0,
+      muzzledBeast: 0,
+      fracturedHulk: 0,
+      everWatchingEye: 0,
+      berserker: 0,
+      ironMaiden: 0,
+      unmaker: 0,
+    };
+    if (!state.useBestiaryRules || !state.bestiary || !unit) return result;
+    const factionName = getFactionForUnit(unit);
+    if (!factionName) return result;
+    const cols = state.bestiary.columns || [];
+    for (let i = 0; i < cols.length; i++) {
+      const col = cols[i];
+      if (!isBestiaryColumnActive(col)) continue;
+      const factionDef = getFactionCardDefById(getColumnEffectiveFactionId(col));
+      if (!factionDef || factionDef.name !== factionName) continue;
+      const effectCard = getBestiaryCardDefById(getColumnEffectiveBestiaryId(col));
+      if (!effectCard) continue;
+      if (effectCard.id === 'primal_alpha') result.primalAlpha++;
+      else if (effectCard.id === 'royal_caravan') result.royalCaravan++;
+      else if (effectCard.id === 'hoarder_of_glimmer') result.hoarderOfGlimmer++;
+      else if (effectCard.id === 'iron_clad_shield') result.ironCladShield++;
+      else if (effectCard.id === 'eternal_carapace') result.eternalCarapace++;
+      else if (effectCard.id === 'rooted_colossus') result.rootedColossus++;
+      else if (effectCard.id === 'high_aerie') result.highAerie++;
+      else if (effectCard.id === 'muzzled_beast') result.muzzledBeast++;
+      else if (effectCard.id === 'fractured_hulk') result.fracturedHulk++;
+      else if (effectCard.id === 'ever_watching_eye') result.everWatchingEye++;
+      else if (effectCard.id === 'berserker') result.berserker++;
+      else if (effectCard.id === 'iron_maiden') result.ironMaiden++;
+      else if (effectCard.id === 'unmaker') result.unmaker++;
+    }
+    return result;
+  }
+
+  function hasBestiaryVeteranBlock(cell) {
+    const effects = getBestiaryEffectsForUnit(cell && cell.unit);
+    return effects.fracturedHulk > 0;
+  }
+
+  function queueBestiaryRevealIfNeeded(player) {
+    if (!state.useBestiaryRules || !state.bestiary) return;
+    const milestones = getCaptureMilestonesForGoal(state.captureGoal);
+    const score = player === 1 ? (state.p1Captures || 0) : (state.p2Captures || 0);
+    const hitMap = player === 1 ? state.bestiary.p1MilestonesHit : state.bestiary.p2MilestonesHit;
+    for (let i = 0; i < milestones.length; i++) {
+      const target = milestones[i];
+      if (score < target) continue;
+      if (hitMap[target]) continue;
+      hitMap[target] = true;
+      state.bestiary.revealQueue.push({ player: player, milestone: target });
+      log("[Bestiary] Player " + player + " reached " + target + " captures — a new fortune pair is ready to reveal.");
+    }
+    beginQueuedBestiaryRevealIfNeeded();
+  }
+
+  function beginQueuedBestiaryRevealIfNeeded() {
+    if (!state.useBestiaryRules || !state.bestiary) return;
+    sanitizeBestiaryRevealState();
+    if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    if (!state.bestiary.revealQueue || state.bestiary.revealQueue.length === 0) return;
+    const nextIndex = getNextRevealableColumnIndex(state.bestiary.nextRevealColumn);
+    if (nextIndex == null || nextIndex > 3) return;
+    const col = getBestiaryColumn(nextIndex);
+    if (!col) return;
+    state.bestiary.nextRevealColumn = nextIndex;
+    state.pendingBestiaryReveal = {
+      columnIndex: nextIndex,
+      source: state.bestiary.revealQueue.shift(),
+    };
+    openBestiaryModal(true);
+  }
+
+  function sanitizeBestiaryRevealState() {
+    if (!state.useBestiaryRules || !state.bestiary) {
+      state.pendingBestiaryReveal = null;
+      state.pendingBestiaryContinue = false;
+      return;
+    }
+    if (state.pendingBestiaryContinue && !state.pendingBestiaryReveal) {
+      state.pendingBestiaryContinue = false;
+    }
+    if (!state.pendingBestiaryReveal) return;
+    const idx = state.pendingBestiaryReveal.columnIndex;
+    const col = getBestiaryColumn(idx);
+    if (!col) {
+      state.pendingBestiaryReveal = null;
+      state.pendingBestiaryContinue = false;
+      return;
+    }
+    const alreadyHandled = col.revealed || col.debugActivation === 'force_active';
+    if (alreadyHandled && !state.pendingBestiaryContinue) {
+      state.pendingBestiaryReveal = null;
+      state.pendingBestiaryContinue = false;
+    }
+  }
+
+  function getNextRevealableColumnIndex(startIndex) {
+    if (!state.bestiary || !Array.isArray(state.bestiary.columns)) return null;
+    const start = startIndex == null ? 0 : startIndex;
+    for (let i = start; i < state.bestiary.columns.length; i++) {
+      const col = state.bestiary.columns[i];
+      if (!col) continue;
+      if (col.revealed) continue;
+      if (col.debugActivation === 'force_active') continue;
+      return i;
+    }
+    return null;
+  }
+
+  function getBestiaryCardImageForColumn(col, kind) {
+    if (kind === 'faction') {
+      const faction = getFactionCardDefById(getColumnEffectiveFactionId(col));
+      if (!faction) return typeof FACTION_CARD_BACK_IMAGE !== 'undefined' ? FACTION_CARD_BACK_IMAGE : '';
+      const showFace = isBestiaryColumnActive(col) || col.debugActivation === 'force_active';
+      return showFace ? faction.imagePath : (typeof FACTION_CARD_BACK_IMAGE !== 'undefined' ? FACTION_CARD_BACK_IMAGE : faction.imagePath);
+    }
+    const bestiary = getBestiaryCardDefById(getColumnEffectiveBestiaryId(col));
+    if (!bestiary) return typeof BESTIARY_CARD_BACK_IMAGE !== 'undefined' ? BESTIARY_CARD_BACK_IMAGE : '';
+    const showFace = isBestiaryColumnActive(col) || col.debugActivation === 'force_active';
+    return showFace ? bestiary.imagePath : (typeof BESTIARY_CARD_BACK_IMAGE !== 'undefined' ? BESTIARY_CARD_BACK_IMAGE : bestiary.imagePath);
+  }
+
+  function renderBestiaryModal() {
+    sanitizeBestiaryRevealState();
+    if (!bestiaryGrid || !bestiaryStatus) return;
+    bestiaryGrid.innerHTML = '';
+    if (!state.useBestiaryRules || !state.bestiary) {
+      bestiaryStatus.textContent = "Bestiary is disabled for this match.";
+      if (bestiaryPrompt) bestiaryPrompt.hidden = true;
+      return;
+    }
+    const cols = state.bestiary.columns || [];
+    const revealedCount = cols.filter(function (c) { return isBestiaryColumnActive(c); }).length;
+    bestiaryStatus.textContent = revealedCount + " / 4 fortune columns active.";
+
+    for (let i = 0; i < cols.length; i++) {
+      const col = cols[i];
+      const wrap = document.createElement('div');
+      const isPending = state.pendingBestiaryReveal && state.pendingBestiaryReveal.columnIndex === i;
+      wrap.className = 'bestiary__column' + (isPending ? ' bestiary__column--pending' : '');
+      wrap.innerHTML =
+        '<p class="bestiary__label">Column ' + (i + 1) + '</p>' +
+        '<div class="bestiary__card"><img src="' + escapeHtml(getBestiaryCardImageForColumn(col, 'faction')) + '" alt="Faction card"></div>' +
+        '<div class="bestiary__card"><img src="' + escapeHtml(getBestiaryCardImageForColumn(col, 'bestiary')) + '" alt="Bestiary card"></div>';
+
+      const debug = document.createElement('div');
+      debug.className = 'bestiary__debug';
+      const activationSelect = document.createElement('select');
+      activationSelect.dataset.kind = 'activation';
+      activationSelect.dataset.column = String(i);
+      activationSelect.innerHTML =
+        '<option value="auto">Auto (rules-driven)</option>' +
+        '<option value="force_active">Force active</option>' +
+        '<option value="force_inactive">Force inactive</option>';
+      activationSelect.value = col.debugActivation || 'auto';
+      debug.appendChild(activationSelect);
+
+      const factionSelect = document.createElement('select');
+      factionSelect.dataset.kind = 'faction';
+      factionSelect.dataset.column = String(i);
+      let factionOptions = '<option value="">Faction: auto-random</option>';
+      if (typeof FACTION_CARD_DEFS !== 'undefined') {
+        for (let f = 0; f < FACTION_CARD_DEFS.length; f++) {
+          factionOptions += '<option value="' + FACTION_CARD_DEFS[f].id + '">' + FACTION_CARD_DEFS[f].name + '</option>';
+        }
+      }
+      factionSelect.innerHTML = factionOptions;
+      factionSelect.value = col.debugFactionCardId || '';
+      debug.appendChild(factionSelect);
+
+      const bestiarySelect = document.createElement('select');
+      bestiarySelect.dataset.kind = 'bestiary';
+      bestiarySelect.dataset.column = String(i);
+      let bestiaryOptions = '<option value="">Bestiary: auto-random</option>';
+      if (typeof BESTIARY_CARD_DEFS !== 'undefined') {
+        for (let b = 0; b < BESTIARY_CARD_DEFS.length; b++) {
+          bestiaryOptions += '<option value="' + BESTIARY_CARD_DEFS[b].id + '">' + BESTIARY_CARD_DEFS[b].name + '</option>';
+        }
+      }
+      bestiarySelect.innerHTML = bestiaryOptions;
+      bestiarySelect.value = col.debugBestiaryCardId || '';
+      debug.appendChild(bestiarySelect);
+
+      wrap.appendChild(debug);
+      bestiaryGrid.appendChild(wrap);
+    }
+
+    if (bestiaryPrompt) {
+      const hasPending = !!state.pendingBestiaryReveal || !!state.pendingBestiaryContinue;
+      bestiaryPrompt.hidden = !hasPending;
+      if (hasPending && bestiaryPromptText) {
+        if (state.pendingBestiaryContinue && state.pendingBestiaryReveal) {
+          bestiaryPromptText.textContent = "Fortune revealed. Confirm to continue the match.";
+        } else {
+          bestiaryPromptText.textContent = "Reveal the next fortune pair (mandatory).";
+        }
+      }
+    }
+    if (btnBestiaryReveal) btnBestiaryReveal.hidden = !state.pendingBestiaryReveal || !!state.pendingBestiaryContinue;
+    if (btnBestiaryContinue) btnBestiaryContinue.hidden = !state.pendingBestiaryContinue;
+  }
+
+  function openBestiaryModal(lockMode) {
+    if (!bestiaryModal) return;
+    bestiaryModal.hidden = false;
+    if (lockMode) bestiaryModal.classList.add('bestiary-modal--locked');
+    else bestiaryModal.classList.remove('bestiary-modal--locked');
+    renderBestiaryModal();
+  }
+
+  function closeBestiaryModal() {
+    if (!bestiaryModal) return;
+    if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    bestiaryModal.hidden = true;
+    bestiaryModal.classList.remove('bestiary-modal--locked');
+  }
+
+  function applyBestiaryRevealNow() {
+    if (!state.pendingBestiaryReveal || !state.bestiary) return;
+    const idx = state.pendingBestiaryReveal.columnIndex;
+    const col = getBestiaryColumn(idx);
+    if (!col) return;
+    col.revealed = true;
+    col.revealedByMilestone = state.pendingBestiaryReveal.source || null;
+    const nextRevealable = getNextRevealableColumnIndex(idx + 1);
+    state.bestiary.nextRevealColumn = nextRevealable == null ? 4 : nextRevealable;
+    state.pendingBestiaryContinue = true;
+    const faction = getFactionCardDefById(getColumnEffectiveFactionId(col));
+    const bestiaryCard = getBestiaryCardDefById(getColumnEffectiveBestiaryId(col));
+    log("[Bestiary] Column " + (idx + 1) + " revealed: " + (faction ? faction.name : 'Faction') + " + " + (bestiaryCard ? bestiaryCard.name : 'Bestiary'));
+  }
+
+  function onBestiaryRevealConfirmed() {
+    if (!state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    applyBestiaryRevealNow();
+    renderTurnUI();
+    renderBoard();
+    renderBestiaryModal();
+  }
+
+  function onBestiaryContinueConfirmed() {
+    if (state.pendingBestiaryReveal && !state.pendingBestiaryContinue) {
+      applyBestiaryRevealNow();
+    }
+    if (!state.pendingBestiaryContinue) return;
+    state.pendingBestiaryContinue = false;
+    state.pendingBestiaryReveal = null;
+    if (bestiaryModal) {
+      bestiaryModal.hidden = true;
+      bestiaryModal.classList.remove('bestiary-modal--locked');
+    }
+    beginQueuedBestiaryRevealIfNeeded();
+  }
+
+  function applyBestiaryDebugControlChange(columnIndex, kind, value) {
+    if (!state.bestiary) return;
+    const col = getBestiaryColumn(columnIndex);
+    if (!col) return;
+    if (kind === 'activation') col.debugActivation = value || 'auto';
+    if (kind === 'faction') col.debugFactionCardId = value || '';
+    if (kind === 'bestiary') col.debugBestiaryCardId = value || '';
+    if ((col.debugFactionCardId || col.debugBestiaryCardId) && col.debugActivation === 'auto') {
+      col.debugActivation = 'force_active';
+    }
+    log("[Bestiary][Debug] Column " + (columnIndex + 1) + " updated (" + kind + ").");
+    renderTurnUI();
+    renderBoard();
+    renderBestiaryModal();
+  }
+
+  function getCellGearCards(cell) {
+    if (!cell) return [];
+    const out = [];
+    if (cell.gear) out.push(cell.gear);
+    if (cell.bonusGear) out.push(cell.bonusGear);
+    return out;
+  }
+
+  function cellHasGearName(cell, gearName) {
+    if (!cell || !gearName) return false;
+    return getCellGearCards(cell).some(function (g) { return g && g.name === gearName; });
+  }
+
+  function removeGearFromCell(cell, gearName) {
+    if (!cell) return null;
+    if (cell.gear && (!gearName || cell.gear.name === gearName)) {
+      const removedPrimary = cell.gear;
+      if (cell.bonusGear) {
+        cell.gear = cell.bonusGear;
+        cell.bonusGear = null;
+      } else {
+        cell.gear = null;
+      }
+      return removedPrimary;
+    }
+    if (cell.bonusGear && (!gearName || cell.bonusGear.name === gearName)) {
+      const removedBonus = cell.bonusGear;
+      cell.bonusGear = null;
+      return removedBonus;
+    }
+    return null;
+  }
+
   function getBaseHP(classType) {
     return classType === 'Brawler' ? 2 : 1;
   }
@@ -158,8 +562,11 @@
   function getMaxHP(cell) {
     if (!cell || !cell.unit) return 0;
     const base = getBaseHP(cell.unit.class);
-    const bonus = cell.gear ? getArmorHPBonus(cell.gear.name) : 0;
-    return base + bonus;
+    const gears = getCellGearCards(cell);
+    let bonus = 0;
+    for (let i = 0; i < gears.length; i++) bonus += getArmorHPBonus(gears[i].name);
+    const bestiary = getBestiaryEffectsForUnit(cell.unit);
+    return base + bonus + bestiary.eternalCarapace;
   }
 
   function getMaxHPWithGear(unitClass, armorName) {
@@ -168,9 +575,14 @@
 
   function canEquipGear(cell, gearName) {
     if (!cell || !cell.unit || !gearName) return false;
+    const bestiary = getBestiaryEffectsForUnit(cell.unit);
+    if (bestiary.highAerie > 0) return false;
     const allowed = getGearAllowedClasses(gearName);
     if (allowed.indexOf(cell.unit.class) === -1) return false;
-    const maxAfter = getMaxHPWithGear(cell.unit.class, gearName);
+    const equippedCount = getCellGearCards(cell).length;
+    const maxGearSlots = 1 + (bestiary.ironCladShield > 0 ? 1 : 0);
+    if (equippedCount >= maxGearSlots) return false;
+    const maxAfter = getMaxHP(cell) + getArmorHPBonus(gearName);
     const damage = cell.damage || 0;
     return damage < maxAfter;
   }
@@ -230,9 +642,8 @@
     if (!attCell) return false;
     if (attCell.nextAttackAsCaster) return true;
     const d = Math.abs(defenderCol - attackerCol);
-    const gearName = attCell.gear && attCell.gear.name;
-    if (attCell.unit.class === 'Brawler' && gearName === "Champion's Crest") return d <= 1;
-    if (attCell.unit.class === 'Lancer' && gearName === 'Vanguard Lance') return d >= 1 && d <= 2;
+    if (attCell.unit.class === 'Brawler' && cellHasGearName(attCell, "Champion's Crest")) return d <= 1;
+    if (attCell.unit.class === 'Lancer' && cellHasGearName(attCell, 'Vanguard Lance')) return d >= 1 && d <= 2;
     return isInRange(attackerCol, defenderCol, attCell.unit.class);
   }
 
@@ -248,13 +659,26 @@
   }
 
   function hasVeteranBuff(cell, buffKey) {
-    return getVeteranBuff(cell) === buffKey;
+    const unitBuff = getVeteranBuff(cell);
+    if (hasBestiaryVeteranBlock(cell) && unitBuff === buffKey) {
+      if (cell && cell.unit) {
+        if (!cell.veteranState) cell.veteranState = {};
+        const selectedKey = state.selectedUnit ? (state.selectedUnit.player + ':' + state.selectedUnit.column) : 'none';
+        const logKey = 'fracturedHulkLog:' + (state.currentPlayer || 0) + ':' + (state.actionStep || 'n/a') + ':' + selectedKey + ':' + buffKey;
+        if (!cell.veteranState[logKey]) {
+          cell.veteranState[logKey] = true;
+          log("[Bestiary] Fractured Hulk blocks " + cell.unit.name + "'s veteran effect (" + buffKey + ").");
+        }
+      }
+      return false;
+    }
+    return unitBuff === buffKey;
   }
 
   function isCounterRangeForLancerCell(attackerCol, lancerCol, lancerCell) {
     if (!lancerCell) return false;
     const dist = Math.abs(attackerCol - lancerCol);
-    return (lancerCell.gear && lancerCell.gear.name === 'Vanguard Lance') ? (dist >= 1 && dist <= 2) : (dist === 1);
+    return cellHasGearName(lancerCell, 'Vanguard Lance') ? (dist >= 1 && dist <= 2) : (dist === 1);
   }
 
   function findAdjacentAllyLancerCols(player, col) {
@@ -379,14 +803,13 @@
       log("Torra's Shattering Hammer: tails — no gear destroyed.");
       return;
     }
-    if (!defCell || !defCell.gear) {
+    if (!defCell || getCellGearCards(defCell).length === 0) {
       log("Torra's Shattering Hammer: heads — target has no gear.");
       return;
     }
-    const removed = defCell.gear;
+    const removed = removeGearFromCell(defCell);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(removed);
-    defCell.gear = null;
     log("Torra's Shattering Hammer: heads — " + removed.name + " on " + defCell.unit.name + " is destroyed before damage.");
   }
 
@@ -507,13 +930,12 @@
 
     if (hasVeteranBuff(defCell, 'iktha')) {
       const attackerCell = state.board[attackerPlayer][attackerCol];
-      if (!attackerCell || !attackerCell.gear) {
+      if (!attackerCell || getCellGearCards(attackerCell).length === 0) {
         log("Iktha's Magma Skin — attacker has no gear to destroy.");
       } else {
-        const removed = attackerCell.gear;
+        const removed = removeGearFromCell(attackerCell);
         if (!state.itemDiscard) state.itemDiscard = [];
         state.itemDiscard.push(removed);
-        attackerCell.gear = null;
         log("Iktha's Magma Skin — " + removed.name + " on " + attackerCell.unit.name + " is destroyed before damage.");
       }
     }
@@ -654,6 +1076,43 @@
   }
 
   function finishResolvedCombatTurn() {
+    const actingUnitRef = state.selectedUnit ? { player: state.selectedUnit.player, column: state.selectedUnit.column } : null;
+    const actingCell = actingUnitRef ? (state.board[actingUnitRef.player] && state.board[actingUnitRef.player][actingUnitRef.column]) : null;
+    if (actingCell && actingCell.unit) {
+      const effects = getBestiaryEffectsForUnit(actingCell.unit);
+      if (effects.hoarderOfGlimmer > 0) {
+        for (let i = 0; i < effects.hoarderOfGlimmer; i++) drawItem(actingUnitRef.player);
+        log("[Bestiary] Hoarder of Glimmer: " + actingCell.unit.name + " draws " + effects.hoarderOfGlimmer + " extra item(s) after attacking.");
+      }
+      if (effects.berserker > 0) {
+        if (!actingCell.berserkerUsedThisTurn) {
+          actingCell.berserkerUsedThisTurn = true;
+          actingCell.berserkerAttacksLeft = effects.berserker;
+        }
+        if ((actingCell.berserkerAttacksLeft || 0) > 0) {
+          actingCell.berserkerAttacksLeft--;
+          if (effects.rootedColossus > 0) {
+            state.actionStep = 'attack';
+            log("[Bestiary] Rooted Colossus: " + actingCell.unit.name + " cannot move before its Berserker follow-up attack.");
+            log("[Bestiary] Berserker: " + actingCell.unit.name + " can attack again.");
+          } else {
+            state.actionStep = 'move';
+            state.moveDone = false;
+            actingCell.bestiaryExtraMovesRemaining = effects.royalCaravan;
+            log("[Bestiary] Berserker: " + actingCell.unit.name + " can move and attack again.");
+          }
+          state.selectedUnit = { player: actingUnitRef.player, column: actingUnitRef.column };
+          renderTurnUI();
+          renderBoard();
+          return;
+        }
+        if (!actingCell.cannotAttackNextTurn) {
+          actingCell.cannotAttackNextTurn = true;
+          log("[Bestiary] Berserker: " + actingCell.unit.name + " is paralyzed on its next turn.");
+        }
+      }
+    }
+
     replaceCapturedUnitsBeforePass();
     var winner = checkGameOver();
     if (winner !== null) {
@@ -807,7 +1266,7 @@
     const opts = options || {};
     const defCell = state.board[defenderPlayer][defenderCol];
     if (!defCell) return false;
-    if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') {
+    if (cellHasGearName(defCell, 'Wardstone Bracelet')) {
       state.pendingWardstone = { attPlayer: attackerPlayer, attCol: attackerCol, defPlayer: defenderPlayer, defCol: defenderCol };
       renderTurnUI();
       renderBoard();
@@ -1003,8 +1462,8 @@
     const finalCol = packet.finalCol;
     const tivalFailureReason = (!packet.landedOnOriginalTarget && packet.tivalFailureReason) ? packet.tivalFailureReason : null;
     const finalTargetCell = state.board[finalPlayer][finalCol];
-    const finalTargetHadBarbed = !!(finalTargetCell && finalTargetCell.gear && finalTargetCell.gear.name === 'Barbed Gauntlets');
-    const captured = applyDamage(finalPlayer, finalCol, prompt.damage, "");
+    const finalTargetHadBarbed = !!(finalTargetCell && cellHasGearName(finalTargetCell, 'Barbed Gauntlets'));
+    const captured = applyDamage(finalPlayer, finalCol, prompt.damage, "", false, { attackerPlayer: prompt.attPlayer, attackerCol: prompt.attCol });
     if (!captured && state.board[finalPlayer][finalCol] && prompt.effectiveClass === 'Caster') {
       state.board[finalPlayer][finalCol].paralyzed = true;
       log(state.board[finalPlayer][finalCol].unit.name + " is paralyzed (Magic Paralysis).");
@@ -1127,6 +1586,32 @@
       beginArdanVeilstepReorder(prompt);
       return;
     }
+    if (prompt.type === 'unmakerSelfCaptureConfirm') {
+      state.pendingVeteranPrompt = null;
+      const p = prompt.player;
+      const c = prompt.col;
+      const cell = state.board[p] && state.board[p][c];
+      if (!cell) {
+        state.selectedUnit = null;
+        state.actionStep = 'select_unit';
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      cell.faceUp = true;
+      if (maybeCaptureUnmakerOnReveal(p, c, "on action reveal")) {
+        state.selectedUnit = null;
+        state.actionStep = 'select_unit';
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      state.selectedUnit = { player: p, column: c };
+      state.actionStep = prompt.nextStep || 'move';
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
   }
 
   function doVeteranPromptNo() {
@@ -1156,6 +1641,15 @@
       state.pendingVeteranPrompt = null;
       log("Ardan's Veilstep not used.");
       continueAfterArdanVeilstep(prompt.context, prompt.attPlayer, prompt.attCol);
+      return;
+    }
+    if (prompt.type === 'unmakerSelfCaptureConfirm') {
+      state.pendingVeteranPrompt = null;
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      log("[Bestiary] Unmaker action canceled.");
+      renderTurnUI();
+      renderBoard();
       return;
     }
   }
@@ -1301,6 +1795,7 @@
   }
 
   function renderBoard() {
+    applyBestiaryBoardStateMaintenance();
     clearBoard();
     [1, 2].forEach(function (player) {
       const row = document.querySelector('.row--player' + player);
@@ -1462,17 +1957,24 @@
     } else if (step === 'move' && sel) {
       const c = sel.column;
       const myCell = state.board[p][c];
-      const hasTeleportBoots = myCell && myCell.gear && myCell.gear.name === 'Teleport Boots';
+      const hasTeleportBoots = myCell && cellHasGearName(myCell, 'Teleport Boots');
       const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
       if (slot) slot.classList.add('slot--selected');
       if (hasTeleportBoots) {
         for (let col = 0; col < 5; col++) {
           if (col === c) continue;
-          document.querySelector('.row--player' + p + ' .slot[data-column="' + col + '"]')?.classList.add('slot--selectable');
+          const straightSlot = document.querySelector('.row--player' + p + ' .slot[data-column="' + col + '"]');
+          if (straightSlot) straightSlot.classList.add('slot--selectable');
         }
       } else {
-        if (c > 0) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c - 1) + '"]')?.classList.add('slot--selectable');
-        if (c < 4) document.querySelector('.row--player' + p + ' .slot[data-column="' + (c + 1) + '"]')?.classList.add('slot--selectable');
+        if (c > 0) {
+          const leftSlot = document.querySelector('.row--player' + p + ' .slot[data-column="' + (c - 1) + '"]');
+          if (leftSlot) leftSlot.classList.add('slot--selectable');
+        }
+        if (c < 4) {
+          const rightSlot = document.querySelector('.row--player' + p + ' .slot[data-column="' + (c + 1) + '"]');
+          if (rightSlot) rightSlot.classList.add('slot--selectable');
+        }
       }
     } else if (step === 'attack' && sel) {
       const opp = p === 1 ? 2 : 1;
@@ -1538,7 +2040,7 @@
         for (let pl = 1; pl <= 2; pl++) {
           for (let c = 0; c < 5; c++) {
             const cell = state.board[pl][c];
-            if (!cell || !cell.faceUp || !cell.gear) continue;
+            if (!cell || !cell.faceUp || getCellGearCards(cell).length === 0) continue;
             const slot = document.querySelector('.row--player' + pl + ' .slot[data-column="' + c + '"]');
             if (slot) slot.classList.add('slot--selectable');
           }
@@ -1566,6 +2068,10 @@
 
   function startNewGame() {
     state = getInitialState();
+    if (setupBestiaryEnabledEl) {
+      setupBestiaryEnabledEl.checked = true;
+      state.useBestiaryRules = setupBestiaryEnabledEl.checked;
+    }
     state.phase = 'setup_goal';
     clearBoard();
     setupEl.hidden = false;
@@ -1579,11 +2085,13 @@
     if (placementHandFilterEl) placementHandFilterEl.value = '';
     closePlacementUnitPickList();
     if (gameOverEl) gameOverEl.hidden = true;
+    if (btnBestiaryOpen) btnBestiaryOpen.hidden = true;
     showStep('goal');
   }
 
   function onGoalChosen(goal) {
     state.captureGoal = goal;
+    state.useBestiaryRules = !setupBestiaryEnabledEl || setupBestiaryEnabledEl.checked;
     state.phase = 'setup_coin';
     showStep('coin');
   }
@@ -1602,6 +2110,9 @@
     state.p1Hand = state.unitDeck.splice(0, 5);
     state.p2Hand = state.unitDeck.splice(0, 5);
     state.placementPlayer = 1;
+    state.bestiary = state.useBestiaryRules ? makeInitialBestiaryState() : null;
+    state.pendingBestiaryReveal = null;
+    state.pendingBestiaryContinue = false;
     state.phase = 'setup_place_p1';
     showStep('place');
     if (placementHandFilterEl) placementHandFilterEl.value = '';
@@ -1794,13 +2305,93 @@
     }
   }
 
+  function createBoardCell(unit) {
+    return {
+      unit: unit,
+      faceUp: false,
+      damage: 0,
+      paralyzed: false,
+      gear: null,
+      bonusGear: null,
+      veteranState: {},
+      bestiaryExtraMovesRemaining: 0,
+      berserkerAttacksLeft: 0,
+      berserkerUsedThisTurn: false,
+    };
+  }
+
+  function applyBestiaryBoardStateMaintenance() {
+    if (!state.useBestiaryRules) return;
+    applyHighAerieGearStrip();
+    for (let p = 1; p <= 2; p++) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[p][c];
+        if (!cell || !cell.unit) continue;
+        const effects = getBestiaryEffectsForUnit(cell.unit);
+        if (effects.everWatchingEye > 0 && !cell.faceUp) {
+          cell.faceUp = true;
+          log("[Bestiary] Ever-Watching Eye reveals " + cell.unit.name + " and keeps it face-up.");
+        }
+        if (effects.unmaker > 0 && cell.faceUp) {
+          maybeCaptureUnmakerOnReveal(p, c, "immediately after being face-up");
+        }
+      }
+    }
+    ensureSelectedUnitIsValid();
+  }
+
+  function maybeCaptureUnmakerOnReveal(player, col, reason) {
+    const cell = state.board[player] && state.board[player][col];
+    if (!cell || !cell.unit || !cell.faceUp) return false;
+    const effects = getBestiaryEffectsForUnit(cell.unit);
+    if (effects.unmaker < 1) return false;
+    const why = reason ? " (" + reason + ")" : "";
+    log("[Bestiary] Unmaker captures " + cell.unit.name + why + ".");
+    applyDamage(player, col, getMaxHP(cell), '', true);
+    return true;
+  }
+
+  function ensureSelectedUnitIsValid() {
+    if (!state.selectedUnit) return;
+    const p = state.selectedUnit.player;
+    const c = state.selectedUnit.column;
+    const cell = state.board[p] && state.board[p][c];
+    if (cell) return;
+    state.selectedUnit = null;
+    if (state.actionStep === 'move' || state.actionStep === 'attack') {
+      state.actionStep = 'select_unit';
+    }
+  }
+
+  function applyHighAerieGearStrip() {
+    if (!state.useBestiaryRules) return;
+    for (let p = 1; p <= 2; p++) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[p][c];
+        if (!cell || !cell.unit) continue;
+        const effects = getBestiaryEffectsForUnit(cell.unit);
+        if (effects.highAerie < 1) continue;
+        const gears = getCellGearCards(cell);
+        if (gears.length === 0) continue;
+        if (!state.itemDiscard) state.itemDiscard = [];
+        for (let i = 0; i < gears.length; i++) {
+          state.itemDiscard.push(gears[i]);
+          log("[Bestiary] High-Aerie: " + cell.unit.name + " loses " + gears[i].name + " (discarded).");
+        }
+        cell.gear = null;
+        cell.bonusGear = null;
+      }
+    }
+  }
+
   function placeUnit(player, slotIndex) {
     const hand = player === 1 ? state.p1Hand : state.p2Hand;
     const idx = state.selectedPlacementIndex;
     if (idx == null || idx < 0 || idx >= hand.length) return;
     const unit = hand[idx];
-    state.board[player][slotIndex] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
+    state.board[player][slotIndex] = createBoardCell(unit);
     if (getTerrain(player, slotIndex) === 'Divine Light') state.board[player][slotIndex].faceUp = true;
+    applyBestiaryBoardStateMaintenance();
     hand.splice(idx, 1);
     state.selectedPlacementIndex = null;
     renderBoard();
@@ -1821,9 +2412,10 @@
     const n = Math.min(shuffled.length, emptySlots.length);
     for (let i = 0; i < n; i++) {
       const slot = emptySlots[i];
-      state.board[player][slot] = { unit: shuffled[i], faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
+      state.board[player][slot] = createBoardCell(shuffled[i]);
       if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
     }
+    applyBestiaryBoardStateMaintenance();
     const placedSet = new Set(shuffled.slice(0, n));
     for (let i = handRef.length - 1; i >= 0; i--) {
       if (placedSet.has(handRef[i])) handRef.splice(i, 1);
@@ -1847,6 +2439,7 @@
     } else {
       state.phase = 'playing';
       setupEl.hidden = true;
+      if (btnBestiaryOpen) btnBestiaryOpen.hidden = false;
       state.currentPlayer = state.firstPlayer;
       state.capturedLastTurn = { 1: 0, 2: 0 };
       state.p1ItemHand = [];
@@ -1885,7 +2478,12 @@
 
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
-      if (cell) cell.mustRestNextTurn = false;
+      if (cell) {
+        cell.mustRestNextTurn = false;
+        cell.berserkerUsedThisTurn = false;
+        cell.berserkerAttacksLeft = 0;
+        cell.bestiaryExtraMovesRemaining = 0;
+      }
     }
 
     const reinforcedCount = state.capturedLastTurn[p] || 0;
@@ -1906,6 +2504,9 @@
     }
 
     log("Player " + p + "'s turn.");
+    if (currentPlayerHasMuzzledUnit()) {
+      log("[Bestiary] Muzzled Beast is active: Player " + p + " cannot use single-use items this turn.");
+    }
     if (reinforcedCount > 0 && !deckEmptyBefore) {
       log("Reinforcement: Player " + p + " places " + reinforcedCount + " unit(s) from the deck.");
     }
@@ -1926,9 +2527,10 @@
     for (let i = 0; i < count && state.unitDeck.length > 0 && openSlots.length > 0; i++) {
       const unit = state.unitDeck.shift();
       const slot = openSlots.shift();
-      state.board[player][slot] = { unit: unit, faceUp: false, damage: 0, paralyzed: false, gear: null, veteranState: {} };
+      state.board[player][slot] = createBoardCell(unit);
       if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
     }
+    applyBestiaryBoardStateMaintenance();
   }
 
   /** Draw one item. If optionalName is provided (debug), draw that card from the deck if present. */
@@ -1960,6 +2562,7 @@
 
   function updateCaptureDisplay() {
     renderScoreMarkers();
+    if (bestiaryModal && !bestiaryModal.hidden) renderBestiaryModal();
   }
 
   /** Animate the last card in the given player's item hand (e.g. after draw). Uses GSAP if available. */
@@ -2034,7 +2637,7 @@
     for (let pl = 1; pl <= 2; pl++) {
       for (let c = 0; c < 5; c++) {
         const cell = state.board[pl][c];
-        if (cell && cell.faceUp && cell.gear) n++;
+        if (cell && cell.faceUp && getCellGearCards(cell).length > 0) n++;
       }
     }
     return n;
@@ -2046,10 +2649,27 @@
     for (let pl = 1; pl <= 2; pl++) {
       for (let c = 0; c < 5; c++) {
         const cell = state.board[pl][c];
-        if (cell && cell.gear) n++;
+        if (cell && getCellGearCards(cell).length > 0) n++;
       }
     }
     return n;
+  }
+
+  function currentPlayerHasMuzzledUnit() {
+    if (!state.useBestiaryRules) return false;
+    const p = state.currentPlayer;
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[p][c];
+      if (!cell || !cell.unit) continue;
+      const effects = getBestiaryEffectsForUnit(cell.unit);
+      if (effects.muzzledBeast > 0) return true;
+    }
+    return false;
+  }
+
+  function canCurrentPlayerUseSingleUseItems() {
+    if (!state.useBestiaryRules) return true;
+    return !currentPlayerHasMuzzledUnit();
   }
 
   function renderItemHands() {
@@ -2067,6 +2687,7 @@
     itemHandP2El.innerHTML = '';
 
     function canPlaySingleUse(itemName) {
+      if (!canCurrentPlayerUseSingleUseItems()) return false;
       if (itemName === 'Healing Potion') return canPlayHealingPotion;
       if (itemName === 'All revealing lantern-jar') return canPlayRevealingLight;
       if (itemName === 'Tangle-Vine Bola') return canPlayDisablingNet;
@@ -2182,6 +2803,7 @@
   }
 
   function renderTurnUI() {
+    sanitizeBestiaryRevealState();
     const p = state.currentPlayer;
     const step = state.actionStep;
     turnLabel.textContent = "Player " + p + "'s turn";
@@ -2197,6 +2819,12 @@
     if (contextualMoveControls) {
       contextualMoveControls.hidden = true;
       contextualMoveControls.classList.remove('contextual-move-controls--above', 'contextual-move-controls--below');
+    }
+
+    if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) {
+      turnStep.textContent = "Seer's Bestiary reveal in progress.";
+      if (bestiaryModal && bestiaryModal.hidden) openBestiaryModal(true);
+      return;
     }
 
     if (state.pendingWardstone) {
@@ -2259,7 +2887,11 @@
           turnStep.textContent = 'Choose a ' + (ac.join(', ').replace(/, ([^,]*)$/, ' or $1')) + ' to equip ' + it.itemName + '.';
         } else turnStep.textContent = 'Choose target for ' + (it.itemName || 'item') + '.';
       } else {
-        turnStep.textContent = 'Use items (optional), then continue to combat.';
+        if (currentPlayerHasMuzzledUnit()) {
+          turnStep.textContent = 'Muzzled Beast is active: single-use items are blocked this turn.';
+        } else {
+          turnStep.textContent = 'Use items (optional), then continue to combat.';
+        }
       }
       turnActions.hidden = false;
       if (btnPass) btnPass.hidden = true;
@@ -2342,9 +2974,42 @@
   function onSelectUnit(player, column) {
     const cell = state.board[player][column];
     if (!cell || cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) return;
+    const bestiaryAtSelect = getBestiaryEffectsForUnit(cell.unit);
+    if (!cell.faceUp && bestiaryAtSelect.unmaker > 0) {
+      state.pendingVeteranPrompt = {
+        type: 'unmakerSelfCaptureConfirm',
+        message: "Unmaker warning: revealing this unit captures it instantly. Continue?",
+        useLabel: 'Reveal anyway',
+        noLabel: 'Cancel',
+        player: player,
+        col: column,
+        nextStep: 'move',
+      };
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
     state.selectedUnit = { player: player, column: column };
     cell.faceUp = true;
+    if (maybeCaptureUnmakerOnReveal(player, column, "on action reveal")) {
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
     state.actionStep = 'move';
+    const bestiary = getBestiaryEffectsForUnit(cell.unit);
+    if (bestiary.rootedColossus > 0) {
+      cell.bestiaryExtraMovesRemaining = 0;
+      state.actionStep = 'attack';
+      log("[Bestiary] Rooted Colossus: " + cell.unit.name + " cannot move before attacking.");
+    } else {
+      cell.bestiaryExtraMovesRemaining = bestiary.royalCaravan;
+      if (bestiary.royalCaravan > 0) {
+        log("[Bestiary] Royal Caravan: " + cell.unit.name + " can move " + bestiary.royalCaravan + " extra tile(s) before attacking.");
+      }
+    }
     log("Player " + player + "'s " + cell.unit.name + " (" + cell.unit.class + ") is revealed and acts.");
     renderTurnUI();
     renderBoard();
@@ -2357,6 +3022,13 @@
     const next = c + (direction === 'left' ? -1 : 1);
     if (next < 0 || next > 4) return;
     const myCell = state.board[p][c];
+    if (!myCell) {
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
     const otherCell = state.board[p][next];
     if (otherCell == null) return;
 
@@ -2373,11 +3045,18 @@
       log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and moves.");
     }
 
-    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, gear: otherCell.gear || null, veteranState: otherCell.veteranState || {} };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
+    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, mustRestNextTurn: otherCell.mustRestNextTurn || false, nextAttackAsCaster: otherCell.nextAttackAsCaster || false, gear: otherCell.gear || null, bonusGear: otherCell.bonusGear || null, veteranState: otherCell.veteranState || {}, berserkerUsedThisTurn: otherCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: otherCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: otherCell.bestiaryExtraMovesRemaining || 0 };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
     state.selectedUnit.column = next;
     state.moveDone = true;
-    state.actionStep = 'attack';
+    const movedCell = state.board[p][next];
+    if (movedCell && (movedCell.bestiaryExtraMovesRemaining || 0) > 0) {
+      movedCell.bestiaryExtraMovesRemaining--;
+      state.actionStep = 'move';
+      log("[Bestiary] Royal Caravan: " + movedCell.unit.name + " may move once more before attacking.");
+    } else {
+      state.actionStep = 'attack';
+    }
     if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) state.board[p][c].faceUp = true;
     if (getTerrain(p, next) === 'Divine Light' && state.board[p][next]) state.board[p][next].faceUp = true;
     if (maybeTriggerVaelaFrontStrike(p, next)) return;
@@ -2391,6 +3070,13 @@
   function doSkipMove() {
     if (state.actionStep !== 'move' || !state.selectedUnit) return;
     const cell = state.board[state.selectedUnit.player][state.selectedUnit.column];
+    if (!cell) {
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
     cell.faceUp = true;
     state.actionStep = 'attack';
     log("Player " + state.selectedUnit.player + "'s " + cell.unit.name + " does not move.");
@@ -2403,7 +3089,14 @@
     const p = state.selectedUnit.player;
     const fromCol = state.selectedUnit.column;
     const myCell = state.board[p][fromCol];
-    if (!myCell || !myCell.gear || myCell.gear.name !== 'Teleport Boots') return;
+    if (!myCell) {
+      state.selectedUnit = null;
+      state.actionStep = 'select_unit';
+      renderTurnUI();
+      renderBoard();
+      return;
+    }
+    if (!myCell || !cellHasGearName(myCell, 'Teleport Boots')) return;
     if (toCol < 0 || toCol > 4 || toCol === fromCol) return;
     const targetCell = state.board[p][toCol];
 
@@ -2421,13 +3114,13 @@
     }
 
     if (targetCell == null) {
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.board[p][fromCol] = null;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
       log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
     } else {
-      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, gear: targetCell.gear || null, veteranState: targetCell.veteranState || {} };
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, veteranState: myCell.veteranState || {} };
+      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, mustRestNextTurn: targetCell.mustRestNextTurn || false, nextAttackAsCaster: targetCell.nextAttackAsCaster || false, gear: targetCell.gear || null, bonusGear: targetCell.bonusGear || null, veteranState: targetCell.veteranState || {}, berserkerUsedThisTurn: targetCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: targetCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: targetCell.bestiaryExtraMovesRemaining || 0 };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.selectedUnit.column = toCol;
       if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
@@ -2437,7 +3130,14 @@
     }
     state.selectedUnit.column = toCol;
     state.moveDone = true;
-    state.actionStep = 'attack';
+    const movedCell = state.board[p][toCol];
+    if (movedCell && (movedCell.bestiaryExtraMovesRemaining || 0) > 0) {
+      movedCell.bestiaryExtraMovesRemaining--;
+      state.actionStep = 'move';
+      log("[Bestiary] Royal Caravan: " + movedCell.unit.name + " may move once more before attacking.");
+    } else {
+      state.actionStep = 'attack';
+    }
     if (maybeTriggerVaelaFrontStrike(p, toCol)) return;
     renderTurnUI();
     renderBoard();
@@ -2478,15 +3178,14 @@
     if (!state.pendingWardstone) return;
     const pw = state.pendingWardstone;
     const defCell = state.board[state.pendingWardstone.defPlayer][state.pendingWardstone.defCol];
-    if (!defCell || !defCell.gear || defCell.gear.name !== 'Wardstone Bracelet') {
+    if (!defCell || !cellHasGearName(defCell, 'Wardstone Bracelet')) {
       state.pendingWardstone = null;
       renderTurnUI();
       renderBoard();
       return;
     }
     if (!state.itemDiscard) state.itemDiscard = [];
-    state.itemDiscard.push(defCell.gear);
-    defCell.gear = null;
+    state.itemDiscard.push(removeGearFromCell(defCell, 'Wardstone Bracelet'));
     log("Player " + state.pendingWardstone.defPlayer + " uses Wardstone Bracelet — attack negated for this unit.");
     state.pendingWardstone = null;
     if (state.archmageMultiResolving) {
@@ -2526,7 +3225,7 @@
       }
       const packet = resolveDefenderVeteranPacket(ar.attPlayer, ar.attCol, ar.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: ar.trueStrike && state.vorpalNextAttack === ar.attPlayer });
       if (!packet.canceled) {
-        applyDamage(packet.finalPlayer, packet.finalCol, 1, "");
+        applyDamage(packet.finalPlayer, packet.finalCol, ar.damage || 1, "", false, { attackerPlayer: ar.attPlayer, attackerCol: ar.attCol });
         ar.ardanHitLanded = true;
         if (state.board[packet.finalPlayer][packet.finalCol]) {
           state.board[packet.finalPlayer][packet.finalCol].paralyzed = true;
@@ -2606,17 +3305,16 @@
 
   function applyCorrosivePhial(targetPlayer, targetCol) {
     const cell = state.board[targetPlayer][targetCol];
-    if (!cell || !cell.faceUp || !cell.gear) return;
+    if (!cell || !cell.faceUp || getCellGearCards(cell).length === 0) return;
     const t = state.itemTargeting;
     if (!t || t.itemName !== 'Corrosive Phial') return;
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Corrosive Phial') return;
 
-    const gearRemoved = cell.gear;
+    const gearRemoved = removeGearFromCell(cell);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(gearRemoved);
-    cell.gear = null;
     hand.splice(t.handIndex, 1);
     state.itemDiscard.push(item);
     state.itemTargeting = null;
@@ -2772,13 +3470,17 @@
     if (!item || GEAR_EQUIP_ITEM_NAMES.indexOf(item.name) === -1) return;
     if (!canEquipGear(cell, item.name)) return;
 
-    const previousGear = cell.gear || null;
-    cell.gear = { name: item.name, id: item.id };
+    const hadPrimary = !!cell.gear;
+    if (!cell.gear) {
+      cell.gear = { name: item.name, id: item.id };
+    } else if (!cell.bonusGear) {
+      cell.bonusGear = { name: item.name, id: item.id };
+    } else {
+      return;
+    }
     hand.splice(t.handIndex, 1);
-    if (previousGear) {
-      if (!state.itemDiscard) state.itemDiscard = [];
-      state.itemDiscard.push(previousGear);
-      log("Player " + state.currentPlayer + " equips " + item.name + " on " + cell.unit.name + ". Previous " + previousGear.name + " discarded.");
+    if (hadPrimary) {
+      log("[Bestiary] The Iron-Clad Shield allows " + cell.unit.name + " to equip an additional gear: " + item.name + ".");
     } else {
       log("Player " + state.currentPlayer + " equips " + item.name + " on " + cell.unit.name + ".");
     }
@@ -2787,9 +3489,10 @@
     renderBoard();
   }
 
-  function applyDamage(player, col, damageAmount, logPrefix, skipLog) {
+  function applyDamage(player, col, damageAmount, logPrefix, skipLog, causeInfo) {
     const cell = state.board[player][col];
     if (!cell) return true;
+    const bestiaryEffects = getBestiaryEffectsForUnit(cell.unit);
     const maxHP = getMaxHP(cell);
     const current = cell.damage || 0;
     const newTotal = current + damageAmount;
@@ -2798,17 +3501,32 @@
       if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " is captured (0/" + maxHP + " HP).");
       if (!state.unitDiscard) state.unitDiscard = [];
       state.unitDiscard.push(cell.unit);
-      if (cell.gear) {
+      if (cell.gear || cell.bonusGear) {
         if (!state.itemDiscard) state.itemDiscard = [];
-        state.itemDiscard.push(cell.gear);
+        const gears = getCellGearCards(cell);
+        for (let g = 0; g < gears.length; g++) state.itemDiscard.push(gears[g]);
       }
       state.board[player][col] = null;
       if (player === 1) {
         state.p2Captures = (state.p2Captures || 0) + 1;
         state.capturedLastTurn[1] = (state.capturedLastTurn[1] || 0) + 1;
+        queueBestiaryRevealIfNeeded(2);
       } else {
         state.p1Captures = (state.p1Captures || 0) + 1;
         state.capturedLastTurn[2] = (state.capturedLastTurn[2] || 0) + 1;
+        queueBestiaryRevealIfNeeded(1);
+      }
+      if (bestiaryEffects.ironMaiden > 0 && causeInfo && causeInfo.attackerPlayer != null && causeInfo.attackerCol != null) {
+        const attackerCell = state.board[causeInfo.attackerPlayer] && state.board[causeInfo.attackerPlayer][causeInfo.attackerCol];
+        if (attackerCell) {
+          const heads = Math.random() < 0.5;
+          if (heads) {
+            log("[Bestiary] Iron Maiden: heads — " + attackerCell.unit.name + " is captured in retaliation.");
+            applyDamage(causeInfo.attackerPlayer, causeInfo.attackerCol, getMaxHP(attackerCell), '', true);
+          } else {
+            log("[Bestiary] Iron Maiden: tails — no retaliation capture.");
+          }
+        }
       }
       return true;
     }
@@ -2827,8 +3545,8 @@
     const attackContext = { harlundUsed: false, harlundDeclineLogged: false, harlundPromptResolved: false, harlundDecision: 'no' };
     const vorpalPacket = (state.vorpalNextAttack === attackerPlayer);
     const trueStrike = vorpalPacket ||
-      (attCell.gear && attCell.gear.name === 'True-Strike Lens' && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) ||
-      (attCell.gear && attCell.gear.name === "Sharpshooter's Scope" && attCell.unit.class === 'Shooter');
+      (cellHasGearName(attCell, 'True-Strike Lens') && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) ||
+      (cellHasGearName(attCell, "Sharpshooter's Scope") && attCell.unit.class === 'Shooter');
 
     log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
     if (trueStrike) {
@@ -2949,7 +3667,18 @@
     if (!attackBlocked) {
       defCell.faceUp = true;
       log("Target revealed: Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
-      const defHasBarbed = !!(defCell.gear && defCell.gear.name === 'Barbed Gauntlets');
+      if (maybeCaptureUnmakerOnReveal(defenderPlayer, defenderCol, "on attack reveal")) {
+        attackHitDefender = false;
+        tivalFailureReason = "target was captured by Unmaker on reveal";
+        if (queueTivalRetryPrompt(attackerPlayer, attackerCol, defenderPlayer, defenderCol, tivalFailureReason)) {
+          renderTurnUI();
+          renderBoard();
+          return;
+        }
+        finishResolvedCombatTurn();
+        return;
+      }
+      const defHasBarbed = !!cellHasGearName(defCell, 'Barbed Gauntlets');
       attClassForBarbed = attCell.unit.class;
 
       let defenderTerrainBlocked = false;
@@ -2978,19 +3707,24 @@
 
       if (!defenderTerrainBlocked) {
         const vorpalLethal = vorpalPacket;
-        const archmageMulti = effectiveClass === 'Caster' && attCell.unit.class === 'Caster' && attCell.gear && attCell.gear.name === "Archmage's Tome" && !attCell.nextAttackAsCaster;
+        const archmageMulti = effectiveClass === 'Caster' && attCell.unit.class === 'Caster' && cellHasGearName(attCell, "Archmage's Tome") && !attCell.nextAttackAsCaster;
         maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol);
         const shooterLongshot = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol));
+        const bestiary = getBestiaryEffectsForUnit(attCell.unit);
         let damage = shooterLongshot
           ? 2
           : 1;
         damage += getRokkloDamageBonus(attCell);
         damage += getJorrenDamageBonus(attCell);
+        damage += bestiary.primalAlpha;
         if (vorpalLethal) {
           damage = Math.max(1, getMaxHP(defCell) - (defCell.damage || 0));
           log("Vorpal Honing Amulet — lethal strike (" + damage + " damage).");
         } else if (shooterLongshot) {
           log("Longshot (edge to edge): 2 damage.");
+        }
+        if (bestiary.primalAlpha > 0) {
+          log("[Bestiary] Primal Alpha: +" + bestiary.primalAlpha + " attack damage.");
         }
         if (archmageMulti) {
           log("Archmage's Tome — attack affects target and adjacent enemies.");
@@ -3001,6 +3735,7 @@
             defPlayer: defenderPlayer,
             cols: cols,
             index: 0,
+            damage: damage,
             trueStrike: trueStrike,
             harlundUsed: false,
             harlundDeclineLogged: false,
@@ -3040,14 +3775,14 @@
             const finalPlayer = packet.finalPlayer;
             const finalCol = packet.finalCol;
             const finalTargetCell = state.board[finalPlayer][finalCol];
-            defenderHadBarbedGauntlets = !!(finalTargetCell && finalTargetCell.gear && finalTargetCell.gear.name === 'Barbed Gauntlets');
+            defenderHadBarbedGauntlets = !!(finalTargetCell && cellHasGearName(finalTargetCell, 'Barbed Gauntlets'));
             attClassForBarbed = attCell.unit.class;
             attackAppliedToUnit = true;
             attackHitDefender = packet.landedOnOriginalTarget;
             if (!packet.landedOnOriginalTarget && packet.tivalFailureReason) {
               tivalFailureReason = packet.tivalFailureReason;
             }
-            const captured = applyDamage(finalPlayer, finalCol, damage, "");
+            const captured = applyDamage(finalPlayer, finalCol, damage, "", false, { attackerPlayer: attackerPlayer, attackerCol: attackerCol });
             if (!captured && state.board[finalPlayer][finalCol] && effectiveClass === 'Caster') {
               state.board[finalPlayer][finalCol].paralyzed = true;
               log(state.board[finalPlayer][finalCol].unit.name + " is paralyzed (Magic Paralysis).");
@@ -3140,7 +3875,7 @@
           log("Reinforced Barricade (column " + c + "): tails — hit proceeds.");
         }
       }
-      if (targetCell.gear && targetCell.gear.name === 'Wardstone Bracelet') {
+      if (cellHasGearName(targetCell, 'Wardstone Bracelet')) {
         state.pendingWardstone = { attPlayer: ar.attPlayer, attCol: ar.attCol, defPlayer: ar.defPlayer, defCol: c };
         renderTurnUI();
         renderBoard();
@@ -3168,7 +3903,7 @@
         ar.index++;
         continue;
       }
-      applyDamage(packet.finalPlayer, packet.finalCol, 1, "");
+      applyDamage(packet.finalPlayer, packet.finalCol, ar.damage || 1, "", false, { attackerPlayer: ar.attPlayer, attackerCol: ar.attCol });
       ar.ardanHitLanded = true;
       if (state.board[packet.finalPlayer][packet.finalCol]) {
         state.board[packet.finalPlayer][packet.finalCol].paralyzed = true;
@@ -3237,6 +3972,7 @@
     }
 
     if (state.phase !== 'playing' || state.gameOver) return;
+    if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
 
     const p = state.currentPlayer;
     const step = state.actionStep;
@@ -3292,7 +4028,7 @@
         if (state.terrain[player][column] != null) applyTectonicSpike(player, column);
       } else if (itemName === 'Corrosive Phial') {
         const cell = state.board[player][column];
-        if (cell && cell.faceUp && cell.gear) applyCorrosivePhial(player, column);
+        if (cell && cell.faceUp && getCellGearCards(cell).length > 0) applyCorrosivePhial(player, column);
       } else if (itemName === 'Magic Grenade') {
         if (player === p && state.board[player][column]) applyMagicGrenade(player, column);
       }
@@ -3309,7 +4045,7 @@
     if (step === 'move' && state.selectedUnit && player === p) {
       const fromCol = state.selectedUnit.column;
       const myCell = state.board[p][fromCol];
-      if (myCell && myCell.gear && myCell.gear.name === 'Teleport Boots' && column !== fromCol) {
+      if (myCell && cellHasGearName(myCell, 'Teleport Boots') && column !== fromCol) {
         doTeleportMove(column);
       }
       return;
@@ -3330,6 +4066,7 @@
   }
 
   function handleItemHandClick(e) {
+    if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
     const seeBtn = e.target.closest('.item-card__see');
     if (seeBtn && state.phase === 'playing') {
       const card = e.target.closest('.item-card');
@@ -3348,7 +4085,12 @@
       const itemName = card.dataset.itemName;
       const player = parseInt(card.dataset.player, 10);
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
-      const singleUsePlayable = itemName === 'Healing Potion' || itemName === 'All revealing lantern-jar' || itemName === 'Tangle-Vine Bola' || itemName === 'Vorpal Honing Amulet' || (itemName === 'Corrosive Phial' && countUnitsWithGear() > 0) || (itemName === 'Obscuring bomb' && countUnits(state.currentPlayer) > 0) || (itemName === 'Magic Grenade' && countUnits(state.currentPlayer) > 0);
+      const isSingleUse = !!(spec && spec.type === 'single_use');
+      if (isSingleUse && !canCurrentPlayerUseSingleUseItems()) {
+        log("[Bestiary] Muzzled Beast blocks single-use item usage this turn.");
+        return;
+      }
+      const singleUsePlayable = canCurrentPlayerUseSingleUseItems() && (itemName === 'Healing Potion' || itemName === 'All revealing lantern-jar' || itemName === 'Tangle-Vine Bola' || itemName === 'Vorpal Honing Amulet' || (itemName === 'Corrosive Phial' && countUnitsWithGear() > 0) || (itemName === 'Obscuring bomb' && countUnits(state.currentPlayer) > 0) || (itemName === 'Magic Grenade' && countUnits(state.currentPlayer) > 0));
       const gearPlayable = spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && countValidGearTargets(itemName) > 0;
       const terrainPlayable = typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1 && countEmptyTerrainSlots() > 0;
       const tectonicSpikePlayable = itemName === 'Tectonic Spike' && countTilesWithTerrain() > 0;
@@ -3426,6 +4168,16 @@
     clearBoard();
 
     btnNewGame.addEventListener('click', startNewGame);
+    if (btnBestiaryOpen) {
+      btnBestiaryOpen.addEventListener('click', function () {
+        openBestiaryModal(false);
+      });
+    }
+    if (setupBestiaryEnabledEl) {
+      setupBestiaryEnabledEl.addEventListener('change', function () {
+        state.useBestiaryRules = !!setupBestiaryEnabledEl.checked;
+      });
+    }
 
     document.querySelectorAll('[data-goal]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -3549,6 +4301,24 @@
     if (discardZoomBackdrop && discardZoomModal) {
       discardZoomBackdrop.addEventListener('click', closeDiscardZoom);
     }
+    if (bestiaryCloseBtn && bestiaryModal) {
+      bestiaryCloseBtn.addEventListener('click', closeBestiaryModal);
+    }
+    if (bestiaryBackdrop && bestiaryModal) {
+      bestiaryBackdrop.addEventListener('click', closeBestiaryModal);
+    }
+    if (btnBestiaryReveal) btnBestiaryReveal.addEventListener('click', onBestiaryRevealConfirmed);
+    if (btnBestiaryContinue) btnBestiaryContinue.addEventListener('click', onBestiaryContinueConfirmed);
+    if (bestiaryGrid) {
+      bestiaryGrid.addEventListener('change', function (e) {
+        const target = e.target;
+        if (!target || target.tagName !== 'SELECT') return;
+        const kind = target.dataset.kind;
+        const col = parseInt(target.dataset.column, 10);
+        if (!kind || Number.isNaN(col)) return;
+        applyBestiaryDebugControlChange(col, kind, target.value);
+      });
+    }
     if (itemZoomCloseBtn && itemZoomModal) {
       itemZoomCloseBtn.addEventListener('click', closeItemZoom);
     }
@@ -3563,6 +4333,8 @@
     const unit = cell.unit;
     const unitImgWrap = document.getElementById('unit-zoom-unit');
     const gearImgWrap = document.getElementById('unit-zoom-gear');
+    const gear2Slot = document.getElementById('unit-zoom-gear-2-slot');
+    const gear2ImgWrap = document.getElementById('unit-zoom-gear-2');
     const terrainImgWrap = document.getElementById('unit-zoom-terrain');
     const markersEl = document.getElementById('unit-zoom-markers');
     if (!unitImgWrap || !markersEl) return;
@@ -3587,6 +4359,15 @@
       const gsrc = getItemCardImagePath(cell.gear.name || '');
       gearImgWrap.innerHTML = '<img src="' + gsrc + '" alt="' + (cell.gear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gearImgWrap) gearImgWrap.innerHTML = '';
+    const bestiaryEffects = getBestiaryEffectsForUnit(cell.unit);
+    const showExtraGearSlot = bestiaryEffects.ironCladShield > 0;
+    if (gear2Slot) gear2Slot.hidden = !showExtraGearSlot;
+    if (showExtraGearSlot && cell.bonusGear && gear2ImgWrap) {
+      const g2src = getItemCardImagePath(cell.bonusGear.name || '');
+      gear2ImgWrap.innerHTML = '<img src="' + g2src + '" alt="' + (cell.bonusGear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+    } else if (gear2ImgWrap) {
+      gear2ImgWrap.innerHTML = '';
+    }
     const terr = state.terrain && state.terrain[player] && state.terrain[player][col];
     if (terr && terrainImgWrap) {
       const tsrc = getItemCardImagePath(terr.name || '');

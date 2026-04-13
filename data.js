@@ -117,3 +117,72 @@ const ITEM_SPECS = {
 
 /** Terrain cards that can be placed on empty tiles during use-items. */
 const TERRAIN_ITEM_NAMES = ['Elevated Ground', 'Reinforced Barricade', 'Paralyzing Vines', 'Divine Light', 'Unstable Ground'];
+
+const FACTION_KEYS = {
+  HOWLSWORN_CREED: 'Howlsworn Creed',
+  WHISPERFANG_WATCH: 'Whisperfang Watch',
+  SKYWARD_KIN: 'Skyward Kin',
+  SCALEBOUND_BROOD: 'Scalebound Brood',
+};
+
+const UNIT_FACTION_BY_NAME = {
+  'Harlund Ironhowl': FACTION_KEYS.HOWLSWORN_CREED,
+  'Barrox Ironpaw': FACTION_KEYS.HOWLSWORN_CREED,
+  'Jorren Brighthowl': FACTION_KEYS.HOWLSWORN_CREED,
+  'Daro Swiftlash': FACTION_KEYS.HOWLSWORN_CREED,
+  'Keera Stonesnout': FACTION_KEYS.HOWLSWORN_CREED,
+  'Larrin Driftmark': FACTION_KEYS.HOWLSWORN_CREED,
+  'Cassa Thornpelt': FACTION_KEYS.HOWLSWORN_CREED,
+  'Solomon the Bound': FACTION_KEYS.HOWLSWORN_CREED,
+  'Fenn Talonstrike': FACTION_KEYS.SKYWARD_KIN,
+  'Torra Anvilcrest': FACTION_KEYS.SKYWARD_KIN,
+  'Korrin Windfeather': FACTION_KEYS.SKYWARD_KIN,
+  'Rowka Stonewing': FACTION_KEYS.SKYWARD_KIN,
+  'Lyra Keenfang': FACTION_KEYS.SKYWARD_KIN,
+  'Luma Flintwing': FACTION_KEYS.SKYWARD_KIN,
+  'Ardan Quillsong': FACTION_KEYS.SKYWARD_KIN,
+  'Chronir Stillmarch': FACTION_KEYS.SKYWARD_KIN,
+  'Rinn Mossburn': FACTION_KEYS.WHISPERFANG_WATCH,
+  'Vaela Strayshield': FACTION_KEYS.WHISPERFANG_WATCH,
+  'Haskel Moorwake': FACTION_KEYS.WHISPERFANG_WATCH,
+  'Nyss Shadowstep': FACTION_KEYS.WHISPERFANG_WATCH,
+  'Sarro Chitterfang': FACTION_KEYS.WHISPERFANG_WATCH,
+  'Tival Embercoat': FACTION_KEYS.WHISPERFANG_WATCH,
+  'Thira Mistpaw': FACTION_KEYS.WHISPERFANG_WATCH,
+  'Senya Longtail': FACTION_KEYS.WHISPERFANG_WATCH,
+  'Kraska Mudtongue': FACTION_KEYS.SCALEBOUND_BROOD,
+  'Grolk Hollowjaw': FACTION_KEYS.SCALEBOUND_BROOD,
+  'Braskin Coilmail': FACTION_KEYS.SCALEBOUND_BROOD,
+  'Pex Rippleclaw': FACTION_KEYS.SCALEBOUND_BROOD,
+  'Rokklo Flickbranch': FACTION_KEYS.SCALEBOUND_BROOD,
+  'Mira Skytwitch': FACTION_KEYS.SCALEBOUND_BROOD,
+  'Iktha Embercoil': FACTION_KEYS.SCALEBOUND_BROOD,
+  'Mivara Duskscale': FACTION_KEYS.SCALEBOUND_BROOD,
+};
+
+const FACTION_CARD_DEFS = [
+  { id: 'howlsworn_creed', name: FACTION_KEYS.HOWLSWORN_CREED, imagePath: 'assets/factions/Howlsworn\u2028Creed.png' },
+  { id: 'whisperfang_watch', name: FACTION_KEYS.WHISPERFANG_WATCH, imagePath: 'assets/factions/Whisperfang\u2028Watch.png' },
+  { id: 'skyward_kin', name: FACTION_KEYS.SKYWARD_KIN, imagePath: 'assets/factions/Skyward Kin.png' },
+  { id: 'scalebound_brood', name: FACTION_KEYS.SCALEBOUND_BROOD, imagePath: 'assets/factions/Scalebound Brood.png' },
+];
+
+const FACTION_CARD_BACK_IMAGE = 'assets/factions/Faction Back Side.png';
+
+const BESTIARY_CARD_DEFS = [
+  { id: 'primal_alpha', name: 'Primal Alpha', imagePath: 'assets/bestiary/1 - Primal Alpha.png' },
+  { id: 'royal_caravan', name: 'Royal Caravan', imagePath: 'assets/bestiary/2 - Royal Caravan.png' },
+  { id: 'hoarder_of_glimmer', name: 'Hoarder of Glimmer', imagePath: 'assets/bestiary/3 - Hoarder of Glimmer.png' },
+  { id: 'iron_clad_shield', name: 'The Iron-Clad Shield', imagePath: 'assets/bestiary/4 - Iron-Clad Shield.png' },
+  { id: 'eternal_carapace', name: 'Eternal Carapace', imagePath: 'assets/bestiary/5 - Eternal Carapace.png' },
+  { id: 'rooted_colossus', name: 'Rooted Colossus', imagePath: 'assets/bestiary/6 \u2013 Rooted Colossus.png' },
+  { id: 'high_aerie', name: 'High-Aerie', imagePath: 'assets/bestiary/7 \u2013 High-Aerie.png' },
+  { id: 'muzzled_beast', name: 'Muzzled Beast', imagePath: 'assets/bestiary/8 \u2013 Muzzled Beast.png' },
+  { id: 'fractured_hulk', name: 'Fractured Hulk', imagePath: 'assets/bestiary/9 \u2013 Fractured Hulk.png' },
+  { id: 'ever_watching_eye', name: 'Ever-Watching Eye', imagePath: 'assets/bestiary/10 \u2013 Ever-Watching Eye.png' },
+  { id: 'berserker', name: 'Berserker', imagePath: 'assets/bestiary/11 \u2013 Berserker.png' },
+  { id: 'iron_maiden', name: 'Iron Maiden', imagePath: 'assets/bestiary/12 \u2013 Iron Maiden.png' },
+  { id: 'unmaker', name: 'Unmaker', imagePath: 'assets/bestiary/13 \u2013 Unmaker.png' },
+];
+
+const BESTIARY_CARD_BACK_IMAGE = 'assets/bestiary/Seers Bestiary Back Side.png';
