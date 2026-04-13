@@ -44,6 +44,7 @@ Single source of truth for **phase order**, **scope**, and **status**. Implement
 
 - **Veteran implementation QA debt:** Core implementation is complete, but unfinished validation remains; consolidated into **Phase 19** (cross-regression sweep at scale).
 - **Open QA lists for Phase 19:** `QA_PHASE15_R2_LOG_TEMPLATE.md`, `QA_TARGETED_REGRESSION_CHECKLIST.md`, plus R3 targeted follow-up scenarios noted in `DEV_LOG.md`.
+- **Seer's Bestiary reveal-flow lock (deferred):** In certain milestone-reveal sequences, header can remain stuck on `"Seer's Bestiary reveal in progress."` after modal dismissal. Manual unblock exists (force affected column inactive). Detailed repro/theories documented in `DEV_LOG.md`.
 - **Fog of war:** Deferred to **Phase 18** with the CPU opponent. No need to hide opponent face-down during solo development.
 
 ### Resolved (historical)

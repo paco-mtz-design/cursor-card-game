@@ -14,6 +14,43 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Seer's Bestiary — deferred known issue (reveal-flow lock)
+
+**Status:** Known issue, intentionally deferred to a future phase (low priority due to manual workaround).
+
+### Repro confirmed (manual QA)
+
+- Start a new game and force-activate a Bestiary column early (before natural milestone reveal).
+- Continue until natural reveal trigger (e.g. 10-capture mode at 4 captures).
+- Bestiary modal appears; reveal/continue flow completes and the next column is revealed.
+- **Issue:** header remains stuck on `"Seer's Bestiary reveal in progress."`, turn cannot proceed.
+- Also reproducible in baseline path (no force-activation) in some runs.
+
+### Current workaround
+
+- In Bestiary modal debug controls, set the newly revealed/pending column to **Force inactive**, which clears the lock and resumes turn flow.
+
+### Likely root-cause theories
+
+1. **Reveal state desync:** `pendingBestiaryReveal` / `pendingBestiaryContinue` can remain truthy after modal dismissal, even when no actionable reveal UI remains.
+2. **UI state race:** modal-close path and turn-render path may run out of order, leaving `renderTurnUI` believing reveal flow is still active.
+3. **Column status mismatch:** natural reveal pointer and effective column state (`revealed` vs debug force-active) can diverge, causing stale "in-progress" gating.
+
+### Suggested future fix approach
+
+- Create a single authoritative reveal state machine (`idle -> awaitingRevealClick -> awaitingContinue -> idle`) with invariant checks.
+- Centralize all transitions in one reducer-like function and block direct state mutation outside it.
+- Add a hard guard in turn render:
+  - if header says reveal in progress but no modal action is possible, auto-heal state to `idle`.
+- Add debug telemetry logs around each transition (`enter`, `exit`, `cleanup`) to verify order.
+
+### Why deferred
+
+- Feature remains playable with a reliable manual workaround.
+- Team priority is to shift focus to higher-impact work (including Iron-Clad Shield follow-up scope).
+
+---
+
 ## Phase 15 — wrap-up snapshot for merge to main
 
 **Status:** Implementation complete (R1 + R2 + R3 shipped on `veteran-buffs`), with remaining QA intentionally deferred to a dedicated future sweep.
