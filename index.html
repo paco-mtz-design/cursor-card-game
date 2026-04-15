@@ -50,6 +50,26 @@
             <span>Play with Seer's Bestiary rules (advanced)</span>
           </label>
         </div>
+        <div class="setup__rules-toggle">
+          <label class="setup__placement-filter-label" for="setup-mode">Match mode</label>
+          <select id="setup-mode" class="setup__placement-filter-input" aria-label="Match mode">
+            <option value="cpu" selected>Play against CPU</option>
+            <option value="manual">Manual mode (control both players)</option>
+          </select>
+        </div>
+        <div class="setup__rules-toggle">
+          <label class="setup__rules-checkbox">
+            <input type="checkbox" id="setup-cpu-custom-placement">
+            <span>Choose CPU starting units (optional debug)</span>
+          </label>
+        </div>
+        <div class="setup__rules-toggle">
+          <label class="setup__placement-filter-label" for="setup-cpu-difficulty">CPU difficulty</label>
+          <select id="setup-cpu-difficulty" class="setup__placement-filter-input" aria-label="CPU difficulty">
+            <option value="easy" selected>Easy (rookie)</option>
+            <option value="normal">Normal (intermediate)</option>
+          </select>
+        </div>
       </div>
       <div class="setup__step setup__step--coin" id="setup-coin" hidden>
         <p class="setup__title">Who goes first?</p>
@@ -243,6 +263,7 @@
 
   <script src="https://unpkg.com/gsap@3.12.5/dist/gsap.min.js"></script>
   <script src="data.js"></script>
+  <script src="cpu.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

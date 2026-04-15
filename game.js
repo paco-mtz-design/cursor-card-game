@@ -20,6 +20,9 @@
   const btnPlacementReplaceWithPick = document.getElementById('btn-placement-replace-with-pick');
   const btnPlacementUnitPickClose = document.getElementById('btn-placement-unit-pick-close');
   const setupBestiaryEnabledEl = document.getElementById('setup-bestiary-enabled');
+  const setupModeEl = document.getElementById('setup-mode');
+  const setupCpuCustomPlacementEl = document.getElementById('setup-cpu-custom-placement');
+  const setupCpuDifficultyEl = document.getElementById('setup-cpu-difficulty');
   const btnNewGame = document.getElementById('btn-new-game');
   const btnBestiaryOpen = document.getElementById('btn-bestiary-open');
   const turnBanner = document.getElementById('turn-banner');
@@ -87,11 +90,55 @@
 
   let state = getInitialState();
 
+  function getHiddenCpuEntityNames() {
+    const hiddenUnitNames = [];
+    const hiddenUnitFirstNames = [];
+    const cpuRow = state.board && state.board[2] ? state.board[2] : [];
+    for (let c = 0; c < cpuRow.length; c++) {
+      const cell = cpuRow[c];
+      if (cell && !cell.faceUp && cell.unit && cell.unit.name) {
+        hiddenUnitNames.push(cell.unit.name);
+        const firstName = String(cell.unit.name).trim().split(/\s+/)[0];
+        if (firstName) hiddenUnitFirstNames.push(firstName);
+      }
+    }
+    const hiddenItemNames = [];
+    const cpuItemHand = state.p2ItemHand || [];
+    for (let i = 0; i < cpuItemHand.length; i++) {
+      const item = cpuItemHand[i];
+      if (item && item.name) hiddenItemNames.push(item.name);
+    }
+    return {
+      hiddenUnitNames: hiddenUnitNames,
+      hiddenUnitFirstNames: hiddenUnitFirstNames,
+      hiddenItemNames: hiddenItemNames
+    };
+  }
+
+  function redactHiddenCpuInfo(message) {
+    if (!isCpuMode()) return message;
+    let redacted = String(message);
+    const names = getHiddenCpuEntityNames();
+    names.hiddenUnitNames.forEach(function (name) {
+      redacted = redacted.replaceAll(name, 'Hidden enemy unit');
+    });
+    names.hiddenUnitFirstNames.forEach(function (firstName) {
+      const possessivePattern = new RegExp('\\b' + firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "'s\\b", 'g');
+      redacted = redacted.replace(possessivePattern, "Hidden enemy unit's");
+    });
+    names.hiddenItemNames.forEach(function (name) {
+      redacted = redacted.replaceAll(name, 'Hidden enemy item');
+    });
+    redacted = redacted.replace(/Player 2 equips [^.]+ on Hidden enemy unit\./g, 'Player 2 equips Hidden enemy item on Hidden enemy unit.');
+    redacted = redacted.replace(/Player 2 uses [^.]+ on Hidden enemy unit\./g, 'Player 2 uses Hidden enemy item on Hidden enemy unit.');
+    return redacted;
+  }
+
   function log(message) {
     if (!gameLogEntries) return;
     const entry = document.createElement('div');
     entry.className = 'game-log__entry';
-    entry.textContent = message;
+    entry.textContent = redactHiddenCpuInfo(message);
     gameLogEntries.appendChild(entry);
     gameLogEntries.scrollTop = gameLogEntries.scrollHeight;
   }
@@ -99,6 +146,10 @@
   function getInitialState() {
     return {
       phase: 'idle',
+      gameMode: 'cpu',
+      cpuDifficulty: 'easy',
+      cpuCustomPlacementEnabled: false,
+      humanPlayer: 1,
       captureGoal: 15,
       useBestiaryRules: true,
       firstPlayer: null,
@@ -114,7 +165,32 @@
       pendingBestiaryContinue: false,
       gameOver: false,
       winner: null,
+      cpuThinkTimer: null,
+      cpuLastBlockReason: '',
     };
+  }
+
+  function isCpuMode() {
+    return state.gameMode === 'cpu';
+  }
+
+  function isCpuPlayer(player) {
+    return isCpuMode() && player === 2;
+  }
+
+  function isCpuTurn() {
+    return isCpuPlayer(state.currentPlayer);
+  }
+
+  function isHumanTurn() {
+    return state.currentPlayer === state.humanPlayer;
+  }
+
+  function shouldMaskForViewer(ownerPlayer, viewerPlayer, cell) {
+    if (!isCpuMode()) return false;
+    if (!cell) return false;
+    if (ownerPlayer !== 2 || viewerPlayer !== 1) return false;
+    return !cell.faceUp;
   }
 
   function countUnits(player) {
@@ -134,6 +210,7 @@
   }
 
   function showGameOver(winner) {
+    clearCpuThinkTimer();
     state.gameOver = true;
     state.winner = winner;
     if (gameOverEl) gameOverEl.hidden = false;
@@ -1740,6 +1817,7 @@
 
   function createUnitCardHTML(unit, cardState) {
     const faceUp = cardState.faceUp;
+    const maskedForViewer = !!cardState.maskedForViewer;
     const damage = cardState.damage || 0;
     const paralyzed = cardState.paralyzed || false;
     const cannotAttackNextTurn = cardState.cannotAttackNextTurn || false;
@@ -1749,7 +1827,7 @@
     const gear = cardState.gear || null;
     const terrain = cardState.terrain || null;
 
-    const cardPath = getUnitCardImagePath(unit);
+    const cardPath = maskedForViewer ? 'assets/units/unit-card-back.png' : getUnitCardImagePath(unit);
     const fallbackPath = 'assets/units/unit-placeholder-for-dev.png';
     let markersHTML = '';
     if (damage > 0) {
@@ -1762,12 +1840,17 @@
       markersHTML += '<span class="marker marker--cannot-attack">Can\'t attack</span>';
     }
 
-    const cardClass = faceUp ? 'unit-card unit-card--face-up' : 'unit-card unit-card--face-down-soft';
-    const dataAttrs = ' data-face-up="' + (faceUp ? 'true' : 'false') + '" data-name="' + escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '"';
+    const cardClass = (faceUp && !maskedForViewer) ? 'unit-card unit-card--face-up' : 'unit-card unit-card--face-down-soft';
+    const safeName = maskedForViewer ? 'Hidden enemy unit' : unit.name;
+    const safeClass = maskedForViewer ? 'Unknown' : unit.class;
+    const safeHp = maskedForViewer ? '' : maxHP;
+    const safeDamage = maskedForViewer ? '' : damage;
+    const dataAttrs = ' data-face-up="' + ((faceUp && !maskedForViewer) ? 'true' : 'false') + '" data-name="' + escapeHtml(safeName) + '" data-class="' + safeClass + '" data-hp="' + safeHp + '" data-damage="' + safeDamage + '"';
     const badgePart = markersHTML ? '<div class="unit-card__markers">' + markersHTML + '</div>' : '';
-    const faceDownOverlayPart = !faceUp ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '';
+    const faceDownOverlayPart = (!faceUp && !maskedForViewer) ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '';
 
-    const gearPart = gear ? '<div class="unit-mini-card unit-mini-card--gear"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(gear.name)) + '" alt="" role="presentation"></div>' : '';
+    const gearImagePath = maskedForViewer ? 'assets/items/item-card-back.png' : (gear ? getItemCardImagePath(gear.name) : '');
+    const gearPart = gear ? '<div class="unit-mini-card unit-mini-card--gear"><img class="unit-mini-card__img" src="' + escapeHtml(gearImagePath) + '" alt="" role="presentation"></div>' : '';
     const terrainPart = terrain ? '<div class="unit-mini-card unit-mini-card--terrain"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(terrain.name)) + '" alt="" role="presentation"></div>' : '';
 
     return '<div class="unit-tile">' +
@@ -1804,9 +1887,11 @@
       const terrainRow = state.terrain && state.terrain[player] ? state.terrain[player] : [];
       cells.forEach(function (cell, i) {
         const terrainCell = terrainRow[i] || null;
+        const maskedForViewer = shouldMaskForViewer(player, 1, cell);
         const unitPart = cell
           ? createUnitCardHTML(cell.unit, {
-              faceUp: cell.faceUp,
+              faceUp: cell.faceUp && !maskedForViewer,
+              maskedForViewer: maskedForViewer,
               damage: cell.damage || 0,
               paralyzed: cell.paralyzed || false,
               cannotAttackNextTurn: cell.cannotAttackNextTurn || false,
@@ -1824,12 +1909,15 @@
       highlightSlots();
       if (state.p1ItemHand != null) renderItemHands();
       if (itemDrawDebugEl) {
-        itemDrawDebugEl.hidden = state.actionStep !== 'use_items' || !!state.itemTargeting || !!state.obscuringReorder;
+        const hideForTurn = state.actionStep !== 'use_items' || !!state.itemTargeting || !!state.obscuringReorder;
+        const hideForCpuRestriction = isCpuMode() && state.currentPlayer !== 1;
+        itemDrawDebugEl.hidden = hideForTurn || hideForCpuRestriction;
       }
       if (state.actionStep !== 'use_items' || state.itemTargeting) {
         if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
       }
       renderDiscardPiles();
+      maybeScheduleCpuTurn();
     }
   }
 
@@ -2066,8 +2154,33 @@
     }
   }
 
+  function syncSetupModeControls() {
+    if (!setupModeEl || !setupCpuCustomPlacementEl || !setupCpuDifficultyEl) return;
+    const cpuSelected = setupModeEl.value === 'cpu';
+    setupCpuCustomPlacementEl.disabled = !cpuSelected;
+    setupCpuDifficultyEl.disabled = !cpuSelected;
+    if (!cpuSelected) setupCpuCustomPlacementEl.checked = false;
+    state.gameMode = setupModeEl.value || 'cpu';
+    state.cpuCustomPlacementEnabled = !!setupCpuCustomPlacementEl.checked;
+    state.cpuDifficulty = setupCpuDifficultyEl.value || 'easy';
+  }
+
   function startNewGame() {
+    clearCpuThinkTimer();
     state = getInitialState();
+    if (setupModeEl) {
+      setupModeEl.value = 'cpu';
+      state.gameMode = setupModeEl.value;
+    }
+    if (setupCpuCustomPlacementEl) {
+      setupCpuCustomPlacementEl.checked = false;
+      state.cpuCustomPlacementEnabled = !!setupCpuCustomPlacementEl.checked;
+    }
+    if (setupCpuDifficultyEl) {
+      setupCpuDifficultyEl.value = 'easy';
+      state.cpuDifficulty = setupCpuDifficultyEl.value;
+    }
+    syncSetupModeControls();
     if (setupBestiaryEnabledEl) {
       setupBestiaryEnabledEl.checked = true;
       state.useBestiaryRules = setupBestiaryEnabledEl.checked;
@@ -2092,6 +2205,9 @@
   function onGoalChosen(goal) {
     state.captureGoal = goal;
     state.useBestiaryRules = !setupBestiaryEnabledEl || setupBestiaryEnabledEl.checked;
+    state.gameMode = setupModeEl ? setupModeEl.value : 'cpu';
+    state.cpuCustomPlacementEnabled = !!(setupCpuCustomPlacementEl && setupCpuCustomPlacementEl.checked);
+    state.cpuDifficulty = setupCpuDifficultyEl ? (setupCpuDifficultyEl.value || 'easy') : 'easy';
     state.phase = 'setup_coin';
     showStep('coin');
   }
@@ -2277,7 +2393,8 @@
   function renderPlacementStep() {
     const player = state.placementPlayer;
     const hand = player === 1 ? state.p1Hand : state.p2Hand;
-    placeTitle.textContent = 'Player ' + player + ': Place your units';
+    const label = isCpuMode() && player === 2 ? 'CPU (Player 2)' : ('Player ' + player);
+    placeTitle.textContent = label + ': Place your units';
     placeHint.textContent = 'Filter or use Replace with pick for the full roster, select a unit, then place on your row.';
     placementHand.innerHTML = '';
     const q = placementHandFilterEl ? placementHandFilterEl.value.trim().toLowerCase() : '';
@@ -2432,6 +2549,11 @@
     if (player === 1) {
       state.placementPlayer = 2;
       state.phase = 'setup_place_p2';
+      if (isCpuMode() && !state.cpuCustomPlacementEnabled) {
+        state.selectedPlacementIndex = null;
+        placeAllRandomly();
+        return;
+      }
       if (placementHandFilterEl) placementHandFilterEl.value = '';
       closePlacementUnitPickList();
       renderPlacementStep();
@@ -2469,6 +2591,7 @@
 
   function startOfTurn() {
     const p = state.currentPlayer;
+    state.cpuItemsUsedThisTurn = 0;
     state.actionStep = 'use_items';
     state.selectedUnit = null;
     state.moveDone = false;
@@ -2516,6 +2639,7 @@
     renderTurnUI();
     renderBoard();
     animateCardIntoHand(p);
+    maybeScheduleCpuTurn();
   }
 
   function runReinforcement(player) {
@@ -2709,20 +2833,21 @@
       return 'Use';
     }
 
-    function buildItemCard(item, index, isCurrentPlayer) {
+    function buildItemCard(item, index, ownerPlayer, isCurrentPlayer) {
       const el = document.createElement('div');
       el.className = 'item-card';
       el.setAttribute('role', 'listitem');
       el.dataset.itemIndex = String(index);
-      el.dataset.itemName = item.name;
-      el.dataset.player = '1';
+      el.dataset.player = String(ownerPlayer);
+      const maskedForViewer = isCpuMode() && ownerPlayer === 2;
+      el.dataset.itemName = maskedForViewer ? 'Hidden enemy item' : item.name;
 
       const face = document.createElement('div');
       face.className = 'item-card__face';
 
       const img = document.createElement('img');
       img.className = 'item-card-img';
-      img.src = getItemCardImagePath(item.name);
+      img.src = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(item.name);
       img.alt = '';
       img.setAttribute('role', 'presentation');
       img.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
@@ -2730,22 +2855,24 @@
 
       const nameSpan = document.createElement('span');
       nameSpan.className = 'item-card__name';
-      nameSpan.textContent = item.name;
+      nameSpan.textContent = maskedForViewer ? 'Hidden enemy item' : item.name;
       face.appendChild(nameSpan);
 
       const actions = document.createElement('div');
       actions.className = 'item-card__actions';
 
-      const seeBtn = document.createElement('button');
-      seeBtn.type = 'button';
-      seeBtn.className = 'item-card__see btn btn--small';
-      seeBtn.textContent = 'See';
-      seeBtn.dataset.itemName = item.name;
-      actions.appendChild(seeBtn);
+      if (!maskedForViewer) {
+        const seeBtn = document.createElement('button');
+        seeBtn.type = 'button';
+        seeBtn.className = 'item-card__see btn btn--small';
+        seeBtn.textContent = 'See';
+        seeBtn.dataset.itemName = item.name;
+        actions.appendChild(seeBtn);
+      }
 
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[item.name];
 
-      if (isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && canPlaySingleUse(item.name)) {
+      if (!maskedForViewer && isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && canPlaySingleUse(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -2754,7 +2881,7 @@
         useBtn.dataset.itemName = item.name;
         actions.appendChild(useBtn);
       }
-      if (isCurrentPlayer && isUseItems && spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && canPlayGear(item.name)) {
+      if (!maskedForViewer && isCurrentPlayer && isUseItems && spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && canPlayGear(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -2763,7 +2890,7 @@
         useBtn.dataset.itemName = item.name;
         actions.appendChild(useBtn);
       }
-      if (isCurrentPlayer && isUseItems && typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(item.name) !== -1 && countEmptyTerrainSlots() > 0) {
+      if (!maskedForViewer && isCurrentPlayer && isUseItems && typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(item.name) !== -1 && countEmptyTerrainSlots() > 0) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -2772,7 +2899,7 @@
         useBtn.dataset.itemName = item.name;
         actions.appendChild(useBtn);
       }
-      if (isCurrentPlayer && isUseItems && item.name === 'Tectonic Spike' && countTilesWithTerrain() > 0) {
+      if (!maskedForViewer && isCurrentPlayer && isUseItems && item.name === 'Tectonic Spike' && countTilesWithTerrain() > 0) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -2785,19 +2912,17 @@
       el.appendChild(face);
       el.appendChild(actions);
 
-      if (el.querySelector('.item-card__use')) {
+      if (!maskedForViewer && el.querySelector('.item-card__use')) {
         el.classList.add('item-card--playable');
       }
       return el;
     }
 
     p1Hand.forEach(function (item, index) {
-      itemHandP1El.appendChild(buildItemCard(item, index, p === 1));
+      itemHandP1El.appendChild(buildItemCard(item, index, 1, p === 1));
     });
     p2Hand.forEach(function (item, index) {
-      const el = buildItemCard(item, index, p === 2);
-      el.dataset.player = '2';
-      itemHandP2El.appendChild(el);
+      itemHandP2El.appendChild(buildItemCard(item, index, 2, p === 2));
     });
 
   }
@@ -2806,7 +2931,8 @@
     sanitizeBestiaryRevealState();
     const p = state.currentPlayer;
     const step = state.actionStep;
-    turnLabel.textContent = "Player " + p + "'s turn";
+    const playerLabel = isCpuMode() && p === 2 ? 'CPU (Player 2)' : ('Player ' + p);
+    turnLabel.textContent = playerLabel + "'s turn";
 
     turnActions.hidden = true;
     if (btnPass) btnPass.hidden = true;
@@ -3168,6 +3294,506 @@
     state.actionStep = 'select_unit';
     renderTurnUI();
     renderBoard();
+  }
+
+  function getCpuPolicyProfile() {
+    if (window.TacticlashCpu && typeof window.TacticlashCpu.getProfile === 'function') {
+      return window.TacticlashCpu.getProfile(state.cpuDifficulty || 'easy');
+    }
+    return {
+      key: 'easy',
+      maxItemActions: 2,
+      weights: {},
+    };
+  }
+
+  function chooseCpuCandidate(candidates) {
+    if (!candidates || candidates.length === 0) return null;
+    const profile = getCpuPolicyProfile();
+    if (window.TacticlashCpu && typeof window.TacticlashCpu.chooseBestCandidate === 'function') {
+      return window.TacticlashCpu.chooseBestCandidate(candidates, profile);
+    }
+    return candidates[0];
+  }
+
+  function getUnitThreatScore(cell, col) {
+    if (!cell || !cell.unit) return 0;
+    let score = 1;
+    if (cell.unit.class === 'Brawler') score += 1.6;
+    else if (cell.unit.class === 'Lancer') score += 2;
+    else if (cell.unit.class === 'Shooter') score += 2.4;
+    else if (cell.unit.class === 'Caster') score += 2.5;
+    if (cell.unit.level === 'Veteran') score += 1.4;
+    if (cell.unit.class === 'Shooter' && (col === 0 || col === 4)) score += 0.9;
+    score += getCellGearCards(cell).length * 1.2;
+    score -= (cell.damage || 0) * 0.25;
+    return Math.max(0, score);
+  }
+
+  function getCounterRiskScore(attackerCol, defenderCol, defenderCell) {
+    if (!defenderCell || !defenderCell.unit) return 0;
+    if (!defenderCell.faceUp) return 0;
+    if (defenderCell.unit.class !== 'Lancer') return 0;
+    return Math.abs(attackerCol - defenderCol) === 1 ? 1.6 : 0;
+  }
+
+  function getCpuPromptOwner(prompt) {
+    if (!prompt) return null;
+    if (prompt.type === 'tivalRetry' || prompt.type === 'cassaTwinArc' || prompt.type === 'ardanVeilstep') return prompt.attPlayer;
+    if (prompt.type === 'unmakerSelfCaptureConfirm') return prompt.player;
+    if (prompt.type === 'harlundOnHitSingle') return prompt.defPlayer;
+    if (prompt.type === 'harlundOnHitArchmage') {
+      return state.archmageMultiResolving ? state.archmageMultiResolving.defPlayer : state.currentPlayer;
+    }
+    return state.currentPlayer;
+  }
+
+  function hasBlockingHumanDecisionForCpu() {
+    if (!isCpuMode()) return false;
+    if (state.pendingWardstone && !isCpuPlayer(state.pendingWardstone.defPlayer)) return true;
+    if (state.pendingVeteranPrompt) {
+      const owner = getCpuPromptOwner(state.pendingVeteranPrompt);
+      if (!isCpuPlayer(owner)) return true;
+    }
+    if (state.pendingCassaChoice && !isCpuPlayer(state.pendingCassaChoice.attPlayer)) return true;
+    return false;
+  }
+
+  function getCpuBlockReason() {
+    if (!isCpuMode()) return '';
+    if (state.pendingWardstone && !isCpuPlayer(state.pendingWardstone.defPlayer)) {
+      return 'pending Wardstone decision by Player ' + state.pendingWardstone.defPlayer;
+    }
+    if (state.pendingVeteranPrompt) {
+      const owner = getCpuPromptOwner(state.pendingVeteranPrompt);
+      if (!isCpuPlayer(owner)) return 'pending veteran prompt (' + state.pendingVeteranPrompt.type + ') by Player ' + owner;
+    }
+    if (state.pendingCassaChoice && !isCpuPlayer(state.pendingCassaChoice.attPlayer)) {
+      return 'pending Cassa choice by Player ' + state.pendingCassaChoice.attPlayer;
+    }
+    return '';
+  }
+
+  function cpuNeedsAttention() {
+    if (!isCpuMode() || state.phase !== 'playing' || state.gameOver) return false;
+    if (hasBlockingHumanDecisionForCpu()) return false;
+    if (isCpuTurn()) return true;
+    if (state.pendingWardstone && isCpuPlayer(state.pendingWardstone.defPlayer)) return true;
+    if (state.pendingVeteranPrompt && isCpuPlayer(getCpuPromptOwner(state.pendingVeteranPrompt))) return true;
+    if (state.pendingCassaChoice && isCpuPlayer(state.pendingCassaChoice.attPlayer)) return true;
+    if (state.pendingChronirChoice && isCpuTurn()) return true;
+    if (state.obscuringReorder && isCpuPlayer(state.obscuringReorder.player)) return true;
+    return false;
+  }
+
+  function maybeScheduleCpuTurn() {
+    if (hasBlockingHumanDecisionForCpu()) {
+      const reason = getCpuBlockReason();
+      if (reason && state.cpuLastBlockReason !== reason) {
+        state.cpuLastBlockReason = reason;
+        log('[CPU] waiting for human prompt: ' + reason);
+      }
+      return;
+    }
+    state.cpuLastBlockReason = '';
+    if (!cpuNeedsAttention()) return;
+    if (state.cpuThinkTimer) return;
+    state.cpuThinkTimer = window.setTimeout(function () {
+      state.cpuThinkTimer = null;
+      runCpuTurnStep();
+    }, 260);
+  }
+
+  function clearCpuThinkTimer() {
+    if (!state.cpuThinkTimer) return;
+    window.clearTimeout(state.cpuThinkTimer);
+    state.cpuThinkTimer = null;
+  }
+
+  function buildCpuAttackCandidates(attackerCol, attackerCell) {
+    const candidates = [];
+    for (let c = 0; c < 5; c++) {
+      const targetCell = state.board[1][c];
+      if (!targetCell) continue;
+      if (!isInRangeWithCell(attackerCol, c, attackerCell)) continue;
+      candidates.push({
+        type: 'attack',
+        targetCol: c,
+        dimensions: {
+          threatReduction: getUnitThreatScore(targetCell, c),
+          counterRisk: getCounterRiskScore(attackerCol, c, targetCell),
+          tempo: 1,
+        },
+      });
+    }
+    return candidates;
+  }
+
+  function pickCpuAttackTarget(attackerCol, attackerCell) {
+    const candidates = buildCpuAttackCandidates(attackerCol, attackerCell);
+    return chooseCpuCandidate(candidates);
+  }
+
+  function chooseCpuUnitToAct() {
+    const candidates = [];
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[2][c];
+      if (!cell) continue;
+      if (cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) continue;
+      const attackCandidates = buildCpuAttackCandidates(c, cell);
+      const bestAttack = chooseCpuCandidate(attackCandidates);
+      candidates.push({
+        type: 'unit_select',
+        col: c,
+        dimensions: {
+          threatReduction: bestAttack ? (bestAttack.dimensions.threatReduction || 0) : 0,
+          counterRisk: bestAttack ? (bestAttack.dimensions.counterRisk || 0) : 0,
+          tempo: 0.8,
+        },
+      });
+    }
+    return chooseCpuCandidate(candidates);
+  }
+
+  function chooseCpuMoveAction() {
+    if (!state.selectedUnit || state.selectedUnit.player !== 2) return null;
+    const fromCol = state.selectedUnit.column;
+    const cell = state.board[2][fromCol];
+    if (!cell) return null;
+    const options = [{ type: 'skip', col: fromCol }];
+    if (fromCol > 0 && state.board[2][fromCol - 1] != null) options.push({ type: 'left', col: fromCol - 1 });
+    if (fromCol < 4 && state.board[2][fromCol + 1] != null) options.push({ type: 'right', col: fromCol + 1 });
+    if (cellHasGearName(cell, 'Teleport Boots')) {
+      for (let c = 0; c < 5; c++) {
+        if (c === fromCol) continue;
+        options.push({ type: 'teleport', col: c });
+      }
+    }
+    const candidates = options.map(function (option) {
+      const attackCandidates = buildCpuAttackCandidates(option.col, cell);
+      const bestAttack = chooseCpuCandidate(attackCandidates);
+      return {
+        moveType: option.type,
+        targetCol: option.col,
+        dimensions: {
+          threatReduction: bestAttack ? (bestAttack.dimensions.threatReduction || 0) : 0,
+          counterRisk: bestAttack ? (bestAttack.dimensions.counterRisk || 0) : 0,
+          boardControl: option.type === 'skip' ? 0 : 0.35,
+          tempo: 0.5,
+        },
+      };
+    });
+    return chooseCpuCandidate(candidates);
+  }
+
+  function chooseCpuItemAction() {
+    const hand = state.p2ItemHand || [];
+    const candidates = [];
+
+    function addCandidate(payload) {
+      payload.dimensions = payload.dimensions || {};
+      candidates.push(payload);
+    }
+
+    function terrainValueFor(name, ownerPlayer) {
+      if (name === 'Unstable Ground') return ownerPlayer === 1 ? 2.2 : -1.6;
+      if (name === 'Paralyzing Vines') return ownerPlayer === 1 ? 1.6 : -1.2;
+      if (name === 'Divine Light') return ownerPlayer === 2 ? 1.2 : 0.2;
+      if (name === 'Elevated Ground' || name === 'Reinforced Barricade') return ownerPlayer === 2 ? 1.3 : 0.2;
+      return 0;
+    }
+
+    for (let i = 0; i < hand.length; i++) {
+      const item = hand[i];
+      if (!item || !item.name) continue;
+      const name = item.name;
+      const spec = ITEM_SPECS && ITEM_SPECS[name];
+
+      if (name === 'Vorpal Honing Amulet') {
+        const strongestEnemy = Math.max.apply(null, state.board[1].map(function (cell, col) {
+          return getUnitThreatScore(cell, col);
+        }));
+        if (strongestEnemy > 3.4) {
+          addCandidate({ kind: 'instant', itemName: name, handIndex: i, dimensions: { threatReduction: 2.2, itemValue: 2.4, tempo: 1.1 } });
+        }
+      } else if (name === 'Healing Potion') {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[2][c];
+          if (!cell || (cell.damage || 0) < 1) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 2,
+            targetCol: c,
+            dimensions: { selfSurvivability: (cell.damage || 0) + 0.5, itemValue: 1.1, tempo: 0.4 },
+          });
+        }
+      } else if (name === 'Tangle-Vine Bola') {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[1][c];
+          if (!cell) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 1,
+            targetCol: c,
+            dimensions: { threatReduction: getUnitThreatScore(cell, c) + 0.6, itemValue: 1.3, tempo: 0.8 },
+          });
+        }
+      } else if (name === 'All revealing lantern-jar') {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[1][c];
+          if (!cell || cell.faceUp) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 1,
+            targetCol: c,
+            dimensions: { threatReduction: getUnitThreatScore(cell, c), itemValue: 1.2, boardControl: 0.8 },
+          });
+        }
+      } else if (name === 'Corrosive Phial') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            const cell = state.board[pl][c];
+            if (!cell || !cell.faceUp || getCellGearCards(cell).length === 0) continue;
+            const threat = getUnitThreatScore(cell, c);
+            const bonus = pl === 1 ? 0.8 : -0.8;
+            addCandidate({
+              kind: 'targeted',
+              itemName: name,
+              handIndex: i,
+              targetPlayer: pl,
+              targetCol: c,
+              dimensions: { threatReduction: threat + bonus, itemValue: 1.5, tempo: 0.5 },
+            });
+          }
+        }
+      } else if (name === 'Magic Grenade') {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[2][c];
+          if (!cell) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 2,
+            targetCol: c,
+            dimensions: { threatReduction: 1.2 + getUnitThreatScore(cell, c) * 0.3, itemValue: 1.2, tempo: 1.1 },
+          });
+        }
+      } else if (name === 'Tectonic Spike') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            const terrain = state.terrain[pl][c];
+            if (!terrain) continue;
+            const value = terrainValueFor(terrain.name, pl);
+            addCandidate({
+              kind: 'targeted',
+              itemName: name,
+              handIndex: i,
+              targetPlayer: pl,
+              targetCol: c,
+              dimensions: { terrainValue: -value, boardControl: 0.6, itemValue: 1.1 },
+            });
+          }
+        }
+      } else if (spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion')) {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[2][c];
+          if (!cell || !canEquipGear(cell, name)) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 2,
+            targetCol: c,
+            dimensions: {
+              selfSurvivability: 1.2 + ((cell.damage || 0) > 0 ? 0.5 : 0),
+              itemValue: cell.unit.level === 'Veteran' ? 1.6 : 1.1,
+              boardControl: 0.4,
+            },
+          });
+        }
+      } else if (spec && spec.type === 'terrain') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            if (state.terrain[pl][c] != null) continue;
+            addCandidate({
+              kind: 'targeted',
+              itemName: name,
+              handIndex: i,
+              targetPlayer: pl,
+              targetCol: c,
+              dimensions: {
+                terrainValue: terrainValueFor(name, pl),
+                boardControl: 0.7,
+                itemValue: 1.0,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    return chooseCpuCandidate(candidates);
+  }
+
+  function applyCpuItemAction(action) {
+    if (!action) return false;
+    if (action.kind === 'instant' && action.itemName === 'Vorpal Honing Amulet') {
+      applyVorpalHoningAmulet(action.handIndex);
+      return true;
+    }
+    state.itemTargeting = { handIndex: action.handIndex, itemName: action.itemName };
+    if (action.itemName === 'Healing Potion') applyHealingPotion(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'All revealing lantern-jar') applyRevealingLight(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'Tangle-Vine Bola') applyDisablingNet(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'Corrosive Phial') applyCorrosivePhial(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'Magic Grenade') applyMagicGrenade(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'Tectonic Spike') applyTectonicSpike(action.targetPlayer, action.targetCol);
+    else if (typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(action.itemName) !== -1) applyPlaceTerrain(action.targetPlayer, action.targetCol);
+    else applyEquipArmor(action.targetPlayer, action.targetCol);
+    if (state.itemTargeting) state.itemTargeting = null;
+    return true;
+  }
+
+  function cpuShouldUseWardstone() {
+    const pending = state.pendingWardstone;
+    if (!pending) return false;
+    const defCell = state.board[pending.defPlayer] && state.board[pending.defPlayer][pending.defCol];
+    if (!defCell) return false;
+    const hpLeft = getMaxHP(defCell) - (defCell.damage || 0);
+    if (hpLeft <= 1) return true;
+    const profile = getCpuPolicyProfile();
+    return profile.key === 'normal' && hpLeft <= 2;
+  }
+
+  function cpuShouldUsePrompt(prompt) {
+    if (!prompt) return false;
+    const profile = getCpuPolicyProfile();
+    if (prompt.type === 'unmakerSelfCaptureConfirm') return false;
+    if (prompt.type === 'ardanVeilstep') return profile.key === 'normal' && Math.random() < 0.5;
+    if (prompt.type === 'tivalRetry') return true;
+    if (prompt.type === 'cassaTwinArc') return true;
+    if (prompt.type === 'harlundOnHitSingle' || prompt.type === 'harlundOnHitArchmage') return true;
+    return false;
+  }
+
+  function runCpuTurnStep() {
+    if (!cpuNeedsAttention()) return;
+    if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    if (hasBlockingHumanDecisionForCpu()) return;
+
+    if (state.pendingWardstone && isCpuPlayer(state.pendingWardstone.defPlayer)) {
+      if (cpuShouldUseWardstone()) doWardstoneUse();
+      else doWardstoneNo();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.pendingVeteranPrompt && isCpuPlayer(getCpuPromptOwner(state.pendingVeteranPrompt))) {
+      if (cpuShouldUsePrompt(state.pendingVeteranPrompt)) doWardstoneUse();
+      else doWardstoneNo();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.pendingCassaChoice && isCpuPlayer(state.pendingCassaChoice.attPlayer)) {
+      const targetCandidates = state.pendingCassaChoice.targetCols.map(function (col) {
+        return {
+          col: col,
+          dimensions: { threatReduction: getUnitThreatScore(state.board[1][col], col), tempo: 1 },
+        };
+      });
+      const chosen = chooseCpuCandidate(targetCandidates);
+      if (chosen) resolvePendingCassaChoice(chosen.col);
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.pendingChronirChoice && isCpuTurn()) {
+      const options = (state.pendingChronirChoice.targetCols || []).map(function (col) {
+        return {
+          col: col,
+          dimensions: { threatReduction: getUnitThreatScore(state.board[1][col], col), tempo: 0.8 },
+        };
+      });
+      const selected = chooseCpuCandidate(options);
+      if (selected) resolvePendingChronirChoice(selected.col);
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.obscuringReorder && isCpuPlayer(state.obscuringReorder.player)) {
+      doDoneWithItems();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (!isCpuTurn()) return;
+
+    if (state.actionStep === 'use_items') {
+      if (state.itemTargeting) {
+        state.itemTargeting = null;
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      if (state.cpuItemsUsedThisTurn == null) state.cpuItemsUsedThisTurn = 0;
+      const profile = getCpuPolicyProfile();
+      const action = chooseCpuItemAction();
+      if (action && state.cpuItemsUsedThisTurn < (profile.maxItemActions || 2)) {
+        const applied = applyCpuItemAction(action);
+        if (applied) state.cpuItemsUsedThisTurn++;
+        maybeScheduleCpuTurn();
+        return;
+      }
+      doDoneWithItems();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.actionStep === 'select_unit') {
+      const unitChoice = chooseCpuUnitToAct();
+      if (!unitChoice) {
+        endTurn();
+        return;
+      }
+      onSelectUnit(2, unitChoice.col);
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.actionStep === 'move' && state.selectedUnit && state.selectedUnit.player === 2) {
+      const move = chooseCpuMoveAction();
+      if (!move || move.moveType === 'skip') doSkipMove();
+      else if (move.moveType === 'left') doMove('left');
+      else if (move.moveType === 'right') doMove('right');
+      else if (move.moveType === 'teleport') doTeleportMove(move.targetCol);
+      else doSkipMove();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.actionStep === 'attack' && state.selectedUnit && state.selectedUnit.player === 2) {
+      const attCol = state.selectedUnit.column;
+      const attCell = state.board[2][attCol];
+      if (!attCell) {
+        endTurn();
+        return;
+      }
+      const target = pickCpuAttackTarget(attCol, attCell);
+      if (!target) {
+        doPass();
+        return;
+      }
+      beginAttackAgainstTarget(2, attCol, 1, target.targetCol);
+      maybeScheduleCpuTurn();
+    }
   }
 
   function doWardstoneUse() {
@@ -3973,6 +4599,7 @@
 
     if (state.phase !== 'playing' || state.gameOver) return;
     if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    if (isCpuTurn()) return;
 
     const p = state.currentPlayer;
     const step = state.actionStep;
@@ -4067,6 +4694,7 @@
 
   function handleItemHandClick(e) {
     if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    if (isCpuMode() && !isHumanTurn()) return;
     const seeBtn = e.target.closest('.item-card__see');
     if (seeBtn && state.phase === 'playing') {
       const card = e.target.closest('.item-card');
@@ -4136,6 +4764,10 @@
 
   function openReplaceDrawPickList() {
     if (!itemPickListWrapEl || !itemPickListEl || state.actionStep !== 'use_items' || state.itemTargeting) return;
+    if (isCpuMode() && state.currentPlayer !== 1) {
+      log('Debug: item draw replacement is only available for Player 1 in CPU mode.');
+      return;
+    }
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     if (hand.length === 0) return;
     if (itemPickListSearchEl) {
@@ -4151,6 +4783,7 @@
   }
 
   function replaceLastDrawWith(chosenName) {
+    if (isCpuMode() && state.currentPlayer !== 1) return;
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     if (hand.length === 0) return;
     const idx = state.itemDeck.indexOf(chosenName);
@@ -4176,6 +4809,21 @@
     if (setupBestiaryEnabledEl) {
       setupBestiaryEnabledEl.addEventListener('change', function () {
         state.useBestiaryRules = !!setupBestiaryEnabledEl.checked;
+      });
+    }
+    if (setupModeEl) {
+      setupModeEl.addEventListener('change', function () {
+        syncSetupModeControls();
+      });
+    }
+    if (setupCpuCustomPlacementEl) {
+      setupCpuCustomPlacementEl.addEventListener('change', function () {
+        syncSetupModeControls();
+      });
+    }
+    if (setupCpuDifficultyEl) {
+      setupCpuDifficultyEl.addEventListener('change', function () {
+        syncSetupModeControls();
       });
     }
 
@@ -4325,11 +4973,13 @@
     if (itemZoomBackdrop && itemZoomModal) {
       itemZoomBackdrop.addEventListener('click', closeItemZoom);
     }
+    syncSetupModeControls();
   });
 
   function openUnitZoom(player, col) {
     const cell = state.board[player][col];
     if (!cell || !unitZoomModal) return;
+    const maskedForViewer = shouldMaskForViewer(player, 1, cell);
     const unit = cell.unit;
     const unitImgWrap = document.getElementById('unit-zoom-unit');
     const gearImgWrap = document.getElementById('unit-zoom-gear');
@@ -4338,33 +4988,38 @@
     const terrainImgWrap = document.getElementById('unit-zoom-terrain');
     const markersEl = document.getElementById('unit-zoom-markers');
     if (!unitImgWrap || !markersEl) return;
-    const unitSrc = getUnitCardImagePath(unit);
-    unitImgWrap.innerHTML = '<img src="' + unitSrc + '" alt="' + (unit.name || 'Unit') + '" onerror="this.src=\'assets/units/unit-placeholder-for-dev.png\'">';
+    const unitSrc = maskedForViewer ? 'assets/units/unit-card-back.png' : getUnitCardImagePath(unit);
+    const unitAlt = maskedForViewer ? 'Hidden enemy unit' : (unit.name || 'Unit');
+    unitImgWrap.innerHTML = '<img src="' + unitSrc + '" alt="' + unitAlt + '" onerror="this.src=\'assets/units/unit-placeholder-for-dev.png\'">';
     markersEl.innerHTML = '';
-    const maxHP = getMaxHP(cell);
-    const dmg = cell.damage || 0;
-    if (dmg > 0) {
-      const m = document.createElement('span');
-      m.className = 'marker marker--damage';
-      m.textContent = dmg + '/' + maxHP + ' dmg';
-      markersEl.appendChild(m);
-    }
-    if (cell.paralyzed) {
-      const m = document.createElement('span');
-      m.className = 'marker marker--paralyzed';
-      m.textContent = 'Paralyzed';
-      markersEl.appendChild(m);
+    if (!maskedForViewer) {
+      const maxHP = getMaxHP(cell);
+      const dmg = cell.damage || 0;
+      if (dmg > 0) {
+        const m = document.createElement('span');
+        m.className = 'marker marker--damage';
+        m.textContent = dmg + '/' + maxHP + ' dmg';
+        markersEl.appendChild(m);
+      }
+      if (cell.paralyzed) {
+        const m = document.createElement('span');
+        m.className = 'marker marker--paralyzed';
+        m.textContent = 'Paralyzed';
+        markersEl.appendChild(m);
+      }
     }
     if (cell.gear && gearImgWrap) {
-      const gsrc = getItemCardImagePath(cell.gear.name || '');
-      gearImgWrap.innerHTML = '<img src="' + gsrc + '" alt="' + (cell.gear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      const gsrc = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(cell.gear.name || '');
+      const gearAlt = maskedForViewer ? 'Hidden enemy gear' : (cell.gear.name || '');
+      gearImgWrap.innerHTML = '<img src="' + gsrc + '" alt="' + gearAlt + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gearImgWrap) gearImgWrap.innerHTML = '';
     const bestiaryEffects = getBestiaryEffectsForUnit(cell.unit);
     const showExtraGearSlot = bestiaryEffects.ironCladShield > 0;
     if (gear2Slot) gear2Slot.hidden = !showExtraGearSlot;
     if (showExtraGearSlot && cell.bonusGear && gear2ImgWrap) {
-      const g2src = getItemCardImagePath(cell.bonusGear.name || '');
-      gear2ImgWrap.innerHTML = '<img src="' + g2src + '" alt="' + (cell.bonusGear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      const g2src = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(cell.bonusGear.name || '');
+      const gear2Alt = maskedForViewer ? 'Hidden enemy gear' : (cell.bonusGear.name || '');
+      gear2ImgWrap.innerHTML = '<img src="' + g2src + '" alt="' + gear2Alt + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gear2ImgWrap) {
       gear2ImgWrap.innerHTML = '';
     }
