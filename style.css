@@ -725,6 +725,10 @@ textarea {
   min-height: 1.5rem;
 }
 
+.score-markers--p2 {
+  margin-top: var(--hand-card-height);
+}
+
 .score-markers__dot {
   box-sizing: border-box;
   width: 16px;
