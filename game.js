@@ -61,6 +61,7 @@
   const btnUnitDiscardOpen = document.getElementById('btn-unit-discard-open');
   const btnWardstoneUse = document.getElementById('btn-wardstone-use');
   const btnWardstoneNo = document.getElementById('btn-wardstone-no');
+  const btnCpuContinue = document.getElementById('btn-cpu-continue');
   const debugDrawerEl = document.getElementById('debug-drawer');
   const btnDebugOpen = document.getElementById('btn-debug-open');
   const btnDebugClose = document.getElementById('btn-debug-close');
@@ -166,7 +167,10 @@
       gameOver: false,
       winner: null,
       cpuThinkTimer: null,
+      cpuAnnounceTimer: null,
+      cpuPendingExecute: null,
       cpuLastBlockReason: '',
+      cpuAnnouncing: false,
     };
   }
 
@@ -2939,12 +2943,20 @@
     if (btnDoneWithItems) btnDoneWithItems.hidden = true;
     if (btnWardstoneUse) btnWardstoneUse.hidden = true;
     if (btnWardstoneNo) btnWardstoneNo.hidden = true;
+    if (btnCpuContinue) btnCpuContinue.hidden = true;
     btnMoveLeft.hidden = true;
     btnMoveRight.hidden = true;
     btnSkipMove.hidden = true;
     if (contextualMoveControls) {
       contextualMoveControls.hidden = true;
       contextualMoveControls.classList.remove('contextual-move-controls--above', 'contextual-move-controls--below');
+    }
+
+    // During the CPU announce window: keep the announcement text and show "Continue"
+    if (state.cpuAnnouncing) {
+      turnActions.hidden = false;
+      if (btnCpuContinue) btnCpuContinue.hidden = false;
+      return;
     }
 
     if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) {
@@ -3397,6 +3409,7 @@
     }
     state.cpuLastBlockReason = '';
     if (!cpuNeedsAttention()) return;
+    if (state.cpuAnnouncing) return;
     if (state.cpuThinkTimer) return;
     state.cpuThinkTimer = window.setTimeout(function () {
       state.cpuThinkTimer = null;
@@ -3405,9 +3418,51 @@
   }
 
   function clearCpuThinkTimer() {
-    if (!state.cpuThinkTimer) return;
-    window.clearTimeout(state.cpuThinkTimer);
-    state.cpuThinkTimer = null;
+    if (state.cpuThinkTimer) {
+      window.clearTimeout(state.cpuThinkTimer);
+      state.cpuThinkTimer = null;
+    }
+    if (state.cpuAnnounceTimer) {
+      window.clearTimeout(state.cpuAnnounceTimer);
+      state.cpuAnnounceTimer = null;
+    }
+    state.cpuPendingExecute = null;
+    clearCpuHighlights();
+    state.cpuAnnouncing = false;
+  }
+
+  // Called both by the auto-fire timeout and the "Continue" button.
+  // Cancels any pending timer, clears announce state, then runs the stored action.
+  function triggerCpuPendingStep() {
+    if (state.cpuAnnounceTimer) {
+      window.clearTimeout(state.cpuAnnounceTimer);
+      state.cpuAnnounceTimer = null;
+    }
+    const fn = state.cpuPendingExecute;
+    state.cpuPendingExecute = null;
+    state.cpuAnnouncing = false;
+    if (fn) fn();
+  }
+
+  var CPU_DELAY_SELECT = 1000;
+  var CPU_DELAY_MOVE   = 1200;
+  var CPU_DELAY_ATTACK = 1600;
+  var CPU_DELAY_ITEM   = 1000;
+  var CPU_DELAY_SKIP   = 600;
+
+  function setCpuActionText(text) {
+    if (turnStep) turnStep.textContent = text;
+  }
+
+  function addCpuHighlight(player, col, cssClass) {
+    var slot = document.querySelector('.row--player' + player + ' .slot[data-column="' + col + '"]');
+    if (slot) slot.classList.add(cssClass);
+  }
+
+  function clearCpuHighlights() {
+    document.querySelectorAll('.slot--cpu-active, .slot--cpu-target').forEach(function (el) {
+      el.classList.remove('slot--cpu-active', 'slot--cpu-target');
+    });
   }
 
   function buildCpuAttackCandidates(attackerCol, attackerCell) {
@@ -3747,9 +3802,24 @@
       const profile = getCpuPolicyProfile();
       const action = chooseCpuItemAction();
       if (action && state.cpuItemsUsedThisTurn < (profile.maxItemActions || 2)) {
-        const applied = applyCpuItemAction(action);
-        if (applied) state.cpuItemsUsedThisTurn++;
-        maybeScheduleCpuTurn();
+        const targetCell = (action.targetPlayer != null && action.targetCol != null)
+          ? state.board[action.targetPlayer][action.targetCol] : null;
+        const targetName = targetCell
+          ? (targetCell.faceUp ? targetCell.unit.name : 'a unit') : null;
+        setCpuActionText('CPU uses ' + action.itemName + (targetName ? ' on ' + targetName : '') + '...');
+        if (action.targetPlayer != null && action.targetCol != null) {
+          addCpuHighlight(action.targetPlayer, action.targetCol, 'slot--cpu-target');
+        }
+        const capturedAction = action;
+        state.cpuPendingExecute = function () {
+          if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
+          clearCpuHighlights();
+          const applied = applyCpuItemAction(capturedAction);
+          if (applied) state.cpuItemsUsedThisTurn++;
+          maybeScheduleCpuTurn();
+        };
+        state.cpuAnnouncing = true;
+        renderTurnUI();
         return;
       }
       doDoneWithItems();
@@ -3763,19 +3833,56 @@
         endTurn();
         return;
       }
-      onSelectUnit(2, unitChoice.col);
-      maybeScheduleCpuTurn();
+      const selectCell = state.board[2][unitChoice.col];
+      const selectName = selectCell && selectCell.faceUp ? selectCell.unit.name : 'a unit';
+      setCpuActionText('CPU selects ' + selectName + '...');
+      addCpuHighlight(2, unitChoice.col, 'slot--cpu-active');
+      const chosenCol = unitChoice.col;
+      state.cpuPendingExecute = function () {
+        if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
+        clearCpuHighlights();
+        onSelectUnit(2, chosenCol);
+        // onSelectUnit → renderBoard → maybeScheduleCpuTurn
+      };
+      state.cpuAnnouncing = true;
+      renderTurnUI();
       return;
     }
 
     if (state.actionStep === 'move' && state.selectedUnit && state.selectedUnit.player === 2) {
       const move = chooseCpuMoveAction();
-      if (!move || move.moveType === 'skip') doSkipMove();
-      else if (move.moveType === 'left') doMove('left');
-      else if (move.moveType === 'right') doMove('right');
-      else if (move.moveType === 'teleport') doTeleportMove(move.targetCol);
-      else doSkipMove();
-      maybeScheduleCpuTurn();
+      const actingCol = state.selectedUnit.column;
+      const actingCell = state.board[2][actingCol];
+      const unitName = actingCell ? actingCell.unit.name : 'unit';
+
+      if (!move || move.moveType === 'skip') {
+        setCpuActionText('CPU skips move...');
+        state.cpuPendingExecute = function () {
+          if (state.gameOver || !isCpuTurn()) return;
+          doSkipMove();
+        };
+        state.cpuAnnouncing = true;
+        renderTurnUI();
+        return;
+      }
+
+      const dirLabel = move.moveType === 'teleport'
+        ? 'teleport to column ' + move.targetCol
+        : move.moveType;
+      setCpuActionText('CPU moves ' + unitName + ' ' + dirLabel + '...');
+      addCpuHighlight(2, actingCol, 'slot--cpu-active');
+      const capturedMove = move;
+      state.cpuPendingExecute = function () {
+        if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
+        clearCpuHighlights();
+        if (capturedMove.moveType === 'left')          doMove('left');
+        else if (capturedMove.moveType === 'right')    doMove('right');
+        else if (capturedMove.moveType === 'teleport') doTeleportMove(capturedMove.targetCol);
+        else doSkipMove();
+        // Each calls renderBoard → maybeScheduleCpuTurn
+      };
+      state.cpuAnnouncing = true;
+      renderTurnUI();
       return;
     }
 
@@ -3791,8 +3898,22 @@
         doPass();
         return;
       }
-      beginAttackAgainstTarget(2, attCol, 1, target.targetCol);
-      maybeScheduleCpuTurn();
+      const defCell = state.board[1][target.targetCol];
+      const defName = defCell && defCell.faceUp ? defCell.unit.name : 'one of your units';
+      setCpuActionText('CPU attacks your ' + defName + ' with ' + attCell.unit.name + '!');
+      addCpuHighlight(2, attCol, 'slot--cpu-active');
+      addCpuHighlight(1, target.targetCol, 'slot--cpu-target');
+      const capturedAttCol = attCol;
+      const capturedTargetCol = target.targetCol;
+      state.cpuPendingExecute = function () {
+        if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
+        clearCpuHighlights();
+        beginAttackAgainstTarget(2, capturedAttCol, 1, capturedTargetCol);
+        maybeScheduleCpuTurn();
+      };
+      state.cpuAnnouncing = true;
+      renderTurnUI();
+      return;
     }
   }
 
@@ -4154,11 +4275,22 @@
           }
         }
       }
+      flashDamageSlot(player, col);
       return true;
     }
     cell.damage = newTotal;
     if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
+    flashDamageSlot(player, col);
     return false;
+  }
+
+  function flashDamageSlot(player, col) {
+    var dmgSlot = document.querySelector('.row--player' + player + ' .slot[data-column="' + col + '"]');
+    if (!dmgSlot) return;
+    dmgSlot.classList.remove('slot--cpu-damage');
+    void dmgSlot.offsetWidth; // force reflow to restart animation if called twice rapidly
+    dmgSlot.classList.add('slot--cpu-damage');
+    window.setTimeout(function () { dmgSlot.classList.remove('slot--cpu-damage'); }, 420);
   }
 
   function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
@@ -4870,6 +5002,9 @@
     if (btnPass) btnPass.addEventListener('click', function () { if (!state.gameOver) doPass(); });
     if (btnWardstoneUse) btnWardstoneUse.addEventListener('click', function () { if (!state.gameOver) doWardstoneUse(); });
     if (btnWardstoneNo) btnWardstoneNo.addEventListener('click', function () { if (!state.gameOver) doWardstoneNo(); });
+    if (btnCpuContinue) btnCpuContinue.addEventListener('click', function () {
+      if (!state.gameOver && state.cpuAnnouncing) triggerCpuPendingStep();
+    });
 
     placementHand.addEventListener('click', handlePlacementHandClick);
     if (placementHandFilterEl) {

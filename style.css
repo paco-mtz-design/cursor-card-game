@@ -1768,3 +1768,38 @@ textarea {
   background: #e0e7ff;
   color: #3730a3;
 }
+
+/* ---- CPU Turn Narration: slot highlights and damage flash ---- */
+
+.slot--cpu-active {
+  outline: 3px solid #f59e0b;
+  outline-offset: 2px;
+  animation: cpu-pulse-active 0.6s ease-in-out infinite alternate;
+  z-index: 10;
+}
+
+.slot--cpu-target {
+  outline: 3px solid #ef4444;
+  outline-offset: 2px;
+  animation: cpu-pulse-target 0.6s ease-in-out infinite alternate;
+  z-index: 10;
+}
+
+.slot--cpu-damage {
+  animation: cpu-damage-flash 0.4s ease-out forwards;
+}
+
+@keyframes cpu-pulse-active {
+  from { outline-color: #f59e0b; }
+  to   { outline-color: #fcd34d; box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
+}
+
+@keyframes cpu-pulse-target {
+  from { outline-color: #ef4444; }
+  to   { outline-color: #fca5a5; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+}
+
+@keyframes cpu-damage-flash {
+  0%   { background: rgba(239, 68, 68, 0.35); }
+  100% { background: transparent; }
+}
