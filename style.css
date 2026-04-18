@@ -295,6 +295,17 @@ textarea {
   top: 1rem;
 }
 
+.game-log__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.game-log__header .game-log__title {
+  margin-bottom: 0;
+}
+
 .game-log__title {
   margin: 0 0 0.5rem;
   font-size: 0.9rem;
@@ -1802,4 +1813,23 @@ textarea {
 @keyframes cpu-damage-flash {
   0%   { background: rgba(239, 68, 68, 0.35); }
   100% { background: transparent; }
+}
+
+/* ---- Save-log modal ---- */
+
+.modal__content--save-log {
+  max-width: 420px;
+}
+
+.save-log-modal__body {
+  margin: 0.5rem 0 1.25rem;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+.save-log-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
 }

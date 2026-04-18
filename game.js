@@ -62,6 +62,12 @@
   const btnWardstoneUse = document.getElementById('btn-wardstone-use');
   const btnWardstoneNo = document.getElementById('btn-wardstone-no');
   const btnCpuContinue = document.getElementById('btn-cpu-continue');
+  const btnSaveLog = document.getElementById('btn-save-log');
+  const saveLogModal = document.getElementById('save-log-modal');
+  const btnSaveLogAndNew = document.getElementById('btn-save-log-and-new');
+  const btnSkipLogAndNew = document.getElementById('btn-skip-log-and-new');
+  const btnCancelNewGame = document.getElementById('btn-cancel-new-game');
+  const saveLogBackdrop = document.getElementById('save-log-backdrop');
   const debugDrawerEl = document.getElementById('debug-drawer');
   const btnDebugOpen = document.getElementById('btn-debug-open');
   const btnDebugClose = document.getElementById('btn-debug-close');
@@ -136,6 +142,7 @@
   }
 
   function log(message) {
+    if (state.rawLogEntries) state.rawLogEntries.push(message);
     if (!gameLogEntries) return;
     const entry = document.createElement('div');
     entry.className = 'game-log__entry';
@@ -166,6 +173,7 @@
       pendingBestiaryContinue: false,
       gameOver: false,
       winner: null,
+      rawLogEntries: [],
       cpuThinkTimer: null,
       cpuAnnounceTimer: null,
       cpuPendingExecute: null,
@@ -2169,7 +2177,83 @@
     state.cpuDifficulty = setupCpuDifficultyEl.value || 'easy';
   }
 
+  function buildLogText(isInterrupted) {
+    const now = new Date();
+    const pad = function (n) { return String(n).padStart(2, '0'); };
+    const timestamp = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
+      + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+
+    const modeLabel = state.gameMode === 'cpu'
+      ? 'vs CPU (' + (state.cpuDifficulty || 'easy') + ')'
+      : 'Manual (2-player)';
+    const bestiaryLabel = state.useBestiaryRules ? 'On' : 'Off';
+    const firstLabel = state.firstPlayer ? 'Player ' + state.firstPlayer : 'Unknown';
+
+    let resultLine;
+    if (isInterrupted) {
+      resultLine = 'Incomplete — interrupted by player'
+        + ' (Player 1: ' + (state.p1Captures || 0) + ' captures'
+        + ', ' + (state.gameMode === 'cpu' ? 'CPU' : 'Player 2') + ': ' + (state.p2Captures || 0) + ')';
+    } else if (state.winner) {
+      const winnerLabel = (state.gameMode === 'cpu' && state.winner === 2) ? 'CPU' : 'Player ' + state.winner;
+      const loserCaptures = state.winner === 1 ? state.p2Captures : state.p1Captures;
+      resultLine = winnerLabel + ' wins — ' + state.captureGoal + ' captures'
+        + ' (opponent: ' + loserCaptures + ')';
+    } else {
+      resultLine = 'In progress';
+    }
+
+    const entries = state.rawLogEntries || [];
+    const eventLines = entries.length ? entries.join('\n') : '(no events recorded)';
+
+    return [
+      '=== Tacticlash — Game Log ===',
+      'Saved:         ' + timestamp,
+      'Mode:          ' + modeLabel,
+      'Capture goal:  ' + (state.captureGoal || '—'),
+      'Bestiary:      ' + bestiaryLabel,
+      'First player:  ' + firstLabel,
+      '',
+      'Result: ' + resultLine,
+      '',
+      '=== Events ===',
+      eventLines,
+      '=== End of log ===',
+    ].join('\n');
+  }
+
+  function downloadGameLog(isInterrupted) {
+    if (isInterrupted) {
+      log('--- Match interrupted by player (log saved, game not completed) ---');
+    }
+    const text = buildLogText(isInterrupted);
+    const now = new Date();
+    const pad = function (n) { return String(n).padStart(2, '0'); };
+    const fname = 'tacticlash-'
+      + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
+      + '-' + pad(now.getHours()) + pad(now.getMinutes())
+      + '.txt';
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function startNewGame() {
+    if (state.phase === 'playing' && !state.gameOver) {
+      if (saveLogModal) saveLogModal.hidden = false;
+      return;
+    }
+    doStartNewGame();
+  }
+
+  function doStartNewGame() {
+    if (saveLogModal) saveLogModal.hidden = true;
     clearCpuThinkTimer();
     state = getInitialState();
     if (setupModeEl) {
@@ -5004,6 +5088,23 @@
     if (btnWardstoneNo) btnWardstoneNo.addEventListener('click', function () { if (!state.gameOver) doWardstoneNo(); });
     if (btnCpuContinue) btnCpuContinue.addEventListener('click', function () {
       if (!state.gameOver && state.cpuAnnouncing) triggerCpuPendingStep();
+    });
+
+    if (btnSaveLog) btnSaveLog.addEventListener('click', function () {
+      if (state.phase === 'playing' || state.gameOver) downloadGameLog(false);
+    });
+    if (btnSaveLogAndNew) btnSaveLogAndNew.addEventListener('click', function () {
+      downloadGameLog(true);
+      doStartNewGame();
+    });
+    if (btnSkipLogAndNew) btnSkipLogAndNew.addEventListener('click', function () {
+      doStartNewGame();
+    });
+    if (btnCancelNewGame) btnCancelNewGame.addEventListener('click', function () {
+      if (saveLogModal) saveLogModal.hidden = true;
+    });
+    if (saveLogBackdrop) saveLogBackdrop.addEventListener('click', function () {
+      if (saveLogModal) saveLogModal.hidden = true;
     });
 
     placementHand.addEventListener('click', handlePlacementHandClick);

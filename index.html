@@ -180,7 +180,10 @@
       <div class="debug-drawer__inner">
         <button type="button" class="btn debug-drawer__close" id="btn-debug-close" aria-label="Close">Close</button>
         <section class="game-log" id="game-log" aria-label="Game log">
-          <h2 class="game-log__title">Game log</h2>
+          <div class="game-log__header">
+            <h2 class="game-log__title">Game log</h2>
+            <button type="button" class="btn btn--small btn--secondary" id="btn-save-log">Save log</button>
+          </div>
           <div class="game-log__entries" id="game-log-entries"></div>
         </section>
         <div class="item-hands__debug" id="item-draw-debug" hidden aria-label="Debug: replace last item draw">
@@ -257,6 +260,18 @@
           <p class="bestiary__prompt-text" id="bestiary-prompt-text"></p>
           <button type="button" class="btn" id="btn-bestiary-reveal">Reveal next fortune</button>
           <button type="button" class="btn btn--secondary" id="btn-bestiary-continue" hidden>Continue</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="save-log-modal" role="dialog" aria-modal="true" aria-labelledby="save-log-modal-title" hidden>
+      <div class="modal__backdrop" id="save-log-backdrop"></div>
+      <div class="modal__content modal__content--save-log">
+        <h2 class="modal__title" id="save-log-modal-title">Start a new game?</h2>
+        <p class="save-log-modal__body">This game is still in progress. Would you like to save a copy of the log before resetting?</p>
+        <div class="save-log-modal__actions">
+          <button type="button" class="btn" id="btn-save-log-and-new">Save log &amp; new game</button>
+          <button type="button" class="btn btn--secondary" id="btn-skip-log-and-new">Skip &amp; new game</button>
+          <button type="button" class="btn btn--secondary" id="btn-cancel-new-game">Cancel</button>
         </div>
       </div>
     </div>
