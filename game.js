@@ -1108,7 +1108,7 @@
 
   function completeArchmageAttack(attPlayer, attCol) {
     const attCellAfter = state.board[attPlayer][attCol];
-    if (attCellAfter) attCellAfter.mustRestNextTurn = true;
+    if (attCellAfter) attCellAfter.mustRestNextTurnPending = true;
     replaceCapturedUnitsBeforePass();
     var winner = checkGameOver();
     if (winner !== null) {
@@ -1195,8 +1195,8 @@
           renderBoard();
           return;
         }
-        if (!actingCell.cannotAttackNextTurn) {
-          actingCell.cannotAttackNextTurn = true;
+        if (!actingCell.cannotAttackNextTurnPending && !actingCell.cannotAttackNextTurn) {
+          actingCell.cannotAttackNextTurnPending = true;
           log("[Bestiary] Berserker: " + actingCell.unit.name + " is paralyzed on its next turn.");
         }
       }
@@ -1756,7 +1756,8 @@
   function canAttack(attackerPlayer, attackerCol) {
     const cell = state.board[attackerPlayer][attackerCol];
     if (!cell) return false;
-    if (cell.cannotAttackNextTurn || cell.mustRestNextTurn) return false;
+    if (cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+        cell.mustRestNextTurn || cell.mustRestNextTurnPending) return false;
     const opp = attackerPlayer === 1 ? 2 : 1;
     for (let c = 0; c < 5; c++) {
       if (state.board[opp][c] == null) continue;
@@ -1833,8 +1834,11 @@
     const damage = cardState.damage || 0;
     const paralyzed = cardState.paralyzed || false;
     const cannotAttackNextTurn = cardState.cannotAttackNextTurn || false;
+    const cannotAttackNextTurnPending = cardState.cannotAttackNextTurnPending || false;
     const mustRestNextTurn = cardState.mustRestNextTurn || false;
-    const showCannotAttack = cannotAttackNextTurn || mustRestNextTurn;
+    const mustRestNextTurnPending = cardState.mustRestNextTurnPending || false;
+    const showCannotAttack = cannotAttackNextTurn || cannotAttackNextTurnPending ||
+                             mustRestNextTurn || mustRestNextTurnPending;
     const maxHP = cardState.maxHP != null ? cardState.maxHP : getBaseHP(unit.class);
     const gear = cardState.gear || null;
     const terrain = cardState.terrain || null;
@@ -1907,7 +1911,9 @@
               damage: cell.damage || 0,
               paralyzed: cell.paralyzed || false,
               cannotAttackNextTurn: cell.cannotAttackNextTurn || false,
+              cannotAttackNextTurnPending: cell.cannotAttackNextTurnPending || false,
               mustRestNextTurn: cell.mustRestNextTurn || false,
+              mustRestNextTurnPending: cell.mustRestNextTurnPending || false,
               maxHP: getMaxHP(cell),
               gear: cell.gear || null,
               terrain: terrainCell
@@ -2050,7 +2056,8 @@
       for (let c = 0; c < 5; c++) {
         const cell = state.board[p][c];
         if (!cell) continue;
-        if (cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) continue;
+        if (cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+            cell.mustRestNextTurn || cell.mustRestNextTurnPending) continue;
         const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
         if (slot) slot.classList.add('slot--selectable');
       }
@@ -2080,7 +2087,8 @@
       const opp = p === 1 ? 2 : 1;
       const attCell = state.board[p][sel.column];
       if (!attCell) return;
-      if (attCell.cannotAttackNextTurn) return;
+      if (attCell.cannotAttackNextTurn || attCell.cannotAttackNextTurnPending ||
+          attCell.mustRestNextTurn || attCell.mustRestNextTurnPending) return;
       for (let c = 0; c < 5; c++) {
         if (state.board[opp][c] == null) continue;
         if (!isInRangeWithCell(sel.column, c, attCell)) continue;
@@ -2516,6 +2524,8 @@
       faceUp: false,
       damage: 0,
       paralyzed: false,
+      cannotAttackNextTurnPending: false,
+      mustRestNextTurnPending: false,
       gear: null,
       bonusGear: null,
       veteranState: {},
@@ -2690,7 +2700,20 @@
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
       if (cell) {
-        cell.mustRestNextTurn = false;
+        // Two-stage flag for each restriction: pending → active → cleared,
+        // so the restriction applies for exactly one of this player's turns.
+        if (cell.mustRestNextTurnPending) {
+          cell.mustRestNextTurn = true;
+          cell.mustRestNextTurnPending = false;
+        } else {
+          cell.mustRestNextTurn = false;
+        }
+        if (cell.cannotAttackNextTurnPending) {
+          cell.cannotAttackNextTurn = true;
+          cell.cannotAttackNextTurnPending = false;
+        } else {
+          cell.cannotAttackNextTurn = false;
+        }
         cell.berserkerUsedThisTurn = false;
         cell.berserkerAttacksLeft = 0;
         cell.bestiaryExtraMovesRemaining = 0;
@@ -3195,7 +3218,8 @@
 
   function onSelectUnit(player, column) {
     const cell = state.board[player][column];
-    if (!cell || cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) return;
+    if (!cell || cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+        cell.mustRestNextTurn || cell.mustRestNextTurnPending) return;
     const bestiaryAtSelect = getBestiaryEffectsForUnit(cell.unit);
     if (!cell.faceUp && bestiaryAtSelect.unmaker > 0) {
       state.pendingVeteranPrompt = {
@@ -3267,8 +3291,8 @@
       log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and moves.");
     }
 
-    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, mustRestNextTurn: otherCell.mustRestNextTurn || false, nextAttackAsCaster: otherCell.nextAttackAsCaster || false, gear: otherCell.gear || null, bonusGear: otherCell.bonusGear || null, veteranState: otherCell.veteranState || {}, berserkerUsedThisTurn: otherCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: otherCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: otherCell.bestiaryExtraMovesRemaining || 0 };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
+    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: otherCell.cannotAttackNextTurnPending || false, mustRestNextTurn: otherCell.mustRestNextTurn || false, mustRestNextTurnPending: otherCell.mustRestNextTurnPending || false, nextAttackAsCaster: otherCell.nextAttackAsCaster || false, gear: otherCell.gear || null, bonusGear: otherCell.bonusGear || null, veteranState: otherCell.veteranState || {}, berserkerUsedThisTurn: otherCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: otherCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: otherCell.bestiaryExtraMovesRemaining || 0 };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
     state.selectedUnit.column = next;
     state.moveDone = true;
     const movedCell = state.board[p][next];
@@ -3336,13 +3360,13 @@
     }
 
     if (targetCell == null) {
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.board[p][fromCol] = null;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
       log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
     } else {
-      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, mustRestNextTurn: targetCell.mustRestNextTurn || false, nextAttackAsCaster: targetCell.nextAttackAsCaster || false, gear: targetCell.gear || null, bonusGear: targetCell.bonusGear || null, veteranState: targetCell.veteranState || {}, berserkerUsedThisTurn: targetCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: targetCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: targetCell.bestiaryExtraMovesRemaining || 0 };
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
+      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: targetCell.cannotAttackNextTurnPending || false, mustRestNextTurn: targetCell.mustRestNextTurn || false, mustRestNextTurnPending: targetCell.mustRestNextTurnPending || false, nextAttackAsCaster: targetCell.nextAttackAsCaster || false, gear: targetCell.gear || null, bonusGear: targetCell.bonusGear || null, veteranState: targetCell.veteranState || {}, berserkerUsedThisTurn: targetCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: targetCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: targetCell.bestiaryExtraMovesRemaining || 0 };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.selectedUnit.column = toCol;
       if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
@@ -3578,7 +3602,8 @@
     for (let c = 0; c < 5; c++) {
       const cell = state.board[2][c];
       if (!cell) continue;
-      if (cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) continue;
+      if (cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+          cell.mustRestNextTurn || cell.mustRestNextTurnPending) continue;
       const attackCandidates = buildCpuAttackCandidates(c, cell);
       const bestAttack = chooseCpuCandidate(attackCandidates);
       candidates.push({
@@ -4124,7 +4149,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Tangle-Vine Bola') return;
 
-    cell.cannotAttackNextTurn = true;
+    cell.cannotAttackNextTurnPending = true;
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
@@ -4152,6 +4177,10 @@
     state.itemTargeting = null;
 
     log("Player " + state.currentPlayer + " uses Corrosive Phial on " + cell.unit.name + " — " + gearRemoved.name + " destroyed.");
+    // If stripping the armor dropped max HP below existing damage, capture the unit now.
+    if (state.board[targetPlayer][targetCol] && (cell.damage || 0) >= getMaxHP(cell)) {
+      applyDamage(targetPlayer, targetCol, 0, "Armor stripped —", false);
+    }
     renderTurnUI();
     renderBoard();
   }
@@ -4428,9 +4457,14 @@
         const candidates = [];
         for (let c = 0; c < 5; c++) {
           const cell = state.board[defenderPlayer][c];
-          if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
+          if (!cell || cell.unit.class !== 'Lancer') continue;
           if (!isCounterRangeForLancerCell(attackerCol, c, cell)) continue;
           const guarantee = getCounterGuaranteeInfo(defenderPlayer, c, cell);
+          // Restricted units (paralyzed, cannotAttack, mustRest — any stage) are excluded
+          // unless Rowka's Twin Guard guarantees their counter.
+          const isRestricted = cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+                               cell.mustRestNextTurn || cell.mustRestNextTurnPending;
+          if (isRestricted && !guarantee.guaranteed) continue;
           candidates.push({ col: c, guarantee: guarantee });
         }
 
@@ -4782,10 +4816,6 @@
     clearParalyzedForPlayer(state.currentPlayer);
     var playerWhoJustFinished = state.currentPlayer;
     updateJorrenFlagsAtTurnEnd(playerWhoJustFinished);
-    for (let c = 0; c < 5; c++) {
-      const cell = state.board[playerWhoJustFinished][c];
-      if (cell) cell.cannotAttackNextTurn = false;
-    }
     state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
     startOfTurn();
   }
@@ -4898,7 +4928,8 @@
     if (step === 'attack' && state.selectedUnit) {
       const opp = p === 1 ? 2 : 1;
       const attCell = state.board[p][state.selectedUnit.column];
-      if (attCell && attCell.cannotAttackNextTurn) return;
+      if (attCell && (attCell.cannotAttackNextTurn || attCell.cannotAttackNextTurnPending ||
+          attCell.mustRestNextTurn || attCell.mustRestNextTurnPending)) return;
       if (player === opp && state.board[opp][column]) {
         if (attCell && isInRangeWithCell(state.selectedUnit.column, column, attCell)) {
           prepareCassaTwinArcOpportunity(p, state.selectedUnit.column, opp, column);

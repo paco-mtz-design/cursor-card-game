@@ -25,10 +25,15 @@ These apply **before** any specific Lancer is chosen or rolls for a counter.
 
 ### B. A Lancer could counter, but this Lancer does not participate
 
+Any restriction that prevents a unit from acting also prevents them from countering, with one exception (see Rowka below).
+
 | Situation | What happens |
 |-----------|----------------|
-| **Tangle-Vine Bola** | If the Lancer is affected so they **cannot attack** on their next turn, they **cannot counter** either. They are excluded from the counter attempt. |
-| **(Other “cannot attack” flags)** | Any future effect that uses the same “can’t act as attacker/counter” rule would follow the prototype’s implementation (see dev log). |
+| **Tangle-Vine Bola** | The targeted unit cannot attack on their next turn and **cannot counter** during that same turn. |
+| **Berserker (Bestiary)** | After a unit uses the Berserker bonus attacks, it is restricted on its **own next turn** — it cannot be selected to act and **cannot counter** during the opponent’s turn that precedes it (the restriction is pending from the moment Berserker exhausts). |
+| **Archmage’s Tome rest** | After a Caster uses Archmage’s Tome, it must rest on its **own next turn** — cannot be selected to act and **cannot counter** during the opponent’s turn before that. |
+| **Paralyzed** | A unit paralyzed by Magic Paralysis (Caster attack), Solomon’s Lunar Dazzle, or Chronir’s Frozen Chain **cannot counter**. Paralysis is a full freeze — the unit cannot initiate any action, including passive retaliation as a Lancer. |
+| **Rowka’s Twin Guard — exception** | If a restricted Lancer (any restriction above) would have a **Rowka-guaranteed counter** — meaning Rowka is adjacent and grants the guarantee — the guarantee **overrides the restriction**. That Lancer can still counter. This is the only case where a restricted unit may counter. |
 
 ### C. A counter is attempted, but fails before the “success / fail” counter flip
 
@@ -51,15 +56,53 @@ If Unstable Ground on the Lancer’s tile **cancels** the attempt (tails), Rowka
 
 1. Is this attack a **true strike**? → If yes, **no** Lancer counter step.
 2. Does **Braskin** block counters for this attacker’s position? → If yes, **no** Lancer counter step.
-3. Is there a **valid countering Lancer** (range, not blocked by Bola, etc.)? → If no, no counter.
+3. Is there a **valid countering Lancer** (in range, not restricted — unless Rowka’s guarantee applies)? → If no, no counter.
 4. **Unstable Ground** on the **countering Lancer’s** tile: does the attempt continue? → If no, counter fails here.
 5. **Counter success** coin — Rowka / Nyss can **force success** where applicable.
 6. **Keera:** If the counter **succeeds**, Keera’s veteran effect can deal extra damage to another enemy in range (prototype implementation detail in dev log).
 
 ---
 
+## Restricted units — what they can and cannot do
+
+A unit is **restricted** when it is affected by paralysis, a "cannot attack" flag, or a "must rest" flag (from Berserker, Tangle-Vine Bola, Archmage's Tome, or similar effects).
+
+### What restriction prevents
+
+| Action | Restricted unit |
+|--------|----------------|
+| Being selected to act (move + attack) | **Blocked** |
+| Initiating movement | **Blocked** (follows from above — you move as part of acting) |
+| Initiating an attack | **Blocked** |
+| Counter-attacking as a Lancer | **Blocked** (see exception below) |
+
+### What restriction does NOT prevent
+
+| Action | Restricted unit |
+|--------|----------------|
+| Being passively moved by another unit's swap or teleport | **Allowed** — the restriction applies to the unit's own agency |
+| Triggering "If Hit" veteran buffs | **Always fires** — see below |
+| Countering when Rowka's Twin Guard guarantees it | **Allowed** — Rowka's guarantee overrides the restriction |
+
+### "If Hit" veteran buffs always fire
+
+The following veteran abilities trigger **passively** when the unit is attacked. They fire regardless of whether the unit is restricted:
+
+| Veteran | Buff | Trigger |
+|---------|------|---------|
+| **Harlund** | Pack Shield | An adjacent ally is hit — Harlund can swap in and take the hit instead |
+| **Vaela** | Instinctive Strike | An enemy moves into Vaela's column — coin flip for a pre-emptive strike |
+| **Senya** | Hex Haze | Senya is hit — coin flip to negate the hit and reflect damage to attacker |
+| **Iktha** | Magma Skin | Iktha is hit — attacker's gear is destroyed before damage |
+| **Mivara** | False Self | Mivara is hit — coin flip to redirect the hit to the enemy in front |
+
+These effects represent instinct and passive defense. A paralyzed or restricted unit still has them.
+
+---
+
 ## Revision notes
 
+- **2026-04-18:** Holistic restriction flag fix (Phase 18). Expanded section B to cover all restriction types (paralyzed, Berserker, Archmage rest) and Rowka's override. Added "Restricted units" section with complete rules on what restriction blocks and what it doesn't. Confirmed "If Hit" veteran buffs always fire. Aligns with Phase 18 implementation.
 - **2026-03-27:** Initial section on Lancer counters, true strike, Braskin vs Rowka/Nyss ordering, Unstable Ground vs Twin Guard / Phantom Posture, Tangle-Vine Bola. Aligns with Phase 15 implementation and first QA pass.
 
 ---
