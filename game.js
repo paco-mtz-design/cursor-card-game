@@ -3890,7 +3890,7 @@
           ? state.board[action.targetPlayer][action.targetCol] : null;
         const targetName = targetCell
           ? (targetCell.faceUp ? targetCell.unit.name : 'a unit') : null;
-        setCpuActionText('CPU uses ' + action.itemName + (targetName ? ' on ' + targetName : '') + '...');
+        setCpuActionText('CPU uses an item' + (targetName ? ' on ' + targetName : '') + '...');
         if (action.targetPlayer != null && action.targetCol != null) {
           addCpuHighlight(action.targetPlayer, action.targetCol, 'slot--cpu-target');
         }
@@ -3937,7 +3937,7 @@
       const move = chooseCpuMoveAction();
       const actingCol = state.selectedUnit.column;
       const actingCell = state.board[2][actingCol];
-      const unitName = actingCell ? actingCell.unit.name : 'unit';
+      const unitName = actingCell && actingCell.faceUp ? actingCell.unit.name : 'a unit';
 
       if (!move || move.moveType === 'skip') {
         setCpuActionText('CPU skips move...');
@@ -3984,7 +3984,8 @@
       }
       const defCell = state.board[1][target.targetCol];
       const defName = defCell && defCell.faceUp ? defCell.unit.name : 'one of your units';
-      setCpuActionText('CPU attacks your ' + defName + ' with ' + attCell.unit.name + '!');
+      const attName = attCell.faceUp ? attCell.unit.name : 'a unit';
+      setCpuActionText('CPU attacks your ' + defName + ' with ' + attName + '!');
       addCpuHighlight(2, attCol, 'slot--cpu-active');
       addCpuHighlight(1, target.targetCol, 'slot--cpu-target');
       const capturedAttCol = attCol;

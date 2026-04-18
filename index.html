@@ -10,13 +10,13 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="page-content">
   <header class="header" id="app-header">
     <div class="header__row header__row--brand">
       <h1 class="header__title">Tacticlash</h1>
       <div class="header__toolbar">
         <button type="button" class="btn btn-bestiary" id="btn-bestiary-open" hidden>Seer's Bestiary</button>
         <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
-        <button type="button" class="btn btn--debug-header" id="btn-debug-open" aria-label="Open debug controls">Debug controls</button>
       </div>
     </div>
     <div class="game-over" id="game-over" hidden aria-live="polite">
@@ -175,28 +175,6 @@
       </aside>
     </div>
 
-    <!-- Debug drawer: slides in from right; contains Game Log + item draw debug -->
-    <div class="debug-drawer" id="debug-drawer" aria-hidden="true">
-      <div class="debug-drawer__inner">
-        <button type="button" class="btn debug-drawer__close" id="btn-debug-close" aria-label="Close">Close</button>
-        <section class="game-log" id="game-log" aria-label="Game log">
-          <div class="game-log__header">
-            <h2 class="game-log__title">Game log</h2>
-            <button type="button" class="btn btn--small btn--secondary" id="btn-save-log">Save log</button>
-          </div>
-          <div class="game-log__entries" id="game-log-entries"></div>
-        </section>
-        <div class="item-hands__debug" id="item-draw-debug" hidden aria-label="Debug: replace last item draw">
-          <span class="item-hands__debug-label">Item draw (debug):</span>
-          <button type="button" class="btn btn--small btn--secondary" id="btn-replace-draw-with-pick">Replace with pick...</button>
-          <div class="item-hands__pick-list-wrap" id="item-pick-list-wrap" hidden>
-            <input type="text" class="item-hands__pick-list-search" id="item-pick-list-search" placeholder="Type to filter..." aria-label="Filter item list">
-            <div class="item-hands__pick-list" id="item-pick-list"></div>
-            <button type="button" class="btn btn--small btn--secondary item-hands__pick-list-close" id="btn-pick-list-close">Close</button>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- Unit zoom modal: click unit on board -->
     <div class="modal" id="unit-zoom-modal" role="dialog" aria-modal="true" aria-labelledby="unit-zoom-title" hidden>
@@ -276,6 +254,29 @@
       </div>
     </div>
   </main>
+  </div><!-- /.page-content -->
+
+  <!-- Debug sidebar: permanent right panel with Game Log + item draw debug -->
+  <div class="debug-drawer" id="debug-drawer" aria-hidden="false">
+    <div class="debug-drawer__inner">
+      <section class="game-log" id="game-log" aria-label="Game log">
+        <div class="game-log__header">
+          <h2 class="game-log__title">Game log</h2>
+          <button type="button" class="btn btn--small btn--secondary" id="btn-save-log">Save log</button>
+        </div>
+        <div class="game-log__entries" id="game-log-entries"></div>
+      </section>
+      <div class="item-hands__debug" id="item-draw-debug" hidden aria-label="Debug: replace last item draw">
+        <span class="item-hands__debug-label">Item draw (debug):</span>
+        <button type="button" class="btn btn--small btn--secondary" id="btn-replace-draw-with-pick">Replace with pick...</button>
+        <div class="item-hands__pick-list-wrap" id="item-pick-list-wrap" hidden>
+          <input type="text" class="item-hands__pick-list-search" id="item-pick-list-search" placeholder="Type to filter..." aria-label="Filter item list">
+          <div class="item-hands__pick-list" id="item-pick-list"></div>
+          <button type="button" class="btn btn--small btn--secondary item-hands__pick-list-close" id="btn-pick-list-close">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="https://unpkg.com/gsap@3.12.5/dist/gsap.min.js"></script>
   <script src="data.js"></script>
