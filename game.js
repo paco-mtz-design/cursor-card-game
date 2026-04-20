@@ -2895,7 +2895,7 @@
     const p = state.currentPlayer;
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
-      if (!cell || !cell.unit) continue;
+      if (!cell || !cell.unit || !cell.faceUp) continue;
       const effects = getBestiaryEffectsForUnit(cell.unit);
       if (effects.muzzledBeast > 0) return true;
     }
