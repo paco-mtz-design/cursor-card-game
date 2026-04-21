@@ -1011,9 +1011,10 @@
     }
 
     const isVorpalPacket = !!opts.vorpalIgnoresDefenderVeterancy;
+    const isScopePacket  = !!opts.scopeIgnoresDefenderVeterancy;
     const hasDefenderPassive = hasVeteranBuff(defCell, 'senya') || hasVeteranBuff(defCell, 'iktha') || hasVeteranBuff(defCell, 'mivara');
-    if (isVorpalPacket && hasDefenderPassive) {
-      log("Vorpal Honing Amulet — ignores " + defCell.unit.name + "'s defender veterancy.");
+    if ((isVorpalPacket || isScopePacket) && hasDefenderPassive) {
+      log((isVorpalPacket ? "Vorpal Honing Amulet" : "Sharpshooter's Scope") + " — ignores " + defCell.unit.name + "'s veteran effect.");
       return result;
     }
 
@@ -1531,7 +1532,7 @@
       return;
     }
     const vorpalPacket = state.vorpalNextAttack === prompt.attPlayer;
-    const packet = resolveDefenderVeteranPacket(prompt.attPlayer, prompt.attCol, prompt.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket });
+    const packet = resolveDefenderVeteranPacket(prompt.attPlayer, prompt.attCol, prompt.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket, scopeIgnoresDefenderVeterancy: !!(prompt.isScopeStrike) });
     if (packet.canceled) {
       if (queueCassaUsePromptIfReady(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol)) {
         renderTurnUI();
@@ -4416,13 +4417,19 @@
     const effectiveClass = getEffectiveAttackerClass(attCell);
     const attackContext = { harlundUsed: false, harlundDeclineLogged: false, harlundPromptResolved: false, harlundDecision: 'no' };
     const vorpalPacket = (state.vorpalNextAttack === attackerPlayer);
-    const trueStrike = vorpalPacket ||
-      (cellHasGearName(attCell, 'True-Strike Lens') && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) ||
-      (cellHasGearName(attCell, "Sharpshooter's Scope") && attCell.unit.class === 'Shooter');
+    const isLensStrike  = !vorpalPacket && cellHasGearName(attCell, 'True-Strike Lens') && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster');
+    const isScopeStrike = !vorpalPacket && cellHasGearName(attCell, "Sharpshooter's Scope") && attCell.unit.class === 'Shooter';
+    const trueStrike          = vorpalPacket || isLensStrike || isScopeStrike;
+    const bypassAllCounters   = vorpalPacket || isScopeStrike;
+    const bypassVeteranEffects = vorpalPacket || isScopeStrike;
 
     log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
-    if (trueStrike) {
-      log("True strike — attack ignores terrain and Lancer counters.");
+    if (vorpalPacket) {
+      log("True strike (Vorpal) — attack ignores terrain, Lancer counters, and all veteran effects.");
+    } else if (isScopeStrike) {
+      log("True strike (Scope) — attack ignores terrain, Lancer counters, and veteran effects.");
+    } else if (isLensStrike) {
+      log("True strike (Lens) — attack ignores terrain and unguaranteed Lancer counters.");
     }
 
     if (!trueStrike && getTerrain(attackerPlayer, attackerCol) === 'Unstable Ground') {
@@ -4449,7 +4456,7 @@
     let attackBlocked = false;
     let tivalFailureReason = null;
 
-    if (!trueStrike) {
+    if (!bypassAllCounters) {
       const braskinProtected = attackerIsProtectedByBraskin(attackerPlayer, attackerCol);
       if (braskinProtected) {
         log("Braskin's Uncanny Block — this attack cannot be countered by enemy Lancers.");
@@ -4465,6 +4472,7 @@
           const isRestricted = cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
                                cell.mustRestNextTurn || cell.mustRestNextTurnPending;
           if (isRestricted && !guarantee.guaranteed) continue;
+          if (isLensStrike && !guarantee.guaranteed) continue;
           candidates.push({ col: c, guarantee: guarantee });
         }
 
@@ -4614,6 +4622,8 @@
             index: 0,
             damage: damage,
             trueStrike: trueStrike,
+            isScopeStrike: isScopeStrike,
+            bypassVeteranEffects: bypassVeteranEffects,
             harlundUsed: false,
             harlundDeclineLogged: false,
             harlundPromptResolved: false,
@@ -4624,7 +4634,7 @@
           continueArchmageMulti();
           return;
         } else {
-          if (hasAdjacentHarlundForTarget(defenderPlayer, defenderCol)) {
+          if (!bypassVeteranEffects && hasAdjacentHarlundForTarget(defenderPlayer, defenderCol)) {
             state.pendingVeteranPrompt = {
               type: 'harlundOnHitSingle',
               message: "Harlund's Pack Shield: adjacent ally is about to be hit. Swap Harlund in?",
@@ -4638,13 +4648,14 @@
               damage: damage,
               defenderHadBarbedGauntlets: defHasBarbed,
               attClassForBarbed: attCell.unit.class,
+              isScopeStrike: isScopeStrike,
             };
             renderTurnUI();
             renderBoard();
             return;
           }
           const hitCol = maybeRedirectToHarlund(defenderPlayer, defenderCol, attackContext);
-          const packet = resolveDefenderVeteranPacket(attackerPlayer, attackerCol, defenderPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket });
+          const packet = resolveDefenderVeteranPacket(attackerPlayer, attackerCol, defenderPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket, scopeIgnoresDefenderVeterancy: isScopeStrike });
           if (packet.canceled) {
             attackHitDefender = false;
             if (packet.tivalFailureReason) tivalFailureReason = packet.tivalFailureReason;
@@ -4758,7 +4769,7 @@
         renderBoard();
         return;
       }
-      if (!ar.harlundPromptResolved && hasAdjacentHarlundForTarget(ar.defPlayer, c)) {
+      if (!ar.bypassVeteranEffects && !ar.harlundPromptResolved && hasAdjacentHarlundForTarget(ar.defPlayer, c)) {
         state.pendingVeteranPrompt = {
           type: 'harlundOnHitArchmage',
           message: "Harlund's Pack Shield: adjacent ally is about to be hit by Archmage's Tome. Swap Harlund in?",
@@ -4775,7 +4786,7 @@
         ar.index++;
         continue;
       }
-      const packet = resolveDefenderVeteranPacket(ar.attPlayer, ar.attCol, ar.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: ar.trueStrike && state.vorpalNextAttack === ar.attPlayer });
+      const packet = resolveDefenderVeteranPacket(ar.attPlayer, ar.attCol, ar.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: ar.trueStrike && state.vorpalNextAttack === ar.attPlayer, scopeIgnoresDefenderVeterancy: !!ar.isScopeStrike });
       if (packet.canceled) {
         ar.index++;
         continue;
