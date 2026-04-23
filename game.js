@@ -20,6 +20,9 @@
   const btnPlacementReplaceWithPick = document.getElementById('btn-placement-replace-with-pick');
   const btnPlacementUnitPickClose = document.getElementById('btn-placement-unit-pick-close');
   const setupBestiaryEnabledEl = document.getElementById('setup-bestiary-enabled');
+  const setupModeEl = document.getElementById('setup-mode');
+  const setupCpuCustomPlacementEl = document.getElementById('setup-cpu-custom-placement');
+  const setupCpuDifficultyEl = document.getElementById('setup-cpu-difficulty');
   const btnNewGame = document.getElementById('btn-new-game');
   const btnBestiaryOpen = document.getElementById('btn-bestiary-open');
   const turnBanner = document.getElementById('turn-banner');
@@ -58,6 +61,13 @@
   const btnUnitDiscardOpen = document.getElementById('btn-unit-discard-open');
   const btnWardstoneUse = document.getElementById('btn-wardstone-use');
   const btnWardstoneNo = document.getElementById('btn-wardstone-no');
+  const btnCpuContinue = document.getElementById('btn-cpu-continue');
+  const btnSaveLog = document.getElementById('btn-save-log');
+  const saveLogModal = document.getElementById('save-log-modal');
+  const btnSaveLogAndNew = document.getElementById('btn-save-log-and-new');
+  const btnSkipLogAndNew = document.getElementById('btn-skip-log-and-new');
+  const btnCancelNewGame = document.getElementById('btn-cancel-new-game');
+  const saveLogBackdrop = document.getElementById('save-log-backdrop');
   const debugDrawerEl = document.getElementById('debug-drawer');
   const btnDebugOpen = document.getElementById('btn-debug-open');
   const btnDebugClose = document.getElementById('btn-debug-close');
@@ -87,11 +97,56 @@
 
   let state = getInitialState();
 
+  function getHiddenCpuEntityNames() {
+    const hiddenUnitNames = [];
+    const hiddenUnitFirstNames = [];
+    const cpuRow = state.board && state.board[2] ? state.board[2] : [];
+    for (let c = 0; c < cpuRow.length; c++) {
+      const cell = cpuRow[c];
+      if (cell && !cell.faceUp && cell.unit && cell.unit.name) {
+        hiddenUnitNames.push(cell.unit.name);
+        const firstName = String(cell.unit.name).trim().split(/\s+/)[0];
+        if (firstName) hiddenUnitFirstNames.push(firstName);
+      }
+    }
+    const hiddenItemNames = [];
+    const cpuItemHand = state.p2ItemHand || [];
+    for (let i = 0; i < cpuItemHand.length; i++) {
+      const item = cpuItemHand[i];
+      if (item && item.name) hiddenItemNames.push(item.name);
+    }
+    return {
+      hiddenUnitNames: hiddenUnitNames,
+      hiddenUnitFirstNames: hiddenUnitFirstNames,
+      hiddenItemNames: hiddenItemNames
+    };
+  }
+
+  function redactHiddenCpuInfo(message) {
+    if (!isCpuMode()) return message;
+    let redacted = String(message);
+    const names = getHiddenCpuEntityNames();
+    names.hiddenUnitNames.forEach(function (name) {
+      redacted = redacted.replaceAll(name, 'Hidden enemy unit');
+    });
+    names.hiddenUnitFirstNames.forEach(function (firstName) {
+      const possessivePattern = new RegExp('\\b' + firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "'s\\b", 'g');
+      redacted = redacted.replace(possessivePattern, "Hidden enemy unit's");
+    });
+    names.hiddenItemNames.forEach(function (name) {
+      redacted = redacted.replaceAll(name, 'Hidden enemy item');
+    });
+    redacted = redacted.replace(/Player 2 equips [^.]+ on Hidden enemy unit\./g, 'Player 2 equips Hidden enemy item on Hidden enemy unit.');
+    redacted = redacted.replace(/Player 2 uses [^.]+ on Hidden enemy unit\./g, 'Player 2 uses Hidden enemy item on Hidden enemy unit.');
+    return redacted;
+  }
+
   function log(message) {
+    if (state.rawLogEntries) state.rawLogEntries.push(message);
     if (!gameLogEntries) return;
     const entry = document.createElement('div');
     entry.className = 'game-log__entry';
-    entry.textContent = message;
+    entry.textContent = redactHiddenCpuInfo(message);
     gameLogEntries.appendChild(entry);
     gameLogEntries.scrollTop = gameLogEntries.scrollHeight;
   }
@@ -99,6 +154,10 @@
   function getInitialState() {
     return {
       phase: 'idle',
+      gameMode: 'cpu',
+      cpuDifficulty: 'easy',
+      cpuCustomPlacementEnabled: false,
+      humanPlayer: 1,
       captureGoal: 15,
       useBestiaryRules: true,
       firstPlayer: null,
@@ -114,7 +173,36 @@
       pendingBestiaryContinue: false,
       gameOver: false,
       winner: null,
+      rawLogEntries: [],
+      cpuThinkTimer: null,
+      cpuAnnounceTimer: null,
+      cpuPendingExecute: null,
+      cpuLastBlockReason: '',
+      cpuAnnouncing: false,
     };
+  }
+
+  function isCpuMode() {
+    return state.gameMode === 'cpu';
+  }
+
+  function isCpuPlayer(player) {
+    return isCpuMode() && player === 2;
+  }
+
+  function isCpuTurn() {
+    return isCpuPlayer(state.currentPlayer);
+  }
+
+  function isHumanTurn() {
+    return state.currentPlayer === state.humanPlayer;
+  }
+
+  function shouldMaskForViewer(ownerPlayer, viewerPlayer, cell) {
+    if (!isCpuMode()) return false;
+    if (!cell) return false;
+    if (ownerPlayer !== 2 || viewerPlayer !== 1) return false;
+    return !cell.faceUp;
   }
 
   function countUnits(player) {
@@ -134,6 +222,7 @@
   }
 
   function showGameOver(winner) {
+    clearCpuThinkTimer();
     state.gameOver = true;
     state.winner = winner;
     if (gameOverEl) gameOverEl.hidden = false;
@@ -922,9 +1011,10 @@
     }
 
     const isVorpalPacket = !!opts.vorpalIgnoresDefenderVeterancy;
+    const isScopePacket  = !!opts.scopeIgnoresDefenderVeterancy;
     const hasDefenderPassive = hasVeteranBuff(defCell, 'senya') || hasVeteranBuff(defCell, 'iktha') || hasVeteranBuff(defCell, 'mivara');
-    if (isVorpalPacket && hasDefenderPassive) {
-      log("Vorpal Honing Amulet — ignores " + defCell.unit.name + "'s defender veterancy.");
+    if ((isVorpalPacket || isScopePacket) && hasDefenderPassive) {
+      log((isVorpalPacket ? "Vorpal Honing Amulet" : "Sharpshooter's Scope") + " — ignores " + defCell.unit.name + "'s veteran effect.");
       return result;
     }
 
@@ -1019,7 +1109,7 @@
 
   function completeArchmageAttack(attPlayer, attCol) {
     const attCellAfter = state.board[attPlayer][attCol];
-    if (attCellAfter) attCellAfter.mustRestNextTurn = true;
+    if (attCellAfter) attCellAfter.mustRestNextTurnPending = true;
     replaceCapturedUnitsBeforePass();
     var winner = checkGameOver();
     if (winner !== null) {
@@ -1106,8 +1196,8 @@
           renderBoard();
           return;
         }
-        if (!actingCell.cannotAttackNextTurn) {
-          actingCell.cannotAttackNextTurn = true;
+        if (!actingCell.cannotAttackNextTurnPending && !actingCell.cannotAttackNextTurn) {
+          actingCell.cannotAttackNextTurnPending = true;
           log("[Bestiary] Berserker: " + actingCell.unit.name + " is paralyzed on its next turn.");
         }
       }
@@ -1442,7 +1532,7 @@
       return;
     }
     const vorpalPacket = state.vorpalNextAttack === prompt.attPlayer;
-    const packet = resolveDefenderVeteranPacket(prompt.attPlayer, prompt.attCol, prompt.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket });
+    const packet = resolveDefenderVeteranPacket(prompt.attPlayer, prompt.attCol, prompt.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket, scopeIgnoresDefenderVeterancy: !!(prompt.isScopeStrike) });
     if (packet.canceled) {
       if (queueCassaUsePromptIfReady(prompt.attPlayer, prompt.attCol, prompt.defPlayer, prompt.defCol)) {
         renderTurnUI();
@@ -1667,7 +1757,8 @@
   function canAttack(attackerPlayer, attackerCol) {
     const cell = state.board[attackerPlayer][attackerCol];
     if (!cell) return false;
-    if (cell.cannotAttackNextTurn || cell.mustRestNextTurn) return false;
+    if (cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+        cell.mustRestNextTurn || cell.mustRestNextTurnPending) return false;
     const opp = attackerPlayer === 1 ? 2 : 1;
     for (let c = 0; c < 5; c++) {
       if (state.board[opp][c] == null) continue;
@@ -1740,16 +1831,20 @@
 
   function createUnitCardHTML(unit, cardState) {
     const faceUp = cardState.faceUp;
+    const maskedForViewer = !!cardState.maskedForViewer;
     const damage = cardState.damage || 0;
     const paralyzed = cardState.paralyzed || false;
     const cannotAttackNextTurn = cardState.cannotAttackNextTurn || false;
+    const cannotAttackNextTurnPending = cardState.cannotAttackNextTurnPending || false;
     const mustRestNextTurn = cardState.mustRestNextTurn || false;
-    const showCannotAttack = cannotAttackNextTurn || mustRestNextTurn;
+    const mustRestNextTurnPending = cardState.mustRestNextTurnPending || false;
+    const showCannotAttack = cannotAttackNextTurn || cannotAttackNextTurnPending ||
+                             mustRestNextTurn || mustRestNextTurnPending;
     const maxHP = cardState.maxHP != null ? cardState.maxHP : getBaseHP(unit.class);
     const gear = cardState.gear || null;
     const terrain = cardState.terrain || null;
 
-    const cardPath = getUnitCardImagePath(unit);
+    const cardPath = maskedForViewer ? 'assets/units/unit-card-back.png' : getUnitCardImagePath(unit);
     const fallbackPath = 'assets/units/unit-placeholder-for-dev.png';
     let markersHTML = '';
     if (damage > 0) {
@@ -1762,12 +1857,17 @@
       markersHTML += '<span class="marker marker--cannot-attack">Can\'t attack</span>';
     }
 
-    const cardClass = faceUp ? 'unit-card unit-card--face-up' : 'unit-card unit-card--face-down-soft';
-    const dataAttrs = ' data-face-up="' + (faceUp ? 'true' : 'false') + '" data-name="' + escapeHtml(unit.name) + '" data-class="' + unit.class + '" data-hp="' + maxHP + '" data-damage="' + damage + '"';
+    const cardClass = (faceUp && !maskedForViewer) ? 'unit-card unit-card--face-up' : 'unit-card unit-card--face-down-soft';
+    const safeName = maskedForViewer ? 'Hidden enemy unit' : unit.name;
+    const safeClass = maskedForViewer ? 'Unknown' : unit.class;
+    const safeHp = maskedForViewer ? '' : maxHP;
+    const safeDamage = maskedForViewer ? '' : damage;
+    const dataAttrs = ' data-face-up="' + ((faceUp && !maskedForViewer) ? 'true' : 'false') + '" data-name="' + escapeHtml(safeName) + '" data-class="' + safeClass + '" data-hp="' + safeHp + '" data-damage="' + safeDamage + '"';
     const badgePart = markersHTML ? '<div class="unit-card__markers">' + markersHTML + '</div>' : '';
-    const faceDownOverlayPart = !faceUp ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '';
+    const faceDownOverlayPart = (!faceUp && !maskedForViewer) ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '';
 
-    const gearPart = gear ? '<div class="unit-mini-card unit-mini-card--gear"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(gear.name)) + '" alt="" role="presentation"></div>' : '';
+    const gearImagePath = maskedForViewer ? 'assets/items/item-card-back.png' : (gear ? getItemCardImagePath(gear.name) : '');
+    const gearPart = gear ? '<div class="unit-mini-card unit-mini-card--gear"><img class="unit-mini-card__img" src="' + escapeHtml(gearImagePath) + '" alt="" role="presentation"></div>' : '';
     const terrainPart = terrain ? '<div class="unit-mini-card unit-mini-card--terrain"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(terrain.name)) + '" alt="" role="presentation"></div>' : '';
 
     return '<div class="unit-tile">' +
@@ -1804,13 +1904,17 @@
       const terrainRow = state.terrain && state.terrain[player] ? state.terrain[player] : [];
       cells.forEach(function (cell, i) {
         const terrainCell = terrainRow[i] || null;
+        const maskedForViewer = shouldMaskForViewer(player, 1, cell);
         const unitPart = cell
           ? createUnitCardHTML(cell.unit, {
-              faceUp: cell.faceUp,
+              faceUp: cell.faceUp && !maskedForViewer,
+              maskedForViewer: maskedForViewer,
               damage: cell.damage || 0,
               paralyzed: cell.paralyzed || false,
               cannotAttackNextTurn: cell.cannotAttackNextTurn || false,
+              cannotAttackNextTurnPending: cell.cannotAttackNextTurnPending || false,
               mustRestNextTurn: cell.mustRestNextTurn || false,
+              mustRestNextTurnPending: cell.mustRestNextTurnPending || false,
               maxHP: getMaxHP(cell),
               gear: cell.gear || null,
               terrain: terrainCell
@@ -1824,12 +1928,15 @@
       highlightSlots();
       if (state.p1ItemHand != null) renderItemHands();
       if (itemDrawDebugEl) {
-        itemDrawDebugEl.hidden = state.actionStep !== 'use_items' || !!state.itemTargeting || !!state.obscuringReorder;
+        const hideForTurn = state.actionStep !== 'use_items' || !!state.itemTargeting || !!state.obscuringReorder;
+        const hideForCpuRestriction = isCpuMode() && state.currentPlayer !== 1;
+        itemDrawDebugEl.hidden = hideForTurn || hideForCpuRestriction;
       }
       if (state.actionStep !== 'use_items' || state.itemTargeting) {
         if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
       }
       renderDiscardPiles();
+      maybeScheduleCpuTurn();
     }
   }
 
@@ -1950,7 +2057,8 @@
       for (let c = 0; c < 5; c++) {
         const cell = state.board[p][c];
         if (!cell) continue;
-        if (cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) continue;
+        if (cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+            cell.mustRestNextTurn || cell.mustRestNextTurnPending) continue;
         const slot = document.querySelector('.row--player' + p + ' .slot[data-column="' + c + '"]');
         if (slot) slot.classList.add('slot--selectable');
       }
@@ -1980,7 +2088,8 @@
       const opp = p === 1 ? 2 : 1;
       const attCell = state.board[p][sel.column];
       if (!attCell) return;
-      if (attCell.cannotAttackNextTurn) return;
+      if (attCell.cannotAttackNextTurn || attCell.cannotAttackNextTurnPending ||
+          attCell.mustRestNextTurn || attCell.mustRestNextTurnPending) return;
       for (let c = 0; c < 5; c++) {
         if (state.board[opp][c] == null) continue;
         if (!isInRangeWithCell(sel.column, c, attCell)) continue;
@@ -2066,8 +2175,109 @@
     }
   }
 
+  function syncSetupModeControls() {
+    if (!setupModeEl || !setupCpuCustomPlacementEl || !setupCpuDifficultyEl) return;
+    const cpuSelected = setupModeEl.value === 'cpu';
+    setupCpuCustomPlacementEl.disabled = !cpuSelected;
+    setupCpuDifficultyEl.disabled = !cpuSelected;
+    if (!cpuSelected) setupCpuCustomPlacementEl.checked = false;
+    state.gameMode = setupModeEl.value || 'cpu';
+    state.cpuCustomPlacementEnabled = !!setupCpuCustomPlacementEl.checked;
+    state.cpuDifficulty = setupCpuDifficultyEl.value || 'easy';
+  }
+
+  function buildLogText(isInterrupted) {
+    const now = new Date();
+    const pad = function (n) { return String(n).padStart(2, '0'); };
+    const timestamp = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
+      + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+
+    const modeLabel = state.gameMode === 'cpu'
+      ? 'vs CPU (' + (state.cpuDifficulty || 'easy') + ')'
+      : 'Manual (2-player)';
+    const bestiaryLabel = state.useBestiaryRules ? 'On' : 'Off';
+    const firstLabel = state.firstPlayer ? 'Player ' + state.firstPlayer : 'Unknown';
+
+    let resultLine;
+    if (isInterrupted) {
+      resultLine = 'Incomplete — interrupted by player'
+        + ' (Player 1: ' + (state.p1Captures || 0) + ' captures'
+        + ', ' + (state.gameMode === 'cpu' ? 'CPU' : 'Player 2') + ': ' + (state.p2Captures || 0) + ')';
+    } else if (state.winner) {
+      const winnerLabel = (state.gameMode === 'cpu' && state.winner === 2) ? 'CPU' : 'Player ' + state.winner;
+      const loserCaptures = state.winner === 1 ? state.p2Captures : state.p1Captures;
+      resultLine = winnerLabel + ' wins — ' + state.captureGoal + ' captures'
+        + ' (opponent: ' + loserCaptures + ')';
+    } else {
+      resultLine = 'In progress';
+    }
+
+    const entries = state.rawLogEntries || [];
+    const eventLines = entries.length ? entries.join('\n') : '(no events recorded)';
+
+    return [
+      '=== Tacticlash — Game Log ===',
+      'Saved:         ' + timestamp,
+      'Mode:          ' + modeLabel,
+      'Capture goal:  ' + (state.captureGoal || '—'),
+      'Bestiary:      ' + bestiaryLabel,
+      'First player:  ' + firstLabel,
+      '',
+      'Result: ' + resultLine,
+      '',
+      '=== Events ===',
+      eventLines,
+      '=== End of log ===',
+    ].join('\n');
+  }
+
+  function downloadGameLog(isInterrupted) {
+    if (isInterrupted) {
+      log('--- Match interrupted by player (log saved, game not completed) ---');
+    }
+    const text = buildLogText(isInterrupted);
+    const now = new Date();
+    const pad = function (n) { return String(n).padStart(2, '0'); };
+    const fname = 'tacticlash-'
+      + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
+      + '-' + pad(now.getHours()) + pad(now.getMinutes())
+      + '.txt';
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function startNewGame() {
+    if (state.phase === 'playing' && !state.gameOver) {
+      if (saveLogModal) saveLogModal.hidden = false;
+      return;
+    }
+    doStartNewGame();
+  }
+
+  function doStartNewGame() {
+    if (saveLogModal) saveLogModal.hidden = true;
+    clearCpuThinkTimer();
     state = getInitialState();
+    if (setupModeEl) {
+      setupModeEl.value = 'cpu';
+      state.gameMode = setupModeEl.value;
+    }
+    if (setupCpuCustomPlacementEl) {
+      setupCpuCustomPlacementEl.checked = false;
+      state.cpuCustomPlacementEnabled = !!setupCpuCustomPlacementEl.checked;
+    }
+    if (setupCpuDifficultyEl) {
+      setupCpuDifficultyEl.value = 'easy';
+      state.cpuDifficulty = setupCpuDifficultyEl.value;
+    }
+    syncSetupModeControls();
     if (setupBestiaryEnabledEl) {
       setupBestiaryEnabledEl.checked = true;
       state.useBestiaryRules = setupBestiaryEnabledEl.checked;
@@ -2092,6 +2302,9 @@
   function onGoalChosen(goal) {
     state.captureGoal = goal;
     state.useBestiaryRules = !setupBestiaryEnabledEl || setupBestiaryEnabledEl.checked;
+    state.gameMode = setupModeEl ? setupModeEl.value : 'cpu';
+    state.cpuCustomPlacementEnabled = !!(setupCpuCustomPlacementEl && setupCpuCustomPlacementEl.checked);
+    state.cpuDifficulty = setupCpuDifficultyEl ? (setupCpuDifficultyEl.value || 'easy') : 'easy';
     state.phase = 'setup_coin';
     showStep('coin');
   }
@@ -2277,7 +2490,8 @@
   function renderPlacementStep() {
     const player = state.placementPlayer;
     const hand = player === 1 ? state.p1Hand : state.p2Hand;
-    placeTitle.textContent = 'Player ' + player + ': Place your units';
+    const label = isCpuMode() && player === 2 ? 'CPU (Player 2)' : ('Player ' + player);
+    placeTitle.textContent = label + ': Place your units';
     placeHint.textContent = 'Filter or use Replace with pick for the full roster, select a unit, then place on your row.';
     placementHand.innerHTML = '';
     const q = placementHandFilterEl ? placementHandFilterEl.value.trim().toLowerCase() : '';
@@ -2311,6 +2525,8 @@
       faceUp: false,
       damage: 0,
       paralyzed: false,
+      cannotAttackNextTurnPending: false,
+      mustRestNextTurnPending: false,
       gear: null,
       bonusGear: null,
       veteranState: {},
@@ -2432,6 +2648,11 @@
     if (player === 1) {
       state.placementPlayer = 2;
       state.phase = 'setup_place_p2';
+      if (isCpuMode() && !state.cpuCustomPlacementEnabled) {
+        state.selectedPlacementIndex = null;
+        placeAllRandomly();
+        return;
+      }
       if (placementHandFilterEl) placementHandFilterEl.value = '';
       closePlacementUnitPickList();
       renderPlacementStep();
@@ -2469,6 +2690,7 @@
 
   function startOfTurn() {
     const p = state.currentPlayer;
+    state.cpuItemsUsedThisTurn = 0;
     state.actionStep = 'use_items';
     state.selectedUnit = null;
     state.moveDone = false;
@@ -2479,7 +2701,20 @@
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
       if (cell) {
-        cell.mustRestNextTurn = false;
+        // Two-stage flag for each restriction: pending → active → cleared,
+        // so the restriction applies for exactly one of this player's turns.
+        if (cell.mustRestNextTurnPending) {
+          cell.mustRestNextTurn = true;
+          cell.mustRestNextTurnPending = false;
+        } else {
+          cell.mustRestNextTurn = false;
+        }
+        if (cell.cannotAttackNextTurnPending) {
+          cell.cannotAttackNextTurn = true;
+          cell.cannotAttackNextTurnPending = false;
+        } else {
+          cell.cannotAttackNextTurn = false;
+        }
         cell.berserkerUsedThisTurn = false;
         cell.berserkerAttacksLeft = 0;
         cell.bestiaryExtraMovesRemaining = 0;
@@ -2516,6 +2751,7 @@
     renderTurnUI();
     renderBoard();
     animateCardIntoHand(p);
+    maybeScheduleCpuTurn();
   }
 
   function runReinforcement(player) {
@@ -2660,7 +2896,7 @@
     const p = state.currentPlayer;
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
-      if (!cell || !cell.unit) continue;
+      if (!cell || !cell.unit || !cell.faceUp) continue;
       const effects = getBestiaryEffectsForUnit(cell.unit);
       if (effects.muzzledBeast > 0) return true;
     }
@@ -2709,20 +2945,21 @@
       return 'Use';
     }
 
-    function buildItemCard(item, index, isCurrentPlayer) {
+    function buildItemCard(item, index, ownerPlayer, isCurrentPlayer) {
       const el = document.createElement('div');
       el.className = 'item-card';
       el.setAttribute('role', 'listitem');
       el.dataset.itemIndex = String(index);
-      el.dataset.itemName = item.name;
-      el.dataset.player = '1';
+      el.dataset.player = String(ownerPlayer);
+      const maskedForViewer = isCpuMode() && ownerPlayer === 2;
+      el.dataset.itemName = maskedForViewer ? 'Hidden enemy item' : item.name;
 
       const face = document.createElement('div');
       face.className = 'item-card__face';
 
       const img = document.createElement('img');
       img.className = 'item-card-img';
-      img.src = getItemCardImagePath(item.name);
+      img.src = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(item.name);
       img.alt = '';
       img.setAttribute('role', 'presentation');
       img.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
@@ -2730,22 +2967,24 @@
 
       const nameSpan = document.createElement('span');
       nameSpan.className = 'item-card__name';
-      nameSpan.textContent = item.name;
+      nameSpan.textContent = maskedForViewer ? 'Hidden enemy item' : item.name;
       face.appendChild(nameSpan);
 
       const actions = document.createElement('div');
       actions.className = 'item-card__actions';
 
-      const seeBtn = document.createElement('button');
-      seeBtn.type = 'button';
-      seeBtn.className = 'item-card__see btn btn--small';
-      seeBtn.textContent = 'See';
-      seeBtn.dataset.itemName = item.name;
-      actions.appendChild(seeBtn);
+      if (!maskedForViewer) {
+        const seeBtn = document.createElement('button');
+        seeBtn.type = 'button';
+        seeBtn.className = 'item-card__see btn btn--small';
+        seeBtn.textContent = 'See';
+        seeBtn.dataset.itemName = item.name;
+        actions.appendChild(seeBtn);
+      }
 
       const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[item.name];
 
-      if (isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && canPlaySingleUse(item.name)) {
+      if (!maskedForViewer && isCurrentPlayer && isUseItems && spec && spec.type === 'single_use' && canPlaySingleUse(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -2754,7 +2993,7 @@
         useBtn.dataset.itemName = item.name;
         actions.appendChild(useBtn);
       }
-      if (isCurrentPlayer && isUseItems && spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && canPlayGear(item.name)) {
+      if (!maskedForViewer && isCurrentPlayer && isUseItems && spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion') && canPlayGear(item.name)) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -2763,7 +3002,7 @@
         useBtn.dataset.itemName = item.name;
         actions.appendChild(useBtn);
       }
-      if (isCurrentPlayer && isUseItems && typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(item.name) !== -1 && countEmptyTerrainSlots() > 0) {
+      if (!maskedForViewer && isCurrentPlayer && isUseItems && typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(item.name) !== -1 && countEmptyTerrainSlots() > 0) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -2772,7 +3011,7 @@
         useBtn.dataset.itemName = item.name;
         actions.appendChild(useBtn);
       }
-      if (isCurrentPlayer && isUseItems && item.name === 'Tectonic Spike' && countTilesWithTerrain() > 0) {
+      if (!maskedForViewer && isCurrentPlayer && isUseItems && item.name === 'Tectonic Spike' && countTilesWithTerrain() > 0) {
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'item-card__use btn btn--small';
@@ -2785,19 +3024,17 @@
       el.appendChild(face);
       el.appendChild(actions);
 
-      if (el.querySelector('.item-card__use')) {
+      if (!maskedForViewer && el.querySelector('.item-card__use')) {
         el.classList.add('item-card--playable');
       }
       return el;
     }
 
     p1Hand.forEach(function (item, index) {
-      itemHandP1El.appendChild(buildItemCard(item, index, p === 1));
+      itemHandP1El.appendChild(buildItemCard(item, index, 1, p === 1));
     });
     p2Hand.forEach(function (item, index) {
-      const el = buildItemCard(item, index, p === 2);
-      el.dataset.player = '2';
-      itemHandP2El.appendChild(el);
+      itemHandP2El.appendChild(buildItemCard(item, index, 2, p === 2));
     });
 
   }
@@ -2806,19 +3043,28 @@
     sanitizeBestiaryRevealState();
     const p = state.currentPlayer;
     const step = state.actionStep;
-    turnLabel.textContent = "Player " + p + "'s turn";
+    const playerLabel = isCpuMode() && p === 2 ? 'CPU (Player 2)' : ('Player ' + p);
+    turnLabel.textContent = playerLabel + "'s turn";
 
     turnActions.hidden = true;
     if (btnPass) btnPass.hidden = true;
     if (btnDoneWithItems) btnDoneWithItems.hidden = true;
     if (btnWardstoneUse) btnWardstoneUse.hidden = true;
     if (btnWardstoneNo) btnWardstoneNo.hidden = true;
+    if (btnCpuContinue) btnCpuContinue.hidden = true;
     btnMoveLeft.hidden = true;
     btnMoveRight.hidden = true;
     btnSkipMove.hidden = true;
     if (contextualMoveControls) {
       contextualMoveControls.hidden = true;
       contextualMoveControls.classList.remove('contextual-move-controls--above', 'contextual-move-controls--below');
+    }
+
+    // During the CPU announce window: keep the announcement text and show "Continue"
+    if (state.cpuAnnouncing) {
+      turnActions.hidden = false;
+      if (btnCpuContinue) btnCpuContinue.hidden = false;
+      return;
     }
 
     if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) {
@@ -2973,7 +3219,8 @@
 
   function onSelectUnit(player, column) {
     const cell = state.board[player][column];
-    if (!cell || cell.paralyzed || cell.cannotAttackNextTurn || cell.mustRestNextTurn) return;
+    if (!cell || cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+        cell.mustRestNextTurn || cell.mustRestNextTurnPending) return;
     const bestiaryAtSelect = getBestiaryEffectsForUnit(cell.unit);
     if (!cell.faceUp && bestiaryAtSelect.unmaker > 0) {
       state.pendingVeteranPrompt = {
@@ -3045,8 +3292,8 @@
       log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and moves.");
     }
 
-    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, mustRestNextTurn: otherCell.mustRestNextTurn || false, nextAttackAsCaster: otherCell.nextAttackAsCaster || false, gear: otherCell.gear || null, bonusGear: otherCell.bonusGear || null, veteranState: otherCell.veteranState || {}, berserkerUsedThisTurn: otherCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: otherCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: otherCell.bestiaryExtraMovesRemaining || 0 };
-    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
+    state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: otherCell.cannotAttackNextTurnPending || false, mustRestNextTurn: otherCell.mustRestNextTurn || false, mustRestNextTurnPending: otherCell.mustRestNextTurnPending || false, nextAttackAsCaster: otherCell.nextAttackAsCaster || false, gear: otherCell.gear || null, bonusGear: otherCell.bonusGear || null, veteranState: otherCell.veteranState || {}, berserkerUsedThisTurn: otherCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: otherCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: otherCell.bestiaryExtraMovesRemaining || 0 };
+    state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
     state.selectedUnit.column = next;
     state.moveDone = true;
     const movedCell = state.board[p][next];
@@ -3114,13 +3361,13 @@
     }
 
     if (targetCell == null) {
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.board[p][fromCol] = null;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
       log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
     } else {
-      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, mustRestNextTurn: targetCell.mustRestNextTurn || false, nextAttackAsCaster: targetCell.nextAttackAsCaster || false, gear: targetCell.gear || null, bonusGear: targetCell.bonusGear || null, veteranState: targetCell.veteranState || {}, berserkerUsedThisTurn: targetCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: targetCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: targetCell.bestiaryExtraMovesRemaining || 0 };
-      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, mustRestNextTurn: myCell.mustRestNextTurn || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
+      state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: targetCell.cannotAttackNextTurnPending || false, mustRestNextTurn: targetCell.mustRestNextTurn || false, mustRestNextTurnPending: targetCell.mustRestNextTurnPending || false, nextAttackAsCaster: targetCell.nextAttackAsCaster || false, gear: targetCell.gear || null, bonusGear: targetCell.bonusGear || null, veteranState: targetCell.veteranState || {}, berserkerUsedThisTurn: targetCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: targetCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: targetCell.bestiaryExtraMovesRemaining || 0 };
+      state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.selectedUnit.column = toCol;
       if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
@@ -3168,6 +3415,617 @@
     state.actionStep = 'select_unit';
     renderTurnUI();
     renderBoard();
+  }
+
+  function getCpuPolicyProfile() {
+    if (window.TacticlashCpu && typeof window.TacticlashCpu.getProfile === 'function') {
+      return window.TacticlashCpu.getProfile(state.cpuDifficulty || 'easy');
+    }
+    return {
+      key: 'easy',
+      maxItemActions: 2,
+      weights: {},
+    };
+  }
+
+  function chooseCpuCandidate(candidates) {
+    if (!candidates || candidates.length === 0) return null;
+    const profile = getCpuPolicyProfile();
+    if (window.TacticlashCpu && typeof window.TacticlashCpu.chooseBestCandidate === 'function') {
+      return window.TacticlashCpu.chooseBestCandidate(candidates, profile);
+    }
+    return candidates[0];
+  }
+
+  function getUnitThreatScore(cell, col) {
+    if (!cell || !cell.unit) return 0;
+    let score = 1;
+    if (cell.unit.class === 'Brawler') score += 1.6;
+    else if (cell.unit.class === 'Lancer') score += 2;
+    else if (cell.unit.class === 'Shooter') score += 2.4;
+    else if (cell.unit.class === 'Caster') score += 2.5;
+    if (cell.unit.level === 'Veteran') score += 1.4;
+    if (cell.unit.class === 'Shooter' && (col === 0 || col === 4)) score += 0.9;
+    score += getCellGearCards(cell).length * 1.2;
+    score -= (cell.damage || 0) * 0.25;
+    return Math.max(0, score);
+  }
+
+  function getCounterRiskScore(attackerCol, defenderCol, defenderCell) {
+    if (!defenderCell || !defenderCell.unit) return 0;
+    if (!defenderCell.faceUp) return 0;
+    if (defenderCell.unit.class !== 'Lancer') return 0;
+    return Math.abs(attackerCol - defenderCol) === 1 ? 1.6 : 0;
+  }
+
+  function getCpuPromptOwner(prompt) {
+    if (!prompt) return null;
+    if (prompt.type === 'tivalRetry' || prompt.type === 'cassaTwinArc' || prompt.type === 'ardanVeilstep') return prompt.attPlayer;
+    if (prompt.type === 'unmakerSelfCaptureConfirm') return prompt.player;
+    if (prompt.type === 'harlundOnHitSingle') return prompt.defPlayer;
+    if (prompt.type === 'harlundOnHitArchmage') {
+      return state.archmageMultiResolving ? state.archmageMultiResolving.defPlayer : state.currentPlayer;
+    }
+    return state.currentPlayer;
+  }
+
+  function hasBlockingHumanDecisionForCpu() {
+    if (!isCpuMode()) return false;
+    if (state.pendingWardstone && !isCpuPlayer(state.pendingWardstone.defPlayer)) return true;
+    if (state.pendingVeteranPrompt) {
+      const owner = getCpuPromptOwner(state.pendingVeteranPrompt);
+      if (!isCpuPlayer(owner)) return true;
+    }
+    if (state.pendingCassaChoice && !isCpuPlayer(state.pendingCassaChoice.attPlayer)) return true;
+    return false;
+  }
+
+  function getCpuBlockReason() {
+    if (!isCpuMode()) return '';
+    if (state.pendingWardstone && !isCpuPlayer(state.pendingWardstone.defPlayer)) {
+      return 'pending Wardstone decision by Player ' + state.pendingWardstone.defPlayer;
+    }
+    if (state.pendingVeteranPrompt) {
+      const owner = getCpuPromptOwner(state.pendingVeteranPrompt);
+      if (!isCpuPlayer(owner)) return 'pending veteran prompt (' + state.pendingVeteranPrompt.type + ') by Player ' + owner;
+    }
+    if (state.pendingCassaChoice && !isCpuPlayer(state.pendingCassaChoice.attPlayer)) {
+      return 'pending Cassa choice by Player ' + state.pendingCassaChoice.attPlayer;
+    }
+    return '';
+  }
+
+  function cpuNeedsAttention() {
+    if (!isCpuMode() || state.phase !== 'playing' || state.gameOver) return false;
+    if (hasBlockingHumanDecisionForCpu()) return false;
+    if (isCpuTurn()) return true;
+    if (state.pendingWardstone && isCpuPlayer(state.pendingWardstone.defPlayer)) return true;
+    if (state.pendingVeteranPrompt && isCpuPlayer(getCpuPromptOwner(state.pendingVeteranPrompt))) return true;
+    if (state.pendingCassaChoice && isCpuPlayer(state.pendingCassaChoice.attPlayer)) return true;
+    if (state.pendingChronirChoice && isCpuTurn()) return true;
+    if (state.obscuringReorder && isCpuPlayer(state.obscuringReorder.player)) return true;
+    return false;
+  }
+
+  function maybeScheduleCpuTurn() {
+    if (hasBlockingHumanDecisionForCpu()) {
+      const reason = getCpuBlockReason();
+      if (reason && state.cpuLastBlockReason !== reason) {
+        state.cpuLastBlockReason = reason;
+        log('[CPU] waiting for human prompt: ' + reason);
+      }
+      return;
+    }
+    state.cpuLastBlockReason = '';
+    if (!cpuNeedsAttention()) return;
+    if (state.cpuAnnouncing) return;
+    if (state.cpuThinkTimer) return;
+    state.cpuThinkTimer = window.setTimeout(function () {
+      state.cpuThinkTimer = null;
+      runCpuTurnStep();
+    }, 260);
+  }
+
+  function clearCpuThinkTimer() {
+    if (state.cpuThinkTimer) {
+      window.clearTimeout(state.cpuThinkTimer);
+      state.cpuThinkTimer = null;
+    }
+    if (state.cpuAnnounceTimer) {
+      window.clearTimeout(state.cpuAnnounceTimer);
+      state.cpuAnnounceTimer = null;
+    }
+    state.cpuPendingExecute = null;
+    clearCpuHighlights();
+    state.cpuAnnouncing = false;
+  }
+
+  // Called both by the auto-fire timeout and the "Continue" button.
+  // Cancels any pending timer, clears announce state, then runs the stored action.
+  function triggerCpuPendingStep() {
+    if (state.cpuAnnounceTimer) {
+      window.clearTimeout(state.cpuAnnounceTimer);
+      state.cpuAnnounceTimer = null;
+    }
+    const fn = state.cpuPendingExecute;
+    state.cpuPendingExecute = null;
+    state.cpuAnnouncing = false;
+    if (fn) fn();
+  }
+
+  var CPU_DELAY_SELECT = 1000;
+  var CPU_DELAY_MOVE   = 1200;
+  var CPU_DELAY_ATTACK = 1600;
+  var CPU_DELAY_ITEM   = 1000;
+  var CPU_DELAY_SKIP   = 600;
+
+  function setCpuActionText(text) {
+    if (turnStep) turnStep.textContent = text;
+  }
+
+  function addCpuHighlight(player, col, cssClass) {
+    var slot = document.querySelector('.row--player' + player + ' .slot[data-column="' + col + '"]');
+    if (slot) slot.classList.add(cssClass);
+  }
+
+  function clearCpuHighlights() {
+    document.querySelectorAll('.slot--cpu-active, .slot--cpu-target').forEach(function (el) {
+      el.classList.remove('slot--cpu-active', 'slot--cpu-target');
+    });
+  }
+
+  function buildCpuAttackCandidates(attackerCol, attackerCell) {
+    const candidates = [];
+    for (let c = 0; c < 5; c++) {
+      const targetCell = state.board[1][c];
+      if (!targetCell) continue;
+      if (!isInRangeWithCell(attackerCol, c, attackerCell)) continue;
+      candidates.push({
+        type: 'attack',
+        targetCol: c,
+        dimensions: {
+          threatReduction: getUnitThreatScore(targetCell, c),
+          counterRisk: getCounterRiskScore(attackerCol, c, targetCell),
+          tempo: 1,
+        },
+      });
+    }
+    return candidates;
+  }
+
+  function pickCpuAttackTarget(attackerCol, attackerCell) {
+    const candidates = buildCpuAttackCandidates(attackerCol, attackerCell);
+    return chooseCpuCandidate(candidates);
+  }
+
+  function chooseCpuUnitToAct() {
+    const candidates = [];
+    for (let c = 0; c < 5; c++) {
+      const cell = state.board[2][c];
+      if (!cell) continue;
+      if (cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+          cell.mustRestNextTurn || cell.mustRestNextTurnPending) continue;
+      const attackCandidates = buildCpuAttackCandidates(c, cell);
+      const bestAttack = chooseCpuCandidate(attackCandidates);
+      candidates.push({
+        type: 'unit_select',
+        col: c,
+        dimensions: {
+          threatReduction: bestAttack ? (bestAttack.dimensions.threatReduction || 0) : 0,
+          counterRisk: bestAttack ? (bestAttack.dimensions.counterRisk || 0) : 0,
+          tempo: 0.8,
+        },
+      });
+    }
+    return chooseCpuCandidate(candidates);
+  }
+
+  function chooseCpuMoveAction() {
+    if (!state.selectedUnit || state.selectedUnit.player !== 2) return null;
+    const fromCol = state.selectedUnit.column;
+    const cell = state.board[2][fromCol];
+    if (!cell) return null;
+    const options = [{ type: 'skip', col: fromCol }];
+    if (fromCol > 0 && state.board[2][fromCol - 1] != null) options.push({ type: 'left', col: fromCol - 1 });
+    if (fromCol < 4 && state.board[2][fromCol + 1] != null) options.push({ type: 'right', col: fromCol + 1 });
+    if (cellHasGearName(cell, 'Teleport Boots')) {
+      for (let c = 0; c < 5; c++) {
+        if (c === fromCol) continue;
+        options.push({ type: 'teleport', col: c });
+      }
+    }
+    const candidates = options.map(function (option) {
+      const attackCandidates = buildCpuAttackCandidates(option.col, cell);
+      const bestAttack = chooseCpuCandidate(attackCandidates);
+      return {
+        moveType: option.type,
+        targetCol: option.col,
+        dimensions: {
+          threatReduction: bestAttack ? (bestAttack.dimensions.threatReduction || 0) : 0,
+          counterRisk: bestAttack ? (bestAttack.dimensions.counterRisk || 0) : 0,
+          boardControl: option.type === 'skip' ? 0 : 0.35,
+          tempo: 0.5,
+        },
+      };
+    });
+    return chooseCpuCandidate(candidates);
+  }
+
+  function chooseCpuItemAction() {
+    const hand = state.p2ItemHand || [];
+    const candidates = [];
+
+    function addCandidate(payload) {
+      payload.dimensions = payload.dimensions || {};
+      candidates.push(payload);
+    }
+
+    function terrainValueFor(name, ownerPlayer) {
+      if (name === 'Unstable Ground') return ownerPlayer === 1 ? 2.2 : -1.6;
+      if (name === 'Paralyzing Vines') return ownerPlayer === 1 ? 1.6 : -1.2;
+      if (name === 'Divine Light') return ownerPlayer === 2 ? 1.2 : 0.2;
+      if (name === 'Elevated Ground' || name === 'Reinforced Barricade') return ownerPlayer === 2 ? 1.3 : 0.2;
+      return 0;
+    }
+
+    for (let i = 0; i < hand.length; i++) {
+      const item = hand[i];
+      if (!item || !item.name) continue;
+      const name = item.name;
+      const spec = ITEM_SPECS && ITEM_SPECS[name];
+
+      if (name === 'Vorpal Honing Amulet') {
+        const strongestEnemy = Math.max.apply(null, state.board[1].map(function (cell, col) {
+          return getUnitThreatScore(cell, col);
+        }));
+        if (strongestEnemy > 3.4) {
+          addCandidate({ kind: 'instant', itemName: name, handIndex: i, dimensions: { threatReduction: 2.2, itemValue: 2.4, tempo: 1.1 } });
+        }
+      } else if (name === 'Healing Potion') {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[2][c];
+          if (!cell || (cell.damage || 0) < 1) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 2,
+            targetCol: c,
+            dimensions: { selfSurvivability: (cell.damage || 0) + 0.5, itemValue: 1.1, tempo: 0.4 },
+          });
+        }
+      } else if (name === 'Tangle-Vine Bola') {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[1][c];
+          if (!cell) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 1,
+            targetCol: c,
+            dimensions: { threatReduction: getUnitThreatScore(cell, c) + 0.6, itemValue: 1.3, tempo: 0.8 },
+          });
+        }
+      } else if (name === 'All revealing lantern-jar') {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[1][c];
+          if (!cell || cell.faceUp) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 1,
+            targetCol: c,
+            dimensions: { threatReduction: getUnitThreatScore(cell, c), itemValue: 1.2, boardControl: 0.8 },
+          });
+        }
+      } else if (name === 'Corrosive Phial') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            const cell = state.board[pl][c];
+            if (!cell || !cell.faceUp || getCellGearCards(cell).length === 0) continue;
+            const threat = getUnitThreatScore(cell, c);
+            const bonus = pl === 1 ? 0.8 : -0.8;
+            addCandidate({
+              kind: 'targeted',
+              itemName: name,
+              handIndex: i,
+              targetPlayer: pl,
+              targetCol: c,
+              dimensions: { threatReduction: threat + bonus, itemValue: 1.5, tempo: 0.5 },
+            });
+          }
+        }
+      } else if (name === 'Magic Grenade') {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[2][c];
+          if (!cell) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 2,
+            targetCol: c,
+            dimensions: { threatReduction: 1.2 + getUnitThreatScore(cell, c) * 0.3, itemValue: 1.2, tempo: 1.1 },
+          });
+        }
+      } else if (name === 'Tectonic Spike') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            const terrain = state.terrain[pl][c];
+            if (!terrain) continue;
+            const value = terrainValueFor(terrain.name, pl);
+            addCandidate({
+              kind: 'targeted',
+              itemName: name,
+              handIndex: i,
+              targetPlayer: pl,
+              targetCol: c,
+              dimensions: { terrainValue: -value, boardControl: 0.6, itemValue: 1.1 },
+            });
+          }
+        }
+      } else if (spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion')) {
+        for (let c = 0; c < 5; c++) {
+          const cell = state.board[2][c];
+          if (!cell || !canEquipGear(cell, name)) continue;
+          addCandidate({
+            kind: 'targeted',
+            itemName: name,
+            handIndex: i,
+            targetPlayer: 2,
+            targetCol: c,
+            dimensions: {
+              selfSurvivability: 1.2 + ((cell.damage || 0) > 0 ? 0.5 : 0),
+              itemValue: cell.unit.level === 'Veteran' ? 1.6 : 1.1,
+              boardControl: 0.4,
+            },
+          });
+        }
+      } else if (spec && spec.type === 'terrain') {
+        for (let pl = 1; pl <= 2; pl++) {
+          for (let c = 0; c < 5; c++) {
+            if (state.terrain[pl][c] != null) continue;
+            addCandidate({
+              kind: 'targeted',
+              itemName: name,
+              handIndex: i,
+              targetPlayer: pl,
+              targetCol: c,
+              dimensions: {
+                terrainValue: terrainValueFor(name, pl),
+                boardControl: 0.7,
+                itemValue: 1.0,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    return chooseCpuCandidate(candidates);
+  }
+
+  function applyCpuItemAction(action) {
+    if (!action) return false;
+    if (action.kind === 'instant' && action.itemName === 'Vorpal Honing Amulet') {
+      applyVorpalHoningAmulet(action.handIndex);
+      return true;
+    }
+    state.itemTargeting = { handIndex: action.handIndex, itemName: action.itemName };
+    if (action.itemName === 'Healing Potion') applyHealingPotion(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'All revealing lantern-jar') applyRevealingLight(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'Tangle-Vine Bola') applyDisablingNet(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'Corrosive Phial') applyCorrosivePhial(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'Magic Grenade') applyMagicGrenade(action.targetPlayer, action.targetCol);
+    else if (action.itemName === 'Tectonic Spike') applyTectonicSpike(action.targetPlayer, action.targetCol);
+    else if (typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(action.itemName) !== -1) applyPlaceTerrain(action.targetPlayer, action.targetCol);
+    else applyEquipArmor(action.targetPlayer, action.targetCol);
+    if (state.itemTargeting) state.itemTargeting = null;
+    return true;
+  }
+
+  function cpuShouldUseWardstone() {
+    const pending = state.pendingWardstone;
+    if (!pending) return false;
+    const defCell = state.board[pending.defPlayer] && state.board[pending.defPlayer][pending.defCol];
+    if (!defCell) return false;
+    const hpLeft = getMaxHP(defCell) - (defCell.damage || 0);
+    if (hpLeft <= 1) return true;
+    const profile = getCpuPolicyProfile();
+    return profile.key === 'normal' && hpLeft <= 2;
+  }
+
+  function cpuShouldUsePrompt(prompt) {
+    if (!prompt) return false;
+    const profile = getCpuPolicyProfile();
+    if (prompt.type === 'unmakerSelfCaptureConfirm') return false;
+    if (prompt.type === 'ardanVeilstep') return profile.key === 'normal' && Math.random() < 0.5;
+    if (prompt.type === 'tivalRetry') return true;
+    if (prompt.type === 'cassaTwinArc') return true;
+    if (prompt.type === 'harlundOnHitSingle' || prompt.type === 'harlundOnHitArchmage') return true;
+    return false;
+  }
+
+  function runCpuTurnStep() {
+    if (!cpuNeedsAttention()) return;
+    if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    if (hasBlockingHumanDecisionForCpu()) return;
+
+    if (state.pendingWardstone && isCpuPlayer(state.pendingWardstone.defPlayer)) {
+      if (cpuShouldUseWardstone()) doWardstoneUse();
+      else doWardstoneNo();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.pendingVeteranPrompt && isCpuPlayer(getCpuPromptOwner(state.pendingVeteranPrompt))) {
+      if (cpuShouldUsePrompt(state.pendingVeteranPrompt)) doWardstoneUse();
+      else doWardstoneNo();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.pendingCassaChoice && isCpuPlayer(state.pendingCassaChoice.attPlayer)) {
+      const targetCandidates = state.pendingCassaChoice.targetCols.map(function (col) {
+        return {
+          col: col,
+          dimensions: { threatReduction: getUnitThreatScore(state.board[1][col], col), tempo: 1 },
+        };
+      });
+      const chosen = chooseCpuCandidate(targetCandidates);
+      if (chosen) resolvePendingCassaChoice(chosen.col);
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.pendingChronirChoice && isCpuTurn()) {
+      const options = (state.pendingChronirChoice.targetCols || []).map(function (col) {
+        return {
+          col: col,
+          dimensions: { threatReduction: getUnitThreatScore(state.board[1][col], col), tempo: 0.8 },
+        };
+      });
+      const selected = chooseCpuCandidate(options);
+      if (selected) resolvePendingChronirChoice(selected.col);
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.obscuringReorder && isCpuPlayer(state.obscuringReorder.player)) {
+      doDoneWithItems();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (!isCpuTurn()) return;
+
+    if (state.actionStep === 'use_items') {
+      if (state.itemTargeting) {
+        state.itemTargeting = null;
+        renderTurnUI();
+        renderBoard();
+        return;
+      }
+      if (state.cpuItemsUsedThisTurn == null) state.cpuItemsUsedThisTurn = 0;
+      const profile = getCpuPolicyProfile();
+      const action = chooseCpuItemAction();
+      if (action && state.cpuItemsUsedThisTurn < (profile.maxItemActions || 2)) {
+        const targetCell = (action.targetPlayer != null && action.targetCol != null)
+          ? state.board[action.targetPlayer][action.targetCol] : null;
+        const targetName = targetCell
+          ? (targetCell.faceUp ? targetCell.unit.name : 'a unit') : null;
+        setCpuActionText('CPU uses an item' + (targetName ? ' on ' + targetName : '') + '...');
+        if (action.targetPlayer != null && action.targetCol != null) {
+          addCpuHighlight(action.targetPlayer, action.targetCol, 'slot--cpu-target');
+        }
+        const capturedAction = action;
+        state.cpuPendingExecute = function () {
+          if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
+          clearCpuHighlights();
+          const applied = applyCpuItemAction(capturedAction);
+          if (applied) state.cpuItemsUsedThisTurn++;
+          maybeScheduleCpuTurn();
+        };
+        state.cpuAnnouncing = true;
+        renderTurnUI();
+        return;
+      }
+      doDoneWithItems();
+      maybeScheduleCpuTurn();
+      return;
+    }
+
+    if (state.actionStep === 'select_unit') {
+      const unitChoice = chooseCpuUnitToAct();
+      if (!unitChoice) {
+        endTurn();
+        return;
+      }
+      const selectCell = state.board[2][unitChoice.col];
+      const selectName = selectCell && selectCell.faceUp ? selectCell.unit.name : 'a unit';
+      setCpuActionText('CPU selects ' + selectName + '...');
+      addCpuHighlight(2, unitChoice.col, 'slot--cpu-active');
+      const chosenCol = unitChoice.col;
+      state.cpuPendingExecute = function () {
+        if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
+        clearCpuHighlights();
+        onSelectUnit(2, chosenCol);
+        // onSelectUnit → renderBoard → maybeScheduleCpuTurn
+      };
+      state.cpuAnnouncing = true;
+      renderTurnUI();
+      return;
+    }
+
+    if (state.actionStep === 'move' && state.selectedUnit && state.selectedUnit.player === 2) {
+      const move = chooseCpuMoveAction();
+      const actingCol = state.selectedUnit.column;
+      const actingCell = state.board[2][actingCol];
+      const unitName = actingCell && actingCell.faceUp ? actingCell.unit.name : 'a unit';
+
+      if (!move || move.moveType === 'skip') {
+        setCpuActionText('CPU skips move...');
+        state.cpuPendingExecute = function () {
+          if (state.gameOver || !isCpuTurn()) return;
+          doSkipMove();
+        };
+        state.cpuAnnouncing = true;
+        renderTurnUI();
+        return;
+      }
+
+      const dirLabel = move.moveType === 'teleport'
+        ? 'teleport to column ' + move.targetCol
+        : move.moveType;
+      setCpuActionText('CPU moves ' + unitName + ' ' + dirLabel + '...');
+      addCpuHighlight(2, actingCol, 'slot--cpu-active');
+      const capturedMove = move;
+      state.cpuPendingExecute = function () {
+        if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
+        clearCpuHighlights();
+        if (capturedMove.moveType === 'left')          doMove('left');
+        else if (capturedMove.moveType === 'right')    doMove('right');
+        else if (capturedMove.moveType === 'teleport') doTeleportMove(capturedMove.targetCol);
+        else doSkipMove();
+        // Each calls renderBoard → maybeScheduleCpuTurn
+      };
+      state.cpuAnnouncing = true;
+      renderTurnUI();
+      return;
+    }
+
+    if (state.actionStep === 'attack' && state.selectedUnit && state.selectedUnit.player === 2) {
+      const attCol = state.selectedUnit.column;
+      const attCell = state.board[2][attCol];
+      if (!attCell) {
+        endTurn();
+        return;
+      }
+      const target = pickCpuAttackTarget(attCol, attCell);
+      if (!target) {
+        doPass();
+        return;
+      }
+      const defCell = state.board[1][target.targetCol];
+      const defName = defCell && defCell.faceUp ? defCell.unit.name : 'one of your units';
+      const attName = attCell.faceUp ? attCell.unit.name : 'a unit';
+      setCpuActionText('CPU attacks your ' + defName + ' with ' + attName + '!');
+      addCpuHighlight(2, attCol, 'slot--cpu-active');
+      addCpuHighlight(1, target.targetCol, 'slot--cpu-target');
+      const capturedAttCol = attCol;
+      const capturedTargetCol = target.targetCol;
+      state.cpuPendingExecute = function () {
+        if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
+        clearCpuHighlights();
+        beginAttackAgainstTarget(2, capturedAttCol, 1, capturedTargetCol);
+        maybeScheduleCpuTurn();
+      };
+      state.cpuAnnouncing = true;
+      renderTurnUI();
+      return;
+    }
   }
 
   function doWardstoneUse() {
@@ -3292,7 +4150,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Tangle-Vine Bola') return;
 
-    cell.cannotAttackNextTurn = true;
+    cell.cannotAttackNextTurnPending = true;
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
@@ -3320,6 +4178,10 @@
     state.itemTargeting = null;
 
     log("Player " + state.currentPlayer + " uses Corrosive Phial on " + cell.unit.name + " — " + gearRemoved.name + " destroyed.");
+    // If stripping the armor dropped max HP below existing damage, capture the unit now.
+    if (state.board[targetPlayer][targetCol] && (cell.damage || 0) >= getMaxHP(cell)) {
+      applyDamage(targetPlayer, targetCol, 0, "Armor stripped —", false);
+    }
     renderTurnUI();
     renderBoard();
   }
@@ -3528,11 +4390,22 @@
           }
         }
       }
+      flashDamageSlot(player, col);
       return true;
     }
     cell.damage = newTotal;
     if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
+    flashDamageSlot(player, col);
     return false;
+  }
+
+  function flashDamageSlot(player, col) {
+    var dmgSlot = document.querySelector('.row--player' + player + ' .slot[data-column="' + col + '"]');
+    if (!dmgSlot) return;
+    dmgSlot.classList.remove('slot--cpu-damage');
+    void dmgSlot.offsetWidth; // force reflow to restart animation if called twice rapidly
+    dmgSlot.classList.add('slot--cpu-damage');
+    window.setTimeout(function () { dmgSlot.classList.remove('slot--cpu-damage'); }, 420);
   }
 
   function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
@@ -3544,13 +4417,19 @@
     const effectiveClass = getEffectiveAttackerClass(attCell);
     const attackContext = { harlundUsed: false, harlundDeclineLogged: false, harlundPromptResolved: false, harlundDecision: 'no' };
     const vorpalPacket = (state.vorpalNextAttack === attackerPlayer);
-    const trueStrike = vorpalPacket ||
-      (cellHasGearName(attCell, 'True-Strike Lens') && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster')) ||
-      (cellHasGearName(attCell, "Sharpshooter's Scope") && attCell.unit.class === 'Shooter');
+    const isLensStrike  = !vorpalPacket && cellHasGearName(attCell, 'True-Strike Lens') && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster');
+    const isScopeStrike = !vorpalPacket && cellHasGearName(attCell, "Sharpshooter's Scope") && attCell.unit.class === 'Shooter';
+    const trueStrike          = vorpalPacket || isLensStrike || isScopeStrike;
+    const bypassAllCounters   = vorpalPacket || isScopeStrike;
+    const bypassVeteranEffects = vorpalPacket || isScopeStrike;
 
     log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
-    if (trueStrike) {
-      log("True strike — attack ignores terrain and Lancer counters.");
+    if (vorpalPacket) {
+      log("True strike (Vorpal) — attack ignores terrain, Lancer counters, and all veteran effects.");
+    } else if (isScopeStrike) {
+      log("True strike (Scope) — attack ignores terrain, Lancer counters, and veteran effects.");
+    } else if (isLensStrike) {
+      log("True strike (Lens) — attack ignores terrain and unguaranteed Lancer counters.");
     }
 
     if (!trueStrike && getTerrain(attackerPlayer, attackerCol) === 'Unstable Ground') {
@@ -3577,7 +4456,7 @@
     let attackBlocked = false;
     let tivalFailureReason = null;
 
-    if (!trueStrike) {
+    if (!bypassAllCounters) {
       const braskinProtected = attackerIsProtectedByBraskin(attackerPlayer, attackerCol);
       if (braskinProtected) {
         log("Braskin's Uncanny Block — this attack cannot be countered by enemy Lancers.");
@@ -3585,9 +4464,15 @@
         const candidates = [];
         for (let c = 0; c < 5; c++) {
           const cell = state.board[defenderPlayer][c];
-          if (!cell || cell.unit.class !== 'Lancer' || cell.cannotAttackNextTurn) continue;
+          if (!cell || cell.unit.class !== 'Lancer') continue;
           if (!isCounterRangeForLancerCell(attackerCol, c, cell)) continue;
           const guarantee = getCounterGuaranteeInfo(defenderPlayer, c, cell);
+          // Restricted units (paralyzed, cannotAttack, mustRest — any stage) are excluded
+          // unless Rowka's Twin Guard guarantees their counter.
+          const isRestricted = cell.paralyzed || cell.cannotAttackNextTurn || cell.cannotAttackNextTurnPending ||
+                               cell.mustRestNextTurn || cell.mustRestNextTurnPending;
+          if (isRestricted && !guarantee.guaranteed) continue;
+          if (isLensStrike && !guarantee.guaranteed) continue;
           candidates.push({ col: c, guarantee: guarantee });
         }
 
@@ -3737,6 +4622,8 @@
             index: 0,
             damage: damage,
             trueStrike: trueStrike,
+            isScopeStrike: isScopeStrike,
+            bypassVeteranEffects: bypassVeteranEffects,
             harlundUsed: false,
             harlundDeclineLogged: false,
             harlundPromptResolved: false,
@@ -3747,7 +4634,7 @@
           continueArchmageMulti();
           return;
         } else {
-          if (hasAdjacentHarlundForTarget(defenderPlayer, defenderCol)) {
+          if (!bypassVeteranEffects && hasAdjacentHarlundForTarget(defenderPlayer, defenderCol)) {
             state.pendingVeteranPrompt = {
               type: 'harlundOnHitSingle',
               message: "Harlund's Pack Shield: adjacent ally is about to be hit. Swap Harlund in?",
@@ -3761,13 +4648,14 @@
               damage: damage,
               defenderHadBarbedGauntlets: defHasBarbed,
               attClassForBarbed: attCell.unit.class,
+              isScopeStrike: isScopeStrike,
             };
             renderTurnUI();
             renderBoard();
             return;
           }
           const hitCol = maybeRedirectToHarlund(defenderPlayer, defenderCol, attackContext);
-          const packet = resolveDefenderVeteranPacket(attackerPlayer, attackerCol, defenderPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket });
+          const packet = resolveDefenderVeteranPacket(attackerPlayer, attackerCol, defenderPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: vorpalPacket, scopeIgnoresDefenderVeterancy: isScopeStrike });
           if (packet.canceled) {
             attackHitDefender = false;
             if (packet.tivalFailureReason) tivalFailureReason = packet.tivalFailureReason;
@@ -3881,7 +4769,7 @@
         renderBoard();
         return;
       }
-      if (!ar.harlundPromptResolved && hasAdjacentHarlundForTarget(ar.defPlayer, c)) {
+      if (!ar.bypassVeteranEffects && !ar.harlundPromptResolved && hasAdjacentHarlundForTarget(ar.defPlayer, c)) {
         state.pendingVeteranPrompt = {
           type: 'harlundOnHitArchmage',
           message: "Harlund's Pack Shield: adjacent ally is about to be hit by Archmage's Tome. Swap Harlund in?",
@@ -3898,7 +4786,7 @@
         ar.index++;
         continue;
       }
-      const packet = resolveDefenderVeteranPacket(ar.attPlayer, ar.attCol, ar.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: ar.trueStrike && state.vorpalNextAttack === ar.attPlayer });
+      const packet = resolveDefenderVeteranPacket(ar.attPlayer, ar.attCol, ar.defPlayer, hitCol, { vorpalIgnoresDefenderVeterancy: ar.trueStrike && state.vorpalNextAttack === ar.attPlayer, scopeIgnoresDefenderVeterancy: !!ar.isScopeStrike });
       if (packet.canceled) {
         ar.index++;
         continue;
@@ -3939,10 +4827,6 @@
     clearParalyzedForPlayer(state.currentPlayer);
     var playerWhoJustFinished = state.currentPlayer;
     updateJorrenFlagsAtTurnEnd(playerWhoJustFinished);
-    for (let c = 0; c < 5; c++) {
-      const cell = state.board[playerWhoJustFinished][c];
-      if (cell) cell.cannotAttackNextTurn = false;
-    }
     state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
     startOfTurn();
   }
@@ -3973,6 +4857,7 @@
 
     if (state.phase !== 'playing' || state.gameOver) return;
     if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    if (isCpuTurn()) return;
 
     const p = state.currentPlayer;
     const step = state.actionStep;
@@ -4054,7 +4939,8 @@
     if (step === 'attack' && state.selectedUnit) {
       const opp = p === 1 ? 2 : 1;
       const attCell = state.board[p][state.selectedUnit.column];
-      if (attCell && attCell.cannotAttackNextTurn) return;
+      if (attCell && (attCell.cannotAttackNextTurn || attCell.cannotAttackNextTurnPending ||
+          attCell.mustRestNextTurn || attCell.mustRestNextTurnPending)) return;
       if (player === opp && state.board[opp][column]) {
         if (attCell && isInRangeWithCell(state.selectedUnit.column, column, attCell)) {
           prepareCassaTwinArcOpportunity(p, state.selectedUnit.column, opp, column);
@@ -4067,6 +4953,7 @@
 
   function handleItemHandClick(e) {
     if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
+    if (isCpuMode() && !isHumanTurn()) return;
     const seeBtn = e.target.closest('.item-card__see');
     if (seeBtn && state.phase === 'playing') {
       const card = e.target.closest('.item-card');
@@ -4136,6 +5023,10 @@
 
   function openReplaceDrawPickList() {
     if (!itemPickListWrapEl || !itemPickListEl || state.actionStep !== 'use_items' || state.itemTargeting) return;
+    if (isCpuMode() && state.currentPlayer !== 1) {
+      log('Debug: item draw replacement is only available for Player 1 in CPU mode.');
+      return;
+    }
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     if (hand.length === 0) return;
     if (itemPickListSearchEl) {
@@ -4151,6 +5042,7 @@
   }
 
   function replaceLastDrawWith(chosenName) {
+    if (isCpuMode() && state.currentPlayer !== 1) return;
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     if (hand.length === 0) return;
     const idx = state.itemDeck.indexOf(chosenName);
@@ -4176,6 +5068,21 @@
     if (setupBestiaryEnabledEl) {
       setupBestiaryEnabledEl.addEventListener('change', function () {
         state.useBestiaryRules = !!setupBestiaryEnabledEl.checked;
+      });
+    }
+    if (setupModeEl) {
+      setupModeEl.addEventListener('change', function () {
+        syncSetupModeControls();
+      });
+    }
+    if (setupCpuCustomPlacementEl) {
+      setupCpuCustomPlacementEl.addEventListener('change', function () {
+        syncSetupModeControls();
+      });
+    }
+    if (setupCpuDifficultyEl) {
+      setupCpuDifficultyEl.addEventListener('change', function () {
+        syncSetupModeControls();
       });
     }
 
@@ -4222,6 +5129,26 @@
     if (btnPass) btnPass.addEventListener('click', function () { if (!state.gameOver) doPass(); });
     if (btnWardstoneUse) btnWardstoneUse.addEventListener('click', function () { if (!state.gameOver) doWardstoneUse(); });
     if (btnWardstoneNo) btnWardstoneNo.addEventListener('click', function () { if (!state.gameOver) doWardstoneNo(); });
+    if (btnCpuContinue) btnCpuContinue.addEventListener('click', function () {
+      if (!state.gameOver && state.cpuAnnouncing) triggerCpuPendingStep();
+    });
+
+    if (btnSaveLog) btnSaveLog.addEventListener('click', function () {
+      if (state.phase === 'playing' || state.gameOver) downloadGameLog(false);
+    });
+    if (btnSaveLogAndNew) btnSaveLogAndNew.addEventListener('click', function () {
+      downloadGameLog(true);
+      doStartNewGame();
+    });
+    if (btnSkipLogAndNew) btnSkipLogAndNew.addEventListener('click', function () {
+      doStartNewGame();
+    });
+    if (btnCancelNewGame) btnCancelNewGame.addEventListener('click', function () {
+      if (saveLogModal) saveLogModal.hidden = true;
+    });
+    if (saveLogBackdrop) saveLogBackdrop.addEventListener('click', function () {
+      if (saveLogModal) saveLogModal.hidden = true;
+    });
 
     placementHand.addEventListener('click', handlePlacementHandClick);
     if (placementHandFilterEl) {
@@ -4325,11 +5252,13 @@
     if (itemZoomBackdrop && itemZoomModal) {
       itemZoomBackdrop.addEventListener('click', closeItemZoom);
     }
+    syncSetupModeControls();
   });
 
   function openUnitZoom(player, col) {
     const cell = state.board[player][col];
     if (!cell || !unitZoomModal) return;
+    const maskedForViewer = shouldMaskForViewer(player, 1, cell);
     const unit = cell.unit;
     const unitImgWrap = document.getElementById('unit-zoom-unit');
     const gearImgWrap = document.getElementById('unit-zoom-gear');
@@ -4338,33 +5267,38 @@
     const terrainImgWrap = document.getElementById('unit-zoom-terrain');
     const markersEl = document.getElementById('unit-zoom-markers');
     if (!unitImgWrap || !markersEl) return;
-    const unitSrc = getUnitCardImagePath(unit);
-    unitImgWrap.innerHTML = '<img src="' + unitSrc + '" alt="' + (unit.name || 'Unit') + '" onerror="this.src=\'assets/units/unit-placeholder-for-dev.png\'">';
+    const unitSrc = maskedForViewer ? 'assets/units/unit-card-back.png' : getUnitCardImagePath(unit);
+    const unitAlt = maskedForViewer ? 'Hidden enemy unit' : (unit.name || 'Unit');
+    unitImgWrap.innerHTML = '<img src="' + unitSrc + '" alt="' + unitAlt + '" onerror="this.src=\'assets/units/unit-placeholder-for-dev.png\'">';
     markersEl.innerHTML = '';
-    const maxHP = getMaxHP(cell);
-    const dmg = cell.damage || 0;
-    if (dmg > 0) {
-      const m = document.createElement('span');
-      m.className = 'marker marker--damage';
-      m.textContent = dmg + '/' + maxHP + ' dmg';
-      markersEl.appendChild(m);
-    }
-    if (cell.paralyzed) {
-      const m = document.createElement('span');
-      m.className = 'marker marker--paralyzed';
-      m.textContent = 'Paralyzed';
-      markersEl.appendChild(m);
+    if (!maskedForViewer) {
+      const maxHP = getMaxHP(cell);
+      const dmg = cell.damage || 0;
+      if (dmg > 0) {
+        const m = document.createElement('span');
+        m.className = 'marker marker--damage';
+        m.textContent = dmg + '/' + maxHP + ' dmg';
+        markersEl.appendChild(m);
+      }
+      if (cell.paralyzed) {
+        const m = document.createElement('span');
+        m.className = 'marker marker--paralyzed';
+        m.textContent = 'Paralyzed';
+        markersEl.appendChild(m);
+      }
     }
     if (cell.gear && gearImgWrap) {
-      const gsrc = getItemCardImagePath(cell.gear.name || '');
-      gearImgWrap.innerHTML = '<img src="' + gsrc + '" alt="' + (cell.gear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      const gsrc = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(cell.gear.name || '');
+      const gearAlt = maskedForViewer ? 'Hidden enemy gear' : (cell.gear.name || '');
+      gearImgWrap.innerHTML = '<img src="' + gsrc + '" alt="' + gearAlt + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gearImgWrap) gearImgWrap.innerHTML = '';
     const bestiaryEffects = getBestiaryEffectsForUnit(cell.unit);
     const showExtraGearSlot = bestiaryEffects.ironCladShield > 0;
     if (gear2Slot) gear2Slot.hidden = !showExtraGearSlot;
     if (showExtraGearSlot && cell.bonusGear && gear2ImgWrap) {
-      const g2src = getItemCardImagePath(cell.bonusGear.name || '');
-      gear2ImgWrap.innerHTML = '<img src="' + g2src + '" alt="' + (cell.bonusGear.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
+      const g2src = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(cell.bonusGear.name || '');
+      const gear2Alt = maskedForViewer ? 'Hidden enemy gear' : (cell.bonusGear.name || '');
+      gear2ImgWrap.innerHTML = '<img src="' + g2src + '" alt="' + gear2Alt + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gear2ImgWrap) {
       gear2ImgWrap.innerHTML = '';
     }

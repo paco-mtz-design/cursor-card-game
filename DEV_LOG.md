@@ -14,6 +14,44 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 18 — Restriction flag holistic fix
+
+**Status:** Shipped. Covers all unit restriction/paralysis mechanics identified during CPU opponent QA.
+
+### What shipped
+
+**Root-cause bugs fixed:**
+
+- **`cannotAttackNextTurn` lifecycle (Berserker, Tangle-Vine Bola):** The flag was previously cleared at the wrong point in the turn cycle, causing it to never enforce the restriction on the affected player's own turn. Fixed with a two-stage pending → active mechanism: setting the flag now writes `cannotAttackNextTurnPending`; `startOfTurn()` promotes pending → active so the restriction applies for exactly one full turn of the affected player.
+- **`mustRestNextTurn` lifecycle (Archmage's Tome):** Same root-cause bug — the Archmage's rest restriction was cleared before it could take effect. Fixed with the same two-stage `mustRestNextTurnPending` mechanism.
+- **Corrosive Phial instant-kill edge case:** Destroying an armor that was the unit's only remaining HP buffer now correctly captures the unit immediately rather than leaving it at 0 effective HP.
+
+**Counter-attack consistency:**
+
+- Paralyzed units (Magic Paralysis, Solomon's Lunar Dazzle, Chronir's Frozen Chain) can no longer counter-attack as Lancers. Previously the Lancer counter check did not include `paralyzed`.
+- Units with `cannotAttackNextTurn`, `mustRestNextTurn`, and their pending variants are now uniformly excluded from Lancer counter eligibility.
+- **Rowka's Twin Guard overrides restrictions:** A restricted Lancer (any flag) that would receive a Rowka guarantee can still counter. The counter loop now evaluates `getCounterGuaranteeInfo()` before applying the restriction filter, so Rowka's guarantee has priority.
+
+**Selection and highlighting:**
+
+- Pending flags (`cannotAttackNextTurnPending`, `mustRestNextTurnPending`) now block unit selection, slot highlighting, CPU evaluation, and the "Can't attack" badge — consistent with their active counterparts.
+
+**"If Hit" veteran buffs confirmed unaffected:**
+
+- Harlund (Pack Shield), Vaela (Instinctive Strike), Senya (Hex Haze), Iktha (Magma Skin), and Mivara (False Self) all fire passively on the defender side and were already independent of restriction flags. No changes needed; behavior confirmed correct.
+
+### Agreements on restriction rules (see RULES.md for player-facing text)
+
+- A restricted unit cannot be selected to act → cannot move or attack (movement requires initiating an attack).
+- Passive positional swaps (Brawler swap, teleport exchange initiated by another unit) can still move a restricted unit.
+- Paralyzed units are fully frozen and cannot counter-attack.
+- Rowka's Twin Guard guarantee overrides restriction flags for Lancer counters.
+- "If Hit" veteran buffs always fire on restricted units — restriction applies to the unit's own agency, not to defensive passives triggered by being attacked.
+
+**Files touched:** `game.js`, `DEV_LOG.md`, `RULES.md`.
+
+---
+
 ## Phase 16 — Seer's Bestiary wrap-up
 
 **Status:** Wrapped for current scope. Core ruleset + QA-driven fixes shipped; selected UX debt intentionally deferred.

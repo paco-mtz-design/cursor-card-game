@@ -19,16 +19,21 @@ These apply **before** any specific Lancer is chosen or rolls for a counter.
 
 | Situation | What happens |
 |-----------|----------------|
-| **True strike** | Certain attacks are **true strikes** (e.g. Vorpal Honing Amulet; True-Strike Lens on Shooters/Casters; Sharpshooter’s Scope on Shooters). A true strike **skips the Lancer counter step entirely** for that attack. No defender Lancer—including one with a “guaranteed counter” veteran ability—gets a counter attempt. |
+| **True strike** | Certain attacks are **true strikes** — see the **True Strikes** section for a full breakdown. At minimum, a true strike skips unguaranteed Lancer counters and bypasses terrain coin flips. **Sharpshooter’s Scope and Vorpal** also skip guaranteed counters (Rowka/Nyss) and veteran on-hit effects. |
 | **Braskin (Veteran — Uncanny Block)** | If the **attacking unit** is **adjacent** to an allied Braskin (same row, next column left or right), **enemy Lancers do not attempt a counter** against that attack. This applies **even if** a defending Lancer would otherwise have a **guaranteed** counter (e.g. Rowka with Twin Guard). Braskin is evaluated **before** any defender Lancer is selected for that attack. |
 | **No Lancer in range** | If no enemy Lancer can legally counter this attack (range rules, including Vanguard Lance where relevant), there is no counter. |
 
 ### B. A Lancer could counter, but this Lancer does not participate
 
+Any restriction that prevents a unit from acting also prevents them from countering, with one exception (see Rowka below).
+
 | Situation | What happens |
 |-----------|----------------|
-| **Tangle-Vine Bola** | If the Lancer is affected so they **cannot attack** on their next turn, they **cannot counter** either. They are excluded from the counter attempt. |
-| **(Other “cannot attack” flags)** | Any future effect that uses the same “can’t act as attacker/counter” rule would follow the prototype’s implementation (see dev log). |
+| **Tangle-Vine Bola** | The targeted unit cannot attack on their next turn and **cannot counter** during that same turn. |
+| **Berserker (Bestiary)** | After a unit uses the Berserker bonus attacks, it is restricted on its **own next turn** — it cannot be selected to act and **cannot counter** during the opponent’s turn that precedes it (the restriction is pending from the moment Berserker exhausts). |
+| **Archmage’s Tome rest** | After a Caster uses Archmage’s Tome, it must rest on its **own next turn** — cannot be selected to act and **cannot counter** during the opponent’s turn before that. |
+| **Paralyzed** | A unit paralyzed by Magic Paralysis (Caster attack), Solomon’s Lunar Dazzle, or Chronir’s Frozen Chain **cannot counter**. Paralysis is a full freeze — the unit cannot initiate any action, including passive retaliation as a Lancer. |
+| **Rowka’s Twin Guard — exception** | If a restricted Lancer (any restriction above) would have a **Rowka-guaranteed counter** — meaning Rowka is adjacent and grants the guarantee — the guarantee **overrides the restriction**. That Lancer can still counter. This is the only case where a restricted unit may counter. |
 
 ### C. A counter is attempted, but fails before the “success / fail” counter flip
 
@@ -49,17 +54,56 @@ If Unstable Ground on the Lancer’s tile **cancels** the attempt (tails), Rowka
 
 ### E. Order of checks (mental model)
 
-1. Is this attack a **true strike**? → If yes, **no** Lancer counter step.
+1. Is this attack a **true strike**? → If Scope or Vorpal, **no** counter step at all. If Lens, only guaranteed counters (Rowka/Nyss) proceed.
 2. Does **Braskin** block counters for this attacker’s position? → If yes, **no** Lancer counter step.
-3. Is there a **valid countering Lancer** (range, not blocked by Bola, etc.)? → If no, no counter.
+3. Is there a **valid countering Lancer** (in range, not restricted — unless Rowka’s guarantee applies)? → If no, no counter.
 4. **Unstable Ground** on the **countering Lancer’s** tile: does the attempt continue? → If no, counter fails here.
 5. **Counter success** coin — Rowka / Nyss can **force success** where applicable.
 6. **Keera:** If the counter **succeeds**, Keera’s veteran effect can deal extra damage to another enemy in range (prototype implementation detail in dev log).
 
 ---
 
+## Restricted units — what they can and cannot do
+
+A unit is **restricted** when it is affected by paralysis, a "cannot attack" flag, or a "must rest" flag (from Berserker, Tangle-Vine Bola, Archmage's Tome, or similar effects).
+
+### What restriction prevents
+
+| Action | Restricted unit |
+|--------|----------------|
+| Being selected to act (move + attack) | **Blocked** |
+| Initiating movement | **Blocked** (follows from above — you move as part of acting) |
+| Initiating an attack | **Blocked** |
+| Counter-attacking as a Lancer | **Blocked** (see exception below) |
+
+### What restriction does NOT prevent
+
+| Action | Restricted unit |
+|--------|----------------|
+| Being passively moved by another unit's swap or teleport | **Allowed** — the restriction applies to the unit's own agency |
+| Triggering "If Hit" veteran buffs | **Always fires** — see below |
+| Countering when Rowka's Twin Guard guarantees it | **Allowed** — Rowka's guarantee overrides the restriction |
+
+### "If Hit" veteran buffs always fire
+
+The following veteran abilities trigger **passively** when the unit is attacked. They fire regardless of whether the unit is restricted:
+
+| Veteran | Buff | Trigger |
+|---------|------|---------|
+| **Harlund** | Pack Shield | An adjacent ally is hit — Harlund can swap in and take the hit instead |
+| **Vaela** | Instinctive Strike | An enemy moves into Vaela's column — coin flip for a pre-emptive strike |
+| **Senya** | Hex Haze | Senya is hit — coin flip to negate the hit and reflect damage to attacker |
+| **Iktha** | Magma Skin | Iktha is hit — attacker's gear is destroyed before damage |
+| **Mivara** | False Self | Mivara is hit — coin flip to redirect the hit to the enemy in front |
+
+These effects represent instinct and passive defense. A paralyzed or restricted unit still has them.
+
+---
+
 ## Revision notes
 
+- **2026-04-20:** True-strike hierarchy overhaul. Lens now bypasses only unguaranteed counters (Rowka/Nyss still fire). Scope upgraded to bypass all counters and all veteran on-hit effects (Senya/Iktha/Mivara/Harlund). Vorpal also extended to bypass Harlund. Wardstone confirmed as universal intercept. Added True Strikes reference table.
+- **2026-04-18:** Holistic restriction flag fix (Phase 18). Expanded section B to cover all restriction types (paralyzed, Berserker, Archmage rest) and Rowka's override. Added "Restricted units" section with complete rules on what restriction blocks and what it doesn't. Confirmed "If Hit" veteran buffs always fire. Aligns with Phase 18 implementation.
 - **2026-03-27:** Initial section on Lancer counters, true strike, Braskin vs Rowka/Nyss ordering, Unstable Ground vs Twin Guard / Phantom Posture, Tangle-Vine Bola. Aligns with Phase 15 implementation and first QA pass.
 
 ---
@@ -84,7 +128,9 @@ These notes cover current prototype behavior for the remaining defender-passive 
 
 | Situation | What happens |
 |-----------|----------------|
-| **Vorpal vs defender veterancy** | Only **Vorpal Honing Amulet** ignores defender veterancy (including Senya, Iktha, and Mivara). True-Strike Lens and Sharpshooter's Scope still allow these passives to trigger. |
+| **Vorpal vs defender veterancy** | Vorpal Honing Amulet bypasses Senya, Iktha, and Mivara (see True Strikes section for the full hierarchy). |
+| **Scope vs defender veterancy** | Sharpshooter's Scope also bypasses Senya, Iktha, and Mivara — as well as Harlund's Pack Shield. |
+| **Lens vs defender veterancy** | True-Strike Lens does **not** bypass any veteran effects — Senya, Iktha, Mivara, and Harlund all fire normally. |
 | **Iktha (Magma Skin)** | When Iktha is about to be hit, the attacker's gear is destroyed before damage is calculated. If the attacker has no gear, damage proceeds normally. |
 | **Senya (Hex Haze)** | Coin flip on incoming hit: **heads** negates that full hit packet and deals 1 damage to the attacker; **tails** does nothing. After a heads trigger, Hex Haze is unavailable on Senya's next own turn. |
 | **Mivara (False Self), heads + enemy in front** | The hit packet redirects to the enemy directly facing Mivara (same column, opposite row). |
@@ -105,6 +151,25 @@ These notes cover the current prototype behavior for Ardan's R3 veteran implemen
 | **Face-down + reorder behavior** | On Veilstep use, Ardan flips face-down first, then reorder is scoped to **Ardan plus face-down allies only**. Other columns are not selectable during Veilstep reorder. |
 | **No face-down ally available** | Veilstep is not offered; combat flow continues normally. |
 | **Use / No decision** | **Use** enters reorder mode and resumes turn flow after Done. **No** skips reorder and resumes turn flow immediately. |
+
+---
+
+## True Strikes — full reference
+
+A **true strike** is any attack that bypasses some or all of the normal defensive sequence. There are three sources, each with a different power level. **Wardstone Bracelet always intercepts first**, before any of these effects apply — it can negate any attack, including all three true-strike types.
+
+| | True-Strike Lens | Sharpshooter's Scope | Vorpal Honing Amulet |
+|---|---|---|---|
+| **Usable by** | Shooters + Casters | Shooters only (Promotion) | Any unit |
+| **Terrain coin flips** | Bypassed | Bypassed | Bypassed |
+| **Unguaranteed Lancer counters** | Bypassed | Bypassed | Bypassed |
+| **Rowka/Nyss-guaranteed counters** | **Still fire** | Bypassed | Bypassed |
+| **Harlund (Pack Shield)** | **Still fires** | Bypassed | Bypassed |
+| **Senya / Iktha / Mivara** | **Still fire** | Bypassed | Bypassed |
+| **Always lethal** | No | No | Yes |
+| **Wardstone Bracelet** | Blocked | Blocked | Blocked |
+
+**Design intent:** Veteran buffs are always stronger than item effects, so the Lens (an item) cannot override any veteran ability. The Scope is a Promotion — a permanent unit upgrade — and earns the ability to cut through veteran defences. Vorpal adds lethality on top of that.
 
 ---
 
