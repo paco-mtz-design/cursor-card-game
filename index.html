@@ -242,6 +242,21 @@
       </div>
     </div>
   </main>
+
+  <!-- Turn Strip: persistent bottom bar for turn narration and player actions -->
+  <div class="turn-strip" id="turn-strip" hidden aria-live="polite">
+    <div class="turn-strip__narration">
+      <span class="turn-strip__label" id="turn-label">Player 1's turn</span><span class="turn-strip__sep" aria-hidden="true">: </span><span class="turn-strip__step" id="turn-step"></span>
+      <span class="turn-strip__interrupt-badge" aria-hidden="true">INTERRUPT</span>
+    </div>
+    <div class="turn-strip__actions" id="turn-actions" aria-label="Turn actions">
+      <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
+      <button type="button" class="btn btn--small btn--secondary" id="btn-done-with-items" hidden>Done with items</button>
+      <button type="button" class="btn btn--small" id="btn-wardstone-use" hidden>Use Wardstone</button>
+      <button type="button" class="btn btn--small btn--secondary" id="btn-wardstone-no" hidden>No</button>
+      <button type="button" class="btn btn--small btn--primary" id="btn-cpu-continue" hidden>Continue →</button>
+    </div>
+  </div>
   </div><!-- /.page-content -->
 
   <!-- Right companion panel: at body level for clean 100vh height -->
@@ -294,21 +309,6 @@
     </section>
 
   </aside>
-
-  <!-- Turn Strip: persistent bottom bar for turn narration and player actions -->
-  <div class="turn-strip" id="turn-strip" hidden aria-live="polite">
-    <div class="turn-strip__narration">
-      <span class="turn-strip__label" id="turn-label">Player 1's turn</span><span class="turn-strip__sep" aria-hidden="true">: </span><span class="turn-strip__step" id="turn-step"></span>
-      <span class="turn-strip__interrupt-badge" aria-hidden="true">INTERRUPT</span>
-    </div>
-    <div class="turn-strip__actions" id="turn-actions" aria-label="Turn actions">
-      <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
-      <button type="button" class="btn btn--small btn--secondary" id="btn-done-with-items" hidden>Done with items</button>
-      <button type="button" class="btn btn--small" id="btn-wardstone-use" hidden>Use Wardstone</button>
-      <button type="button" class="btn btn--small btn--secondary" id="btn-wardstone-no" hidden>No</button>
-      <button type="button" class="btn btn--small btn--primary" id="btn-cpu-continue" hidden>Continue →</button>
-    </div>
-  </div>
 
   <script src="https://unpkg.com/gsap@3.12.5/dist/gsap.min.js"></script>
   <script src="data.js"></script>
