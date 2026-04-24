@@ -30,6 +30,7 @@ body {
   flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden;
+  padding-bottom: 60px; /* room for fixed Turn Strip */
 }
 
 :root {
@@ -339,6 +340,13 @@ textarea {
 .game-log__entry {
   margin-bottom: 0.2rem;
 }
+
+/* Four-tone log color system */
+.game-log__entry--default { color: #374151; }
+.game-log__entry--red     { color: #dc2626; }
+.game-log__entry--amber   { color: #b45309; background: rgba(245,158,11,0.07); padding: 0 2px; border-radius: 2px; }
+.game-log__entry--blue    { color: #1d4ed8; }
+.game-log__entry--gray    { color: #9ca3af; font-size: 0.72rem; }
 
 .btn {
   padding: 0.5rem 1rem;
@@ -726,27 +734,50 @@ textarea {
 /* Hand cards no longer receive a playable highlight ring. */
 
 .board__right {
-  flex: 0 0 128px;
-  min-width: 120px;
+  flex: 0 0 248px;
+  width: 248px;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  background: #f9fafb;
+  border-left: 1px solid #d6d9e0;
+  padding: 0.75rem;
+  box-sizing: border-box;
+}
+
+/* Score section */
+.score-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0;
+}
+
+.score-row {
+  display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
+.score-row__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  width: 2.5rem;
+  flex-shrink: 0;
+}
+
 .score-markers {
-  display: grid;
-  grid-template-columns: repeat(5, 16px);
-  gap: 5px;
-  justify-content: center;
-  width: max-content;
-  max-width: 100%;
-  margin-inline: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   min-height: 1.5rem;
 }
 
 .score-markers--p2 {
-  margin-top: var(--hand-card-height);
+  /* No longer needs a margin-top offset; lives in score-section row */
 }
 
 .score-markers__dot {
@@ -785,10 +816,10 @@ textarea {
   color: #6b7280;
 }
 
-/* Card aspect ~107:150 — main decks 150px tall */
+/* Card aspect ~107:150 — main decks scaled to match unit card */
 .deck-pile__stack--deck {
-  width: 107px;
-  height: 150px;
+  width: 72px;
+  height: 100px;
   border-radius: 6px;
   background: #e5e7eb;
   border: 1px solid #cbd5e1;
@@ -877,26 +908,214 @@ textarea {
   opacity: 0.7;
 }
 
-/* Debug sidebar — permanent right panel */
-.debug-drawer {
-  flex: 0 0 320px;
-  width: 320px;
-  height: 100vh;
-  background: #f9fafb;
-  border-left: 1px solid #d6d9e0;
-  display: flex;
-  flex-direction: column;
+/* Theater Layer: transparent overlay for Phase 2 animations */
+#theater-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
   overflow: hidden;
 }
 
-.debug-drawer__inner {
-  padding: 1rem;
-  overflow-y: auto;
+/* Turn Strip: persistent bottom bar for turn narration and actions */
+.turn-strip {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 6500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1.25rem;
+  background: #1e293b;
+  border-top: 1px solid #334155;
+  color: #f1f5f9;
+  min-height: 52px;
+  box-sizing: border-box;
+}
+
+.turn-strip__narration {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.turn-strip__label {
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.turn-strip__sep {
+  color: #64748b;
+}
+
+.turn-strip__step {
+  color: #cbd5e1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-strip__interrupt-badge {
+  display: none;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  background: #d97706;
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+  flex-shrink: 0;
+}
+
+.turn-strip__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Interrupt state: amber background */
+.turn-strip--interrupt {
+  background: #78350f;
+  border-top-color: #d97706;
+}
+
+.turn-strip--interrupt .turn-strip__interrupt-badge {
+  display: inline-block;
+}
+
+/* Reorder state */
+.turn-strip--reorder {
+  background: #1a3a2a;
+  border-top-color: #22c55e;
+}
+
+/* Turn Strip button overrides for dark background */
+.turn-strip .btn {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #f1f5f9;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.8rem;
+}
+
+.turn-strip .btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.turn-strip .btn--primary {
+  background: #3b82f6;
+  border-color: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.turn-strip .btn--primary:hover:not(:disabled) {
+  background: #2563eb;
+  border-color: #1d4ed8;
+}
+
+/* Bestiary mini-grid in right panel */
+.bestiary-mini {
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 0.5rem;
+}
+
+.bestiary-mini__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.bestiary-mini__title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.bestiary-mini__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+.bestiary-mini__col {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  color: #111827;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.bestiary-mini__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+  border: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.bestiary-mini__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: grayscale(1) opacity(0.4);
+  transition: filter 0.2s;
+}
+
+.bestiary-mini__col--revealed .bestiary-mini__icon img {
+  filter: none;
+}
+
+.bestiary-mini__col--revealed .bestiary-mini__icon--faction {
+  border-color: #f59e0b;
+}
+
+.bestiary-mini__col--active .bestiary-mini__icon--beast {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+}
+
+/* Debug section (collapsible <details>) */
+.debug-section {
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0.35rem 0;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.debug-section__summary {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #9ca3af;
+  cursor: pointer;
+  user-select: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Game log inside right panel */
+.board__right .game-log {
   flex: 1;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  padding: 0.5rem 0 0;
+  border-top: 1px solid #e5e7eb;
 }
 
 /* Modals — above app header (5000) so dialogs work; hand hovers stay at 3000 */
@@ -1066,6 +1285,14 @@ textarea {
   color: #4b5563;
   width: 100%;
   text-align: left;
+}
+
+.item-zoom__use-btn {
+  background: #3b82f6;
+  border-color: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+  min-width: 140px;
 }
 
 .modal__close {
@@ -1356,6 +1583,7 @@ textarea {
 
 /* Board: 2 rows × 5 columns */
 .board {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -1371,8 +1599,8 @@ textarea {
   justify-content: center;
   align-items: flex-start;
   overflow: visible;
-  /* Room for terrain/gear fan above slots; keep slightly below old 80px to tighten board chrome */
-  margin-top: 70px;
+  /* Room for terrain/gear fan above slots (terrain peeks -40px, plus visual breathing room) */
+  margin-top: 50px;
 }
 
 .row--player2 {
@@ -1383,11 +1611,11 @@ textarea {
   /* Bottom row: “you” in typical view */
 }
 
-/* Slots: fixed 179×250; children use absolute stack inside .unit-tile */
+/* Slots: fixed 120×168; children use absolute stack inside .unit-tile */
 .slot {
   position: relative;
-  width: 179px;
-  height: 250px;
+  width: 120px;
+  height: 168px;
   background: #f4f5f8;
   border: 1px solid #EDEDED;
   border-radius: 5px;
@@ -1463,15 +1691,15 @@ textarea {
 .slot--occupied .unit-tile {
   position: relative;
   width: 100%;
-  height: 250px;
+  height: 168px;
   margin: 0;
   overflow: visible;
 }
 
 .slot--occupied .unit-tile .unit-mini-card {
   position: absolute;
-  width: 143px;
-  aspect-ratio: 179 / 250;
+  width: 96px;
+  aspect-ratio: 120 / 168;
   max-width: none;
   left: 50%;
   border-radius: 6px;
@@ -1482,14 +1710,20 @@ textarea {
 
 /* Subtle hand-placed tilt — always keep translateX(-50%) for horizontal centering */
 .slot--occupied .unit-mini-card--terrain {
-  top: -60px;
+  top: -40px;
   z-index: 1;
   transform: translateX(-50%) rotate(-1deg);
 }
 
-.slot--occupied .unit-mini-card--gear {
-  top: -30px;
+.slot--occupied .unit-mini-card--bonus-gear {
+  top: -27px;
   z-index: 2;
+  transform: translateX(-50%) rotate(-0.5deg);
+}
+
+.slot--occupied .unit-mini-card--gear {
+  top: -14px;
+  z-index: 3;
   transform: translateX(-50%) rotate(1deg);
 }
 
@@ -1538,9 +1772,9 @@ textarea {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 3;
-  width: 179px;
-  height: 250px;
+  z-index: 4;
+  width: 120px;
+  height: 168px;
   margin: 0;
   border-radius: 6px;
   overflow: visible;

@@ -25,7 +25,7 @@
   const setupCpuDifficultyEl = document.getElementById('setup-cpu-difficulty');
   const btnNewGame = document.getElementById('btn-new-game');
   const btnBestiaryOpen = document.getElementById('btn-bestiary-open');
-  const turnBanner = document.getElementById('turn-banner');
+  const turnBanner = document.getElementById('turn-strip');
   const turnLabel = document.getElementById('turn-label');
   const turnStep = document.getElementById('turn-step');
   const turnActions = document.getElementById('turn-actions');
@@ -68,9 +68,9 @@
   const btnSkipLogAndNew = document.getElementById('btn-skip-log-and-new');
   const btnCancelNewGame = document.getElementById('btn-cancel-new-game');
   const saveLogBackdrop = document.getElementById('save-log-backdrop');
-  const debugDrawerEl = document.getElementById('debug-drawer');
-  const btnDebugOpen = document.getElementById('btn-debug-open');
-  const btnDebugClose = document.getElementById('btn-debug-close');
+  const bestiaryMiniEl = document.getElementById('bestiary-mini');
+  const bestiaryMiniGridEl = document.getElementById('bestiary-mini-grid');
+  const itemZoomUseBtn = document.getElementById('btn-item-zoom-use');
   const unitZoomModal = document.getElementById('unit-zoom-modal');
   const unitZoomCloseBtn = document.getElementById('unit-zoom-close');
   const unitZoomBackdrop = document.getElementById('unit-zoom-backdrop');
@@ -96,6 +96,24 @@
   const scoreMarkersP2El = document.getElementById('score-markers-p2');
 
   let state = getInitialState();
+
+  // Lightweight event queue — Phase 2 wraps steps with GSAP animations.
+  // For Phase 1, resume() drives the existing cpuAnnouncing/cpuPendingExecute flow.
+  var EventQueue = (function () {
+    var _paused = false;
+    return {
+      resume: function () {
+        _paused = false;
+        triggerCpuPendingStep();
+      },
+      clear: function () {
+        _paused = false;
+        clearCpuThinkTimer();
+      },
+      get isPaused() { return _paused; },
+      pause: function () { _paused = true; },
+    };
+  }());
 
   function getHiddenCpuEntityNames() {
     const hiddenUnitNames = [];
@@ -141,11 +159,21 @@
     return redacted;
   }
 
-  function log(message) {
+  // tone: 'default' | 'red' | 'amber' | 'blue' | 'gray'
+  function log(message, tone) {
     if (state.rawLogEntries) state.rawLogEntries.push(message);
     if (!gameLogEntries) return;
+    if (!tone) {
+      if (/: tails —|: heads —/.test(message)) tone = 'amber';
+      else if (/\[Bestiary\]/.test(message)) tone = 'amber';
+      else if (/is captured|Game over/.test(message)) tone = 'red';
+      else if (/^Player \d+'s turn\.$/.test(message)) tone = 'gray';
+      else if (/^(Debug:|Debug: |\[Bestiary\]\[Debug\])/.test(message)) tone = 'gray';
+      else if (/^--- /.test(message)) tone = 'gray';
+      else tone = 'default';
+    }
     const entry = document.createElement('div');
-    entry.className = 'game-log__entry';
+    entry.className = 'game-log__entry game-log__entry--' + tone;
     entry.textContent = redactHiddenCpuInfo(message);
     gameLogEntries.appendChild(entry);
     gameLogEntries.scrollTop = gameLogEntries.scrollHeight;
@@ -228,7 +256,7 @@
     if (gameOverEl) gameOverEl.hidden = false;
     if (gameOverMessage) gameOverMessage.textContent = "Player " + winner + " wins!";
     if (turnBanner) turnBanner.hidden = true;
-    log("Game over — Player " + winner + " wins!");
+    log("Game over — Player " + winner + " wins!", 'red');
   }
 
   function shuffle(array) {
@@ -448,6 +476,54 @@
     return showFace ? bestiary.imagePath : (typeof BESTIARY_CARD_BACK_IMAGE !== 'undefined' ? BESTIARY_CARD_BACK_IMAGE : bestiary.imagePath);
   }
 
+  function renderBestiaryMiniGrid() {
+    if (!bestiaryMiniGridEl || !state.bestiary) return;
+    bestiaryMiniGridEl.innerHTML = '';
+    const cols = state.bestiary.columns || [];
+    for (var i = 0; i < cols.length; i++) {
+      var col = cols[i];
+      var revealed = !!col.revealed;
+      var factionDef = getFactionCardDefById(getColumnEffectiveFactionId(col));
+      var bestiaryDef = getBestiaryCardDefById(getColumnEffectiveBestiaryId(col));
+
+      // Detect if this column's faction has any live unit on the board
+      var factionName = factionDef ? factionDef.name : null;
+      var hasActiveUnit = false;
+      if (revealed && factionName) {
+        [1, 2].forEach(function (p) {
+          (state.board[p] || []).forEach(function (cell) {
+            if (cell && cell.unit && getFactionForUnit(cell.unit) === factionName) hasActiveUnit = true;
+          });
+        });
+      }
+
+      var colEl = document.createElement('div');
+      colEl.className = 'bestiary-mini__col' +
+        (revealed ? ' bestiary-mini__col--revealed' : '') +
+        (hasActiveUnit ? ' bestiary-mini__col--active' : '');
+
+      var factionIcon = document.createElement('div');
+      factionIcon.className = 'bestiary-mini__icon bestiary-mini__icon--faction';
+      var factionImg = document.createElement('img');
+      factionImg.src = revealed && factionDef ? factionDef.imagePath : (typeof FACTION_CARD_BACK_IMAGE !== 'undefined' ? FACTION_CARD_BACK_IMAGE : '');
+      factionImg.alt = revealed && factionDef ? factionDef.name : 'Faction';
+      factionImg.title = revealed && factionDef ? factionDef.name : '';
+      factionIcon.appendChild(factionImg);
+
+      var beastIcon = document.createElement('div');
+      beastIcon.className = 'bestiary-mini__icon bestiary-mini__icon--beast';
+      var beastImg = document.createElement('img');
+      beastImg.src = revealed && bestiaryDef ? bestiaryDef.imagePath : (typeof BESTIARY_CARD_BACK_IMAGE !== 'undefined' ? BESTIARY_CARD_BACK_IMAGE : '');
+      beastImg.alt = revealed && bestiaryDef ? bestiaryDef.name : 'Bestiary';
+      beastImg.title = revealed && bestiaryDef ? bestiaryDef.name : '';
+      beastIcon.appendChild(beastImg);
+
+      colEl.appendChild(factionIcon);
+      colEl.appendChild(beastIcon);
+      bestiaryMiniGridEl.appendChild(colEl);
+    }
+  }
+
   function renderBestiaryModal() {
     sanitizeBestiaryRevealState();
     if (!bestiaryGrid || !bestiaryStatus) return;
@@ -556,6 +632,7 @@
     const faction = getFactionCardDefById(getColumnEffectiveFactionId(col));
     const bestiaryCard = getBestiaryCardDefById(getColumnEffectiveBestiaryId(col));
     log("[Bestiary] Column " + (idx + 1) + " revealed: " + (faction ? faction.name : 'Faction') + " + " + (bestiaryCard ? bestiaryCard.name : 'Bestiary'));
+    renderBestiaryMiniGrid();
   }
 
   function onBestiaryRevealConfirmed() {
@@ -1842,6 +1919,7 @@
                              mustRestNextTurn || mustRestNextTurnPending;
     const maxHP = cardState.maxHP != null ? cardState.maxHP : getBaseHP(unit.class);
     const gear = cardState.gear || null;
+    const bonusGear = cardState.bonusGear || null;
     const terrain = cardState.terrain || null;
 
     const cardPath = maskedForViewer ? 'assets/units/unit-card-back.png' : getUnitCardImagePath(unit);
@@ -1867,11 +1945,14 @@
     const faceDownOverlayPart = (!faceUp && !maskedForViewer) ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '';
 
     const gearImagePath = maskedForViewer ? 'assets/items/item-card-back.png' : (gear ? getItemCardImagePath(gear.name) : '');
+    const bonusGearImagePath = maskedForViewer ? 'assets/items/item-card-back.png' : (bonusGear ? getItemCardImagePath(bonusGear.name) : '');
     const gearPart = gear ? '<div class="unit-mini-card unit-mini-card--gear"><img class="unit-mini-card__img" src="' + escapeHtml(gearImagePath) + '" alt="" role="presentation"></div>' : '';
+    const bonusGearPart = bonusGear ? '<div class="unit-mini-card unit-mini-card--bonus-gear"><img class="unit-mini-card__img" src="' + escapeHtml(bonusGearImagePath) + '" alt="" role="presentation"></div>' : '';
     const terrainPart = terrain ? '<div class="unit-mini-card unit-mini-card--terrain"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(terrain.name)) + '" alt="" role="presentation"></div>' : '';
 
     return '<div class="unit-tile">' +
       terrainPart +
+      bonusGearPart +
       gearPart +
       '<div class="' + cardClass + '"' + dataAttrs + '>' +
       '<div class="unit-card__img-wrap">' +
@@ -1917,6 +1998,7 @@
               mustRestNextTurnPending: cell.mustRestNextTurnPending || false,
               maxHP: getMaxHP(cell),
               gear: cell.gear || null,
+              bonusGear: cell.bonusGear || null,
               terrain: terrainCell
             })
           : '';
@@ -1936,6 +2018,7 @@
         if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
       }
       renderDiscardPiles();
+      renderBestiaryMiniGrid();
       maybeScheduleCpuTurn();
     }
   }
@@ -2263,7 +2346,7 @@
 
   function doStartNewGame() {
     if (saveLogModal) saveLogModal.hidden = true;
-    clearCpuThinkTimer();
+    EventQueue.clear();
     state = getInitialState();
     if (setupModeEl) {
       setupModeEl.value = 'cpu';
@@ -2296,6 +2379,7 @@
     closePlacementUnitPickList();
     if (gameOverEl) gameOverEl.hidden = true;
     if (btnBestiaryOpen) btnBestiaryOpen.hidden = true;
+    if (bestiaryMiniEl) bestiaryMiniEl.hidden = true;
     showStep('goal');
   }
 
@@ -2661,6 +2745,7 @@
       state.phase = 'playing';
       setupEl.hidden = true;
       if (btnBestiaryOpen) btnBestiaryOpen.hidden = false;
+      if (bestiaryMiniEl) bestiaryMiniEl.hidden = !state.useBestiaryRules;
       state.currentPlayer = state.firstPlayer;
       state.capturedLastTurn = { 1: 0, 2: 0 };
       state.p1ItemHand = [];
@@ -2745,7 +2830,7 @@
     if (reinforcedCount > 0 && !deckEmptyBefore) {
       log("Reinforcement: Player " + p + " places " + reinforcedCount + " unit(s) from the deck.");
     }
-    log("Player " + p + " draws 1 item.");
+    log("Player " + p + " draws 1 item.", 'blue');
 
     updateCaptureDisplay();
     renderTurnUI();
@@ -2804,11 +2889,11 @@
   /** Animate the last card in the given player's item hand (e.g. after draw). Uses GSAP if available. */
   function animateCardIntoHand(player) {
     const listEl = player === 1 ? itemHandP1El : itemHandP2El;
-    if (!listEl || typeof window.gsap !== 'function') return;
+    if (!listEl || !window.gsap) return;
     const cards = listEl.querySelectorAll('.item-card');
     const last = cards[cards.length - 1];
     if (!last) return;
-    window.gsap.fromTo(last, { scale: 0.5, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: 'back.out(1.2)' });
+    window.gsap.fromTo(last, { scale: 0.88, opacity: 0, y: 10 }, { scale: 1, opacity: 1, y: 0, duration: 0.3, ease: 'back.out(1.2)' });
   }
 
   function renderScoreMarkers() {
@@ -3046,6 +3131,7 @@
     const playerLabel = isCpuMode() && p === 2 ? 'CPU (Player 2)' : ('Player ' + p);
     turnLabel.textContent = playerLabel + "'s turn";
 
+    if (turnBanner) turnBanner.classList.remove('turn-strip--interrupt', 'turn-strip--reorder');
     turnActions.hidden = true;
     if (btnPass) btnPass.hidden = true;
     if (btnDoneWithItems) btnDoneWithItems.hidden = true;
@@ -3074,6 +3160,7 @@
     }
 
     if (state.pendingWardstone) {
+      if (turnBanner) turnBanner.classList.add('turn-strip--interrupt');
       turnStep.textContent = "Use Wardstone to negate this attack?";
       turnActions.hidden = false;
       if (btnWardstoneUse) btnWardstoneUse.hidden = false;
@@ -3084,6 +3171,7 @@
     }
     if (state.pendingVeteranPrompt) {
       const pv = state.pendingVeteranPrompt;
+      if (turnBanner) turnBanner.classList.add('turn-strip--interrupt');
       turnStep.textContent = pv.message || 'Use veteran effect?';
       turnActions.hidden = false;
       if (btnWardstoneUse) {
@@ -3105,6 +3193,7 @@
       return;
     }
     if (state.obscuringReorder) {
+      if (turnBanner) turnBanner.classList.add('turn-strip--reorder');
       const kind = state.obscuringReorder.kind || 'obscuring';
       if (kind === 'ardan') {
         turnStep.textContent = "Ardan's Veilstep: click one eligible slot, then another to swap. Then click Done reordering.";
@@ -3309,7 +3398,7 @@
     if (maybeTriggerVaelaFrontStrike(p, next)) return;
     let moveLog = "Player " + p + "'s " + myCell.unit.name + " moves " + direction + " (swaps with " + otherCell.unit.name + ").";
     if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) moveLog += " " + otherCell.unit.name + " is revealed (Divine Light).";
-    log(moveLog);
+    log(moveLog, 'blue');
     renderTurnUI();
     renderBoard();
   }
@@ -4423,7 +4512,7 @@
     const bypassAllCounters   = vorpalPacket || isScopeStrike;
     const bypassVeteranEffects = vorpalPacket || isScopeStrike;
 
-    log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").");
+    log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").", 'red');
     if (vorpalPacket) {
       log("True strike (Vorpal) — attack ignores terrain, Lancer counters, and all veteran effects.");
     } else if (isScopeStrike) {
@@ -4959,7 +5048,11 @@
       const card = e.target.closest('.item-card');
       if (card && card.dataset.itemName) {
         e.preventDefault();
-        openItemZoom(card.dataset.itemName);
+        openItemZoom(
+          card.dataset.itemName,
+          parseInt(card.dataset.itemIndex, 10),
+          parseInt(card.dataset.player, 10)
+        );
       }
       return;
     }
@@ -5065,6 +5158,12 @@
         openBestiaryModal(false);
       });
     }
+    var btnBestiaryMiniExpand = document.getElementById('btn-bestiary-mini-expand');
+    if (btnBestiaryMiniExpand) {
+      btnBestiaryMiniExpand.addEventListener('click', function () {
+        openBestiaryModal(false);
+      });
+    }
     if (setupBestiaryEnabledEl) {
       setupBestiaryEnabledEl.addEventListener('change', function () {
         state.useBestiaryRules = !!setupBestiaryEnabledEl.checked;
@@ -5130,7 +5229,7 @@
     if (btnWardstoneUse) btnWardstoneUse.addEventListener('click', function () { if (!state.gameOver) doWardstoneUse(); });
     if (btnWardstoneNo) btnWardstoneNo.addEventListener('click', function () { if (!state.gameOver) doWardstoneNo(); });
     if (btnCpuContinue) btnCpuContinue.addEventListener('click', function () {
-      if (!state.gameOver && state.cpuAnnouncing) triggerCpuPendingStep();
+      if (!state.gameOver && state.cpuAnnouncing) EventQueue.resume();
     });
 
     if (btnSaveLog) btnSaveLog.addEventListener('click', function () {
@@ -5192,19 +5291,6 @@
       });
     }
     if (btnDoneWithItems) btnDoneWithItems.addEventListener('click', function () { if (!state.gameOver) doDoneWithItems(); });
-
-    if (btnDebugOpen && debugDrawerEl) {
-      btnDebugOpen.addEventListener('click', function () {
-        debugDrawerEl.setAttribute('aria-hidden', 'false');
-        debugDrawerEl.classList.add('is-open');
-      });
-    }
-    if (btnDebugClose && debugDrawerEl) {
-      btnDebugClose.addEventListener('click', function () {
-        debugDrawerEl.setAttribute('aria-hidden', 'true');
-        debugDrawerEl.classList.remove('is-open');
-      });
-    }
 
     document.querySelector('.board').addEventListener('dblclick', function (e) {
       const slot = e.target.closest('.slot');
@@ -5345,8 +5431,11 @@
     if (discardZoomModal) discardZoomModal.hidden = true;
   }
 
-  function openItemZoom(itemName) {
+  var _itemZoomContext = null; // { handIndex, player } while modal is open
+
+  function openItemZoom(itemName, handIndex, player) {
     if (!itemZoomModal || !itemZoomImgWrap || !itemZoomTitle) return;
+    _itemZoomContext = (handIndex != null && player != null) ? { handIndex: handIndex, player: player, itemName: itemName } : null;
     const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
     itemZoomTitle.textContent = itemName || 'Item';
     itemZoomImgWrap.innerHTML = '';
@@ -5364,10 +5453,49 @@
         itemZoomEffect.hidden = true;
       }
     }
+    // Show Use button only when the item is usable right now
+    if (itemZoomUseBtn) {
+      const usable = _itemZoomContext &&
+        state.phase === 'playing' &&
+        state.actionStep === 'use_items' &&
+        !state.itemTargeting &&
+        !state.obscuringReorder &&
+        !state.gameOver &&
+        player === state.currentPlayer &&
+        (!isCpuMode() || player === 1);
+      itemZoomUseBtn.hidden = !usable;
+    }
     itemZoomModal.hidden = false;
   }
 
   function closeItemZoom() {
+    _itemZoomContext = null;
     if (itemZoomModal) itemZoomModal.hidden = true;
+  }
+
+  // Wire item zoom Use button
+  if (itemZoomUseBtn) {
+    itemZoomUseBtn.addEventListener('click', function () {
+      if (!_itemZoomContext || state.gameOver) return;
+      closeItemZoom();
+      // Simulate clicking Use on the hand card by synthesising the same state path
+      var ctx = _itemZoomContext;
+      _itemZoomContext = null;
+      if (state.phase !== 'playing' || state.actionStep !== 'use_items' || state.itemTargeting || state.obscuringReorder) return;
+      if (ctx.player !== state.currentPlayer) return;
+      var itemName = ctx.itemName;
+      var handIndex = ctx.handIndex;
+      var spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
+      var isSingleUse = !!(spec && spec.type === 'single_use');
+      if (isSingleUse && !canCurrentPlayerUseSingleUseItems()) {
+        log("[Bestiary] Muzzled Beast blocks single-use item usage this turn.");
+        return;
+      }
+      if (itemName === 'Vorpal Honing Amulet') { applyVorpalHoningAmulet(handIndex); return; }
+      if (itemName === 'Obscuring bomb') { applyObscuringBomb(handIndex); return; }
+      state.itemTargeting = { handIndex: handIndex, itemName: itemName };
+      renderBoard();
+      renderTurnUI();
+    });
   }
 })();
