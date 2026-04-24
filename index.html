@@ -137,6 +137,30 @@
           </div>
         </section>
       </div>
+
+      <!-- Deck column: back on the board surface, adjacent to the unit rows -->
+      <aside class="board__decks" aria-label="Decks and discard piles">
+        <div class="deck-piles">
+          <div class="deck-pile deck-pile--item-discard" id="discard-pile" hidden aria-label="Item discard pile">
+            <h3 class="deck-pile__title">Item discard (<span id="discard-pile-count">0</span>)</h3>
+            <button type="button" class="deck-pile__stack-btn" id="btn-item-discard-open" aria-label="View item discard pile">
+              <span class="deck-pile__stack deck-pile__stack--discard-mini" id="item-discard-stack" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="deck-pile deck-pile--items" id="items-deck" aria-label="Items deck">
+            <div class="deck-pile__stack deck-pile__stack--back deck-pile__stack--deck" id="items-deck-stack"></div>
+          </div>
+          <div class="deck-pile deck-pile--units" id="units-deck" aria-label="Units deck">
+            <div class="deck-pile__stack deck-pile__stack--back deck-pile__stack--deck" id="units-deck-stack"></div>
+          </div>
+          <div class="deck-pile deck-pile--unit-discard" id="units-discard-pile" hidden aria-label="Units discard pile">
+            <h3 class="deck-pile__title">Unit discard (<span id="unit-discard-count">0</span>)</h3>
+            <button type="button" class="deck-pile__stack-btn" id="btn-unit-discard-open" aria-label="View unit discard pile">
+              <span class="deck-pile__stack deck-pile__stack--discard-mini" id="units-discard-stack" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <!-- Unit zoom modal -->
@@ -245,28 +269,6 @@
         <div class="score-markers score-markers--p1" id="score-markers-p1" aria-label="Player 1 captures"></div>
       </div>
     </section>
-
-    <!-- Deck piles (adjacent to the board visually) -->
-    <div class="deck-piles">
-      <div class="deck-pile deck-pile--item-discard" id="discard-pile" hidden aria-label="Item discard pile">
-        <h3 class="deck-pile__title">Item discard (<span id="discard-pile-count">0</span>)</h3>
-        <button type="button" class="deck-pile__stack-btn" id="btn-item-discard-open" aria-label="View item discard pile">
-          <span class="deck-pile__stack deck-pile__stack--discard-mini" id="item-discard-stack" aria-hidden="true"></span>
-        </button>
-      </div>
-      <div class="deck-pile deck-pile--items" id="items-deck" aria-label="Items deck">
-        <div class="deck-pile__stack deck-pile__stack--back deck-pile__stack--deck" id="items-deck-stack"></div>
-      </div>
-      <div class="deck-pile deck-pile--units" id="units-deck" aria-label="Units deck">
-        <div class="deck-pile__stack deck-pile__stack--back deck-pile__stack--deck" id="units-deck-stack"></div>
-      </div>
-      <div class="deck-pile deck-pile--unit-discard" id="units-discard-pile" hidden aria-label="Units discard pile">
-        <h3 class="deck-pile__title">Unit discard (<span id="unit-discard-count">0</span>)</h3>
-        <button type="button" class="deck-pile__stack-btn" id="btn-unit-discard-open" aria-label="View unit discard pile">
-          <span class="deck-pile__stack deck-pile__stack--discard-mini" id="units-discard-stack" aria-hidden="true"></span>
-        </button>
-      </div>
-    </div>
 
     <!-- Item Replace debug: collapsible; sits before log so log gets flex: 1 of remaining space -->
     <details class="debug-section" id="item-draw-debug" hidden>
