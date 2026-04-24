@@ -482,7 +482,7 @@
     const cols = state.bestiary.columns || [];
     for (var i = 0; i < cols.length; i++) {
       var col = cols[i];
-      var revealed = !!col.revealed;
+      var revealed = isBestiaryColumnActive(col);
       var factionDef = getFactionCardDefById(getColumnEffectiveFactionId(col));
       var bestiaryDef = getBestiaryCardDefById(getColumnEffectiveBestiaryId(col));
 
@@ -654,6 +654,7 @@
       bestiaryModal.hidden = true;
       bestiaryModal.classList.remove('bestiary-modal--locked');
     }
+    renderBestiaryMiniGrid();
     beginQueuedBestiaryRevealIfNeeded();
   }
 
