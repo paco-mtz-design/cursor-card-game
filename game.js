@@ -2886,15 +2886,12 @@
     if (bestiaryModal && !bestiaryModal.hidden) renderBestiaryModal();
   }
 
-  /** Animate the last card in the given player's item hand (e.g. after draw). Uses GSAP if available. */
-  function animateCardIntoHand(player) {
-    const listEl = player === 1 ? itemHandP1El : itemHandP2El;
-    if (!listEl || !window.gsap) return;
-    const cards = listEl.querySelectorAll('.item-card');
-    const last = cards[cards.length - 1];
-    if (!last) return;
-    window.gsap.fromTo(last, { scale: 0.88, opacity: 0, y: 10 }, { scale: 1, opacity: 1, y: 0, duration: 0.3, ease: 'back.out(1.2)' });
-  }
+  // [Phase 2 debt] animateCardIntoHand: GSAP transform animation removed because
+  // animating `y` and `scale` writes inline styles that overwrite the CSS tuck
+  // baseline (translateY(70px)), breaking card position and hover button visibility.
+  // Phase 2 will reimplement using a GSAP-native approach that accounts for the
+  // existing CSS transform rather than replacing it.
+  function animateCardIntoHand(_player) {}
 
   function renderScoreMarkers() {
     const goal = state.captureGoal || 15;
