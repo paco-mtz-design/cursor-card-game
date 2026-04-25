@@ -119,11 +119,45 @@
   // Anim — Phase 2 animation layer
   // All functions are fire-and-forget; they do not block game logic.
   // ============================================================
-  // Deferred coin flip — fires after the current JS task (including renderBoard)
-  // so the coin appears on the already-updated board rather than racing the state change.
-  function queueCoin(heads, player, col) {
-    window.requestAnimationFrame(function () { Anim.coinFlip(heads, player, col); });
-  }
+  // CoinGate — buffers all visual updates (log DOM, renderBoard, renderTurnUI) while a
+  // coin-flip animation sequence is running. Game state mutates immediately; only the
+  // display is held back. Each CoinGate.push() enqueues a flip; after the last one
+  // settles and holds, _flush() releases everything at once.
+  var CoinGate = (function () {
+    var _queue        = [];
+    var _bufLog       = [];
+    var _boardDirty   = false;
+    var _turnUIDirty  = false;
+    var _running      = false;
+
+    function _flush() {
+      _running = false;
+      var logs = _bufLog.splice(0);
+      for (var i = 0; i < logs.length; i++) renderLogEntry(logs[i].msg, logs[i].tone);
+      if (_turnUIDirty) { _turnUIDirty = false; renderTurnUI(); }
+      if (_boardDirty)  { _boardDirty  = false; renderBoard();  }
+    }
+
+    function _drain() {
+      if (!_queue.length) { _flush(); return; }
+      var c = _queue.shift();
+      Anim.coinFlip(c.heads, c.player, c.col, null, _drain);
+    }
+
+    return {
+      get active() { return _running; },
+      push: function (heads, player, col) {
+        _queue.push({ heads: heads, player: player, col: col });
+        if (!_running) {
+          _running = true;
+          window.requestAnimationFrame(_drain);
+        }
+      },
+      bufLog:     function (msg, tone) { _bufLog.push({ msg: msg, tone: tone }); },
+      markBoard:  function () { _boardDirty  = true; },
+      markTurnUI: function () { _turnUIDirty = true; },
+    };
+  }());
 
   var Anim = (function () {
     var g = window.gsap;
@@ -265,12 +299,13 @@
 
       // §6 — Coin flip in the Theater Layer.
       // anchorPlayer/anchorCol: null → centered; otherwise near that slot.
-      // onLand: called when coin settles (show result text).
-      coinFlip: function (heads, anchorPlayer, anchorCol, onLand) {
-        if (!g) { if (onLand) onLand(); return; }
+      // onLand: called when coin settles (e.g. show result text for setup coin).
+      // onComplete: called after the coin fades — used by CoinGate to drain the queue.
+      coinFlip: function (heads, anchorPlayer, anchorCol, onLand, onComplete) {
+        if (!g) { if (onLand) onLand(); if (onComplete) onComplete(); return; }
         var coin  = document.getElementById('theater-coin');
         var inner = document.getElementById('theater-coin-inner');
-        if (!coin || !inner) { if (onLand) onLand(); return; }
+        if (!coin || !inner) { if (onLand) onLand(); if (onComplete) onComplete(); return; }
 
         if (anchorPlayer != null && anchorCol != null) {
           var rect = slotRectRel(anchorPlayer, anchorCol);
@@ -296,12 +331,13 @@
         tl.to(coin,  { opacity: 1, y: 0, scale: 1, duration: 0.2, ease: 'back.out(1.4)' });
         tl.to(inner, { rotationY: finalRot, duration: 0.6, ease: 'power2.inOut' }, 0.1);
         tl.call(function () { if (onLand) onLand(); });
-        tl.to(coin, { opacity: 0, duration: 0.28, ease: 'power1.in', delay: 0.38 });
+        tl.to(coin, { opacity: 0, duration: 0.28, ease: 'power1.in', delay: 0.42 });
         tl.call(function () {
           coin.style.display = 'none';
           coin.classList.remove('theater-coin--centered');
           g.set(coin,  { clearProps: 'opacity,y,scale' });
           g.set(inner, { clearProps: 'rotationY' });
+          if (onComplete) onComplete();
         });
       },
 
@@ -622,8 +658,8 @@
   }
 
   // tone: 'default' | 'red' | 'amber' | 'blue' | 'gray'
-  function log(message, tone) {
-    if (state.rawLogEntries) state.rawLogEntries.push(message);
+  // Direct DOM append — bypasses CoinGate; called by CoinGate._flush and by log().
+  function renderLogEntry(message, tone) {
     if (!gameLogEntries) return;
     if (!tone) {
       if (/: tails —|: heads —/.test(message)) tone = 'amber';
@@ -639,6 +675,12 @@
     entry.textContent = redactHiddenCpuInfo(message);
     gameLogEntries.appendChild(entry);
     gameLogEntries.scrollTop = gameLogEntries.scrollHeight;
+  }
+
+  function log(message, tone) {
+    if (state.rawLogEntries) state.rawLogEntries.push(message);
+    if (CoinGate.active) { CoinGate.bufLog(message, tone); return; }
+    renderLogEntry(message, tone);
   }
 
   function getInitialState() {
@@ -1429,7 +1471,7 @@
   function maybeApplyTorraGearBreak(attCell, attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
     if (!hasVeteranBuff(attCell, 'torra')) return;
     const heads = Math.random() < 0.5;
-    queueCoin(heads, attackerPlayer, attackerCol);
+    CoinGate.push(heads, attackerPlayer, attackerCol);
     const defCell = state.board[defenderPlayer][defenderCol];
     if (!heads) {
       log("Torra's Shattering Hammer: tails — no gear destroyed.");
@@ -1449,7 +1491,7 @@
   function getRokkloDamageBonus(attCell, attackerPlayer, attackerCol) {
     if (!hasVeteranBuff(attCell, 'rokklo')) return 0;
     const heads = Math.random() < 0.5;
-    queueCoin(heads, attackerPlayer, attackerCol);
+    CoinGate.push(heads, attackerPlayer, attackerCol);
     if (!heads) {
       log("Rokklo's Returning Hit: tails — no bonus damage.");
       return 0;
@@ -1475,7 +1517,7 @@
   function maybeApplyLyraEcho(attCell, attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
     if (!hasVeteranBuff(attCell, 'lyra')) return;
     const heads = Math.random() < 0.5;
-    queueCoin(heads, attackerPlayer, attackerCol);
+    CoinGate.push(heads, attackerPlayer, attackerCol);
     if (!heads) {
       log("Lyra's Blast Echo: tails — no extra hit.");
       return;
@@ -1583,7 +1625,7 @@
         log("Senya's Hex Haze is on cooldown this turn — damage is not negated.");
       } else {
         const senyaHeads = Math.random() < 0.5;
-        queueCoin(senyaHeads, defenderPlayer, defenderCol);
+        CoinGate.push(senyaHeads, defenderPlayer, defenderCol);
         if (!senyaHeads) {
           log("Senya's Hex Haze: tails — damage is not negated.");
         } else {
@@ -1600,7 +1642,7 @@
 
     if (hasVeteranBuff(defCell, 'mivara')) {
       const mivaraHeads = Math.random() < 0.5;
-      queueCoin(mivaraHeads, defenderPlayer, defenderCol);
+      CoinGate.push(mivaraHeads, defenderPlayer, defenderCol);
       if (!mivaraHeads) {
         log("Mivara's False Self: tails — no redirection.");
       } else {
@@ -1989,7 +2031,7 @@
     const vaelaCell = state.board[opp][moverCol];
     if (!vaelaCell || !hasVeteranBuff(vaelaCell, 'vaela')) return false;
     const heads = Math.random() < 0.5;
-    queueCoin(heads, opp, moverCol);
+    CoinGate.push(heads, opp, moverCol);
     if (!heads) {
       log("Vaela's Instinctive Strike: tails — no interruption.");
       return false;
@@ -2456,6 +2498,7 @@
   }
 
   function renderBoard() {
+    if (CoinGate.active) { CoinGate.markBoard(); return; }
     applyBestiaryBoardStateMaintenance();
     clearBoard();
     [1, 2].forEach(function (player) {
@@ -3609,6 +3652,7 @@
   }
 
   function renderTurnUI() {
+    if (CoinGate.active) { CoinGate.markTurnUI(); return; }
     sanitizeBestiaryRevealState();
     const p = state.currentPlayer;
     const step = state.actionStep;
@@ -3858,7 +3902,7 @@
 
     if (getTerrain(p, c) === 'Paralyzing Vines') {
       const heads = Math.random() < 0.5;
-      queueCoin(heads, p, c);
+      CoinGate.push(heads, p, c);
       if (!heads) {
         log("Paralyzing Vines: tails — " + myCell.unit.name + "'s move fails. " + myCell.unit.name + " must still attack.");
         state.moveDone = true;
@@ -4991,7 +5035,7 @@
         const attackerCell = state.board[causeInfo.attackerPlayer] && state.board[causeInfo.attackerPlayer][causeInfo.attackerCol];
         if (attackerCell) {
           const heads = Math.random() < 0.5;
-          queueCoin(heads, causeInfo.attackerPlayer, causeInfo.attackerCol);
+          CoinGate.push(heads, causeInfo.attackerPlayer, causeInfo.attackerCol);
           if (heads) {
             log("[Bestiary] Iron Maiden: heads — " + attackerCell.unit.name + " is captured in retaliation.");
             applyDamage(causeInfo.attackerPlayer, causeInfo.attackerCol, getMaxHP(attackerCell), '', true);
@@ -5042,7 +5086,7 @@
 
     if (!trueStrike && getTerrain(attackerPlayer, attackerCol) === 'Unstable Ground') {
       const heads = Math.random() < 0.5;
-      queueCoin(heads, attackerPlayer, attackerCol);
+      CoinGate.push(heads, attackerPlayer, attackerCol);
       if (!heads) {
         log("Unstable Ground (attacker's tile): tails — attack canceled.");
         if (state.pendingCassaSecondAttack && !state.cassaSecondAttackInProgress) state.pendingCassaSecondAttack = null;
@@ -5112,13 +5156,13 @@
 
             if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
               const unstableHeads = Math.random() < 0.5;
-              queueCoin(unstableHeads, defenderPlayer, lancerCol);
+              CoinGate.push(unstableHeads, defenderPlayer, lancerCol);
               if (!unstableHeads) {
                 log("Unstable Ground (Lancer's tile): tails — counter canceled.");
               } else {
                 log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
                 const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
-                if (!guarantee.guaranteed) queueCoin(counterHeads, defenderPlayer, lancerCol);
+                if (!guarantee.guaranteed) CoinGate.push(counterHeads, defenderPlayer, lancerCol);
                 if (guarantee.guaranteed && guarantee.reason === 'rowka') {
                   log("Rowka's Twin Guard — counter is guaranteed.");
                 } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
@@ -5138,7 +5182,7 @@
               }
             } else {
               const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
-              if (!guarantee.guaranteed) queueCoin(counterHeads, defenderPlayer, lancerCol);
+              if (!guarantee.guaranteed) CoinGate.push(counterHeads, defenderPlayer, lancerCol);
               if (guarantee.guaranteed && guarantee.reason === 'rowka') {
                 log("Rowka's Twin Guard — counter is guaranteed.");
               } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
@@ -5187,7 +5231,7 @@
         const defTerrain = getTerrain(defenderPlayer, defenderCol);
         if (defTerrain === 'Elevated Ground' && (effectiveClass === 'Brawler' || effectiveClass === 'Lancer')) {
           const heads = Math.random() < 0.5;
-          queueCoin(heads, defenderPlayer, defenderCol);
+          CoinGate.push(heads, defenderPlayer, defenderCol);
           if (heads) {
             log("Elevated Ground: heads — attack fails.");
             defenderTerrainBlocked = true;
@@ -5198,7 +5242,7 @@
           }
         } else if (defTerrain === 'Reinforced Barricade' && (effectiveClass === 'Shooter' || effectiveClass === 'Caster')) {
           const heads = Math.random() < 0.5;
-          queueCoin(heads, defenderPlayer, defenderCol);
+          CoinGate.push(heads, defenderPlayer, defenderCol);
           if (heads) {
             log("Reinforced Barricade: heads — attack fails.");
             defenderTerrainBlocked = true;
@@ -5312,7 +5356,7 @@
 
     if (attackAppliedToUnit && defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
       const heads = Math.random() < 0.5;
-      queueCoin(heads, defenderPlayer, defenderCol);
+      CoinGate.push(heads, defenderPlayer, defenderCol);
       if (heads) {
         const attCellRef = state.board[attackerPlayer][attackerCol];
         if (attCellRef) {
