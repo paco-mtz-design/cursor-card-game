@@ -22,18 +22,6 @@
     <div class="game-over" id="game-over" hidden aria-live="polite">
       <p class="game-over__message" id="game-over-message"></p>
     </div>
-    <div class="header__turn header__action-bar" id="turn-banner" hidden>
-      <div class="header__turn-text" id="turn-summary" aria-live="polite">
-        <span class="turn-banner__label" id="turn-label">Player 1's turn</span><span class="turn-banner__sep" aria-hidden="true">: </span><span class="turn-banner__step" id="turn-step"></span>
-      </div>
-      <div class="action-strip action-strip--header" id="turn-actions" hidden aria-label="Turn actions">
-        <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
-        <button type="button" class="btn btn--small btn--secondary" id="btn-done-with-items" hidden>Done with items</button>
-        <button type="button" class="btn btn--small" id="btn-wardstone-use" hidden>Use Wardstone</button>
-        <button type="button" class="btn btn--small btn--secondary" id="btn-wardstone-no" hidden>No</button>
-        <button type="button" class="btn btn--small" id="btn-cpu-continue" hidden>Continue →</button>
-      </div>
-    </div>
   </header>
 
   <main class="game">
@@ -99,7 +87,7 @@
       </div>
     </div>
 
-    <!-- Board container: center (hands + board) | right (decks, score) — tarot column hidden until feature ships -->
+    <!-- Board container: center column (hands + board) -->
     <div class="board-container" id="board-container">
       <aside class="board__left" id="board-tarot-slot" hidden aria-hidden="true" aria-label="Tarot cards (coming soon)">
         <div class="tarot-strip" id="tarot-strip">
@@ -118,6 +106,9 @@
         </section>
 
         <div class="board" aria-label="Battlefield">
+          <!-- Theater layer: transparent overlay; Phase 2 populates this -->
+          <div id="theater-layer" aria-hidden="true"></div>
+
           <div class="row row--player2" aria-label="Player 2 units">
             <div class="slot" data-player="2" data-column="0" tabindex="0"></div>
             <div class="slot" data-player="2" data-column="1" tabindex="0"></div>
@@ -147,10 +138,8 @@
         </section>
       </div>
 
-      <aside class="board__right" aria-label="Decks and score">
-        <div class="score-markers score-markers--p2" id="score-markers-p2" aria-label="Player 2 captures">
-          <!-- Filled/outline circles; populated by JS from captureGoal -->
-        </div>
+      <!-- Deck column: back on the board surface, adjacent to the unit rows -->
+      <aside class="board__decks" aria-label="Decks and discard piles">
         <div class="deck-piles">
           <div class="deck-pile deck-pile--item-discard" id="discard-pile" hidden aria-label="Item discard pile">
             <h3 class="deck-pile__title">Item discard (<span id="discard-pile-count">0</span>)</h3>
@@ -171,12 +160,10 @@
             </button>
           </div>
         </div>
-        <div class="score-markers score-markers--p1" id="score-markers-p1" aria-label="Player 1 captures"></div>
       </aside>
     </div>
 
-
-    <!-- Unit zoom modal: click unit on board -->
+    <!-- Unit zoom modal -->
     <div class="modal" id="unit-zoom-modal" role="dialog" aria-modal="true" aria-labelledby="unit-zoom-title" hidden>
       <div class="modal__backdrop" id="unit-zoom-backdrop"></div>
       <div class="modal__content modal__content--unit-zoom">
@@ -213,11 +200,12 @@
         <div class="item-zoom__body">
           <div class="item-zoom__img-wrap" id="item-zoom-img-wrap"></div>
           <p class="item-zoom__effect" id="item-zoom-effect" hidden></p>
+          <button type="button" class="btn item-zoom__use-btn" id="btn-item-zoom-use" hidden>Use this item</button>
         </div>
       </div>
     </div>
 
-    <!-- Discard modal: item or unit pile (mode set in JS) -->
+    <!-- Discard modal -->
     <div class="modal" id="discard-zoom-modal" role="dialog" aria-modal="true" aria-labelledby="discard-zoom-title" hidden>
       <div class="modal__backdrop" id="discard-zoom-backdrop"></div>
       <div class="modal__content modal__content--discard-zoom">
@@ -254,19 +242,53 @@
       </div>
     </div>
   </main>
+
+  <!-- Turn Strip: persistent bottom bar for turn narration and player actions -->
+  <div class="turn-strip" id="turn-strip" hidden aria-live="polite">
+    <div class="turn-strip__narration">
+      <span class="turn-strip__label" id="turn-label">Player 1's turn</span><span class="turn-strip__sep" aria-hidden="true">: </span><span class="turn-strip__step" id="turn-step"></span>
+      <span class="turn-strip__interrupt-badge" aria-hidden="true">INTERRUPT</span>
+    </div>
+    <div class="turn-strip__actions" id="turn-actions" aria-label="Turn actions">
+      <button type="button" class="btn btn--small btn--secondary" id="btn-pass" hidden>Pass (cannot attack)</button>
+      <button type="button" class="btn btn--small btn--secondary" id="btn-done-with-items" hidden>Done with items</button>
+      <button type="button" class="btn btn--small" id="btn-wardstone-use" hidden>Use Wardstone</button>
+      <button type="button" class="btn btn--small btn--secondary" id="btn-wardstone-no" hidden>No</button>
+      <button type="button" class="btn btn--small btn--primary" id="btn-cpu-continue" hidden>Continue →</button>
+    </div>
+  </div>
   </div><!-- /.page-content -->
 
-  <!-- Debug sidebar: permanent right panel with Game Log + item draw debug -->
-  <div class="debug-drawer" id="debug-drawer" aria-hidden="false">
-    <div class="debug-drawer__inner">
-      <section class="game-log" id="game-log" aria-label="Game log">
-        <div class="game-log__header">
-          <h2 class="game-log__title">Game log</h2>
-          <button type="button" class="btn btn--small btn--secondary" id="btn-save-log">Save log</button>
-        </div>
-        <div class="game-log__entries" id="game-log-entries"></div>
-      </section>
-      <div class="item-hands__debug" id="item-draw-debug" hidden aria-label="Debug: replace last item draw">
+  <!-- Right companion panel: at body level for clean 100vh height -->
+  <aside class="board__right" id="board-right" aria-label="Game companion panel">
+
+    <!-- Bestiary mini-grid: hidden during setup -->
+    <section class="bestiary-mini" id="bestiary-mini" hidden aria-label="Seer's Bestiary at a glance">
+      <div class="bestiary-mini__header">
+        <span class="bestiary-mini__title">Seer's Bestiary</span>
+        <button type="button" class="btn btn--small btn--secondary bestiary-mini__expand" id="btn-bestiary-mini-expand">Expand</button>
+      </div>
+      <div class="bestiary-mini__grid" id="bestiary-mini-grid">
+        <!-- 4 columns rendered by JS -->
+      </div>
+    </section>
+
+    <!-- Score markers -->
+    <section class="score-section" id="score-section" aria-label="Score">
+      <div class="score-row">
+        <span class="score-row__label">CPU</span>
+        <div class="score-markers score-markers--p2" id="score-markers-p2" aria-label="Player 2 captures"></div>
+      </div>
+      <div class="score-row">
+        <span class="score-row__label">You</span>
+        <div class="score-markers score-markers--p1" id="score-markers-p1" aria-label="Player 1 captures"></div>
+      </div>
+    </section>
+
+    <!-- Item Replace debug: collapsible; sits before log so log gets flex: 1 of remaining space -->
+    <details class="debug-section" id="item-draw-debug" hidden>
+      <summary class="debug-section__summary">Debug: Item draw</summary>
+      <div class="item-hands__debug" aria-label="Debug: replace last item draw">
         <span class="item-hands__debug-label">Item draw (debug):</span>
         <button type="button" class="btn btn--small btn--secondary" id="btn-replace-draw-with-pick">Replace with pick...</button>
         <div class="item-hands__pick-list-wrap" id="item-pick-list-wrap" hidden>
@@ -275,8 +297,18 @@
           <button type="button" class="btn btn--small btn--secondary item-hands__pick-list-close" id="btn-pick-list-close">Close</button>
         </div>
       </div>
-    </div>
-  </div>
+    </details>
+
+    <!-- Game log: elastic, fills remaining panel space -->
+    <section class="game-log" id="game-log" aria-label="Game log">
+      <div class="game-log__header">
+        <h2 class="game-log__title">Game log</h2>
+        <button type="button" class="btn btn--small btn--secondary" id="btn-save-log">Save log</button>
+      </div>
+      <div class="game-log__entries" id="game-log-entries"></div>
+    </section>
+
+  </aside>
 
   <script src="https://unpkg.com/gsap@3.12.5/dist/gsap.min.js"></script>
   <script src="data.js"></script>
