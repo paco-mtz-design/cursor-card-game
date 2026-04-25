@@ -119,6 +119,12 @@
   // Anim — Phase 2 animation layer
   // All functions are fire-and-forget; they do not block game logic.
   // ============================================================
+  // Deferred coin flip — fires after the current JS task (including renderBoard)
+  // so the coin appears on the already-updated board rather than racing the state change.
+  function queueCoin(heads, player, col) {
+    window.requestAnimationFrame(function () { Anim.coinFlip(heads, player, col); });
+  }
+
   var Anim = (function () {
     var g = window.gsap;
 
@@ -1420,10 +1426,10 @@
     log(reasonLabel + " — " + cell.unit.name + " recovers " + recovered + " HP.");
   }
 
-  function maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol) {
+  function maybeApplyTorraGearBreak(attCell, attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
     if (!hasVeteranBuff(attCell, 'torra')) return;
     const heads = Math.random() < 0.5;
-    Anim.coinFlip(heads, defenderPlayer, defenderCol);
+    queueCoin(heads, attackerPlayer, attackerCol);
     const defCell = state.board[defenderPlayer][defenderCol];
     if (!heads) {
       log("Torra's Shattering Hammer: tails — no gear destroyed.");
@@ -1440,9 +1446,10 @@
     Anim.veteranPulse(defenderPlayer, defenderCol);
   }
 
-  function getRokkloDamageBonus(attCell) {
+  function getRokkloDamageBonus(attCell, attackerPlayer, attackerCol) {
     if (!hasVeteranBuff(attCell, 'rokklo')) return 0;
     const heads = Math.random() < 0.5;
+    queueCoin(heads, attackerPlayer, attackerCol);
     if (!heads) {
       log("Rokklo's Returning Hit: tails — no bonus damage.");
       return 0;
@@ -1465,10 +1472,10 @@
     log("Haskel's Pirate Claw — steals " + stolen.name + " from Player " + defenderPlayer + ".");
   }
 
-  function maybeApplyLyraEcho(attCell, attackerCol, defenderPlayer, defenderCol) {
+  function maybeApplyLyraEcho(attCell, attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
     if (!hasVeteranBuff(attCell, 'lyra')) return;
     const heads = Math.random() < 0.5;
-    Anim.coinFlip(heads, defenderPlayer, defenderCol);
+    queueCoin(heads, attackerPlayer, attackerCol);
     if (!heads) {
       log("Lyra's Blast Echo: tails — no extra hit.");
       return;
@@ -1576,6 +1583,7 @@
         log("Senya's Hex Haze is on cooldown this turn — damage is not negated.");
       } else {
         const senyaHeads = Math.random() < 0.5;
+        queueCoin(senyaHeads, defenderPlayer, defenderCol);
         if (!senyaHeads) {
           log("Senya's Hex Haze: tails — damage is not negated.");
         } else {
@@ -1592,6 +1600,7 @@
 
     if (hasVeteranBuff(defCell, 'mivara')) {
       const mivaraHeads = Math.random() < 0.5;
+      queueCoin(mivaraHeads, defenderPlayer, defenderCol);
       if (!mivaraHeads) {
         log("Mivara's False Self: tails — no redirection.");
       } else {
@@ -1980,6 +1989,7 @@
     const vaelaCell = state.board[opp][moverCol];
     if (!vaelaCell || !hasVeteranBuff(vaelaCell, 'vaela')) return false;
     const heads = Math.random() < 0.5;
+    queueCoin(heads, opp, moverCol);
     if (!heads) {
       log("Vaela's Instinctive Strike: tails — no interruption.");
       return false;
@@ -2106,7 +2116,7 @@
       log(state.board[finalPlayer][finalCol].unit.name + " is paralyzed (Magic Paralysis).");
     }
     maybeApplyHaskelSteal(attCell, prompt.attPlayer, prompt.defPlayer);
-    maybeApplyLyraEcho(attCell, prompt.attCol, finalPlayer, finalCol);
+    maybeApplyLyraEcho(attCell, prompt.attPlayer, prompt.attCol, finalPlayer, finalCol);
     maybeApplySolomonFrontParalyze(attCell, prompt.attCol, prompt.defPlayer);
     maybeApplyChronirAdjacentParalyze(attCell, finalPlayer, finalCol);
     maybeApplyGrolkCaptureHeal(attCell, prompt.attPlayer, prompt.attCol, captured);
@@ -3848,7 +3858,7 @@
 
     if (getTerrain(p, c) === 'Paralyzing Vines') {
       const heads = Math.random() < 0.5;
-      Anim.coinFlip(heads, p, c);
+      queueCoin(heads, p, c);
       if (!heads) {
         log("Paralyzing Vines: tails — " + myCell.unit.name + "'s move fails. " + myCell.unit.name + " must still attack.");
         state.moveDone = true;
@@ -4981,7 +4991,7 @@
         const attackerCell = state.board[causeInfo.attackerPlayer] && state.board[causeInfo.attackerPlayer][causeInfo.attackerCol];
         if (attackerCell) {
           const heads = Math.random() < 0.5;
-          Anim.coinFlip(heads, causeInfo.attackerPlayer, causeInfo.attackerCol);
+          queueCoin(heads, causeInfo.attackerPlayer, causeInfo.attackerCol);
           if (heads) {
             log("[Bestiary] Iron Maiden: heads — " + attackerCell.unit.name + " is captured in retaliation.");
             applyDamage(causeInfo.attackerPlayer, causeInfo.attackerCol, getMaxHP(attackerCell), '', true);
@@ -5032,7 +5042,7 @@
 
     if (!trueStrike && getTerrain(attackerPlayer, attackerCol) === 'Unstable Ground') {
       const heads = Math.random() < 0.5;
-      Anim.coinFlip(heads, attackerPlayer, attackerCol);
+      queueCoin(heads, attackerPlayer, attackerCol);
       if (!heads) {
         log("Unstable Ground (attacker's tile): tails — attack canceled.");
         if (state.pendingCassaSecondAttack && !state.cassaSecondAttackInProgress) state.pendingCassaSecondAttack = null;
@@ -5102,13 +5112,13 @@
 
             if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
               const unstableHeads = Math.random() < 0.5;
-              Anim.coinFlip(unstableHeads, defenderPlayer, lancerCol);
+              queueCoin(unstableHeads, defenderPlayer, lancerCol);
               if (!unstableHeads) {
                 log("Unstable Ground (Lancer's tile): tails — counter canceled.");
               } else {
                 log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
                 const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
-                if (!guarantee.guaranteed) Anim.coinFlip(counterHeads, defenderPlayer, lancerCol);
+                if (!guarantee.guaranteed) queueCoin(counterHeads, defenderPlayer, lancerCol);
                 if (guarantee.guaranteed && guarantee.reason === 'rowka') {
                   log("Rowka's Twin Guard — counter is guaranteed.");
                 } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
@@ -5128,7 +5138,7 @@
               }
             } else {
               const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
-              if (!guarantee.guaranteed) Anim.coinFlip(counterHeads, defenderPlayer, lancerCol);
+              if (!guarantee.guaranteed) queueCoin(counterHeads, defenderPlayer, lancerCol);
               if (guarantee.guaranteed && guarantee.reason === 'rowka') {
                 log("Rowka's Twin Guard — counter is guaranteed.");
               } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
@@ -5177,7 +5187,7 @@
         const defTerrain = getTerrain(defenderPlayer, defenderCol);
         if (defTerrain === 'Elevated Ground' && (effectiveClass === 'Brawler' || effectiveClass === 'Lancer')) {
           const heads = Math.random() < 0.5;
-          Anim.coinFlip(heads, defenderPlayer, defenderCol);
+          queueCoin(heads, defenderPlayer, defenderCol);
           if (heads) {
             log("Elevated Ground: heads — attack fails.");
             defenderTerrainBlocked = true;
@@ -5188,7 +5198,7 @@
           }
         } else if (defTerrain === 'Reinforced Barricade' && (effectiveClass === 'Shooter' || effectiveClass === 'Caster')) {
           const heads = Math.random() < 0.5;
-          Anim.coinFlip(heads, defenderPlayer, defenderCol);
+          queueCoin(heads, defenderPlayer, defenderCol);
           if (heads) {
             log("Reinforced Barricade: heads — attack fails.");
             defenderTerrainBlocked = true;
@@ -5203,13 +5213,13 @@
       if (!defenderTerrainBlocked) {
         const vorpalLethal = vorpalPacket;
         const archmageMulti = effectiveClass === 'Caster' && attCell.unit.class === 'Caster' && cellHasGearName(attCell, "Archmage's Tome") && !attCell.nextAttackAsCaster;
-        maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol);
+        maybeApplyTorraGearBreak(attCell, attackerPlayer, attackerCol, defenderPlayer, defenderCol);
         const shooterLongshot = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol));
         const bestiary = getBestiaryEffectsForUnit(attCell.unit);
         let damage = shooterLongshot
           ? 2
           : 1;
-        damage += getRokkloDamageBonus(attCell);
+        damage += getRokkloDamageBonus(attCell, attackerPlayer, attackerCol);
         damage += getJorrenDamageBonus(attCell);
         damage += bestiary.primalAlpha;
         if (vorpalLethal) {
@@ -5286,7 +5296,7 @@
               log(state.board[finalPlayer][finalCol].unit.name + " is paralyzed (Magic Paralysis).");
             }
             maybeApplyHaskelSteal(attCell, attackerPlayer, defenderPlayer);
-            maybeApplyLyraEcho(attCell, attackerCol, finalPlayer, finalCol);
+            maybeApplyLyraEcho(attCell, attackerPlayer, attackerCol, finalPlayer, finalCol);
             maybeApplySolomonFrontParalyze(attCell, attackerCol, defenderPlayer);
             maybeApplyChronirAdjacentParalyze(attCell, finalPlayer, finalCol);
             maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, captured);
@@ -5302,7 +5312,7 @@
 
     if (attackAppliedToUnit && defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
       const heads = Math.random() < 0.5;
-      Anim.coinFlip(heads, defenderPlayer, defenderCol);
+      queueCoin(heads, defenderPlayer, defenderCol);
       if (heads) {
         const attCellRef = state.board[attackerPlayer][attackerCol];
         if (attCellRef) {
