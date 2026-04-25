@@ -924,7 +924,104 @@ textarea {
   inset: 0;
   pointer-events: none;
   z-index: 100;
+  overflow: visible;
+}
+
+/* §6 Coin flip */
+#theater-coin {
+  position: absolute;
+  width: 76px;
+  height: 76px;
+  display: none;
+  pointer-events: none;
+  z-index: 160;
+  perspective: 500px;
+}
+#theater-coin.theater-coin--centered {
+  left: 50%;
+  top: 30%;
+  transform: translate(-50%, -50%);
+}
+#theater-coin-inner {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+}
+.coin__face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.65rem;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.coin__face--heads {
+  background: radial-gradient(circle at 38% 35%, #fde68a, #d97706);
+  color: #7c2d12;
+  box-shadow: 0 0 16px rgba(217, 119, 6, 0.7);
+}
+.coin__face--tails {
+  background: radial-gradient(circle at 38% 35%, #9ca3af, #374151);
+  color: #f3f4f6;
+  box-shadow: 0 0 16px rgba(55, 65, 81, 0.5);
+  transform: rotateY(180deg);
+}
+
+/* §13 Interrupt spotlight */
+#theater-spotlight {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+  border: 2px solid #f59e0b;
+  border-radius: 10px;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.45), inset 0 0 18px rgba(245, 158, 11, 0.08);
+  z-index: 140;
+}
+
+/* §14 Effect / Bestiary banner */
+#theater-banner {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  transform: translate(-50%, -50%);
+  display: none;
+  pointer-events: none;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: center;
+  z-index: 165;
+  white-space: nowrap;
+  min-width: 180px;
+  line-height: 1.5;
+}
+
+/* Flying card proxies created by animations */
+.theater-proxy {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 6px;
   overflow: hidden;
+  z-index: 200;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.4);
+  background: #1e3a5f;
+}
+.theater-proxy img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 /* Turn Strip: persistent bottom bar for turn narration and actions */

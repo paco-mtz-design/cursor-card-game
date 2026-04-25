@@ -106,8 +106,20 @@
         </section>
 
         <div class="board" aria-label="Battlefield">
-          <!-- Theater layer: transparent overlay; Phase 2 populates this -->
-          <div id="theater-layer" aria-hidden="true"></div>
+          <!-- Theater layer: transparent overlay; Phase 2 animation elements -->
+          <div id="theater-layer" aria-hidden="true">
+            <!-- §6 Coin flip -->
+            <div id="theater-coin">
+              <div id="theater-coin-inner">
+                <div class="coin__face coin__face--heads">Heads</div>
+                <div class="coin__face coin__face--tails">Tails</div>
+              </div>
+            </div>
+            <!-- §13 Interrupt spotlight -->
+            <div id="theater-spotlight"></div>
+            <!-- §14 Bestiary / effect banner -->
+            <div id="theater-banner"></div>
+          </div>
 
           <div class="row row--player2" aria-label="Player 2 units">
             <div class="slot" data-player="2" data-column="0" tabindex="0"></div>
@@ -311,6 +323,7 @@
   </aside>
 
   <script src="https://unpkg.com/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="https://unpkg.com/gsap@3.12.5/dist/Flip.min.js"></script>
   <script src="data.js"></script>
   <script src="cpu.js"></script>
   <script src="game.js"></script>
