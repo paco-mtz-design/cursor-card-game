@@ -223,36 +223,38 @@
       },
 
       // §3 — Attack lunge (attacker surges, defender shakes simultaneously).
+      // Animates the .slot element (not .unit-tile) because renderBoard() replaces
+      // slot innerHTML in the same synchronous call stack — slots survive the re-render.
       attack: function (attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
         if (!g) return;
-        var attTile = tileEl(attackerPlayer, attackerCol);
-        var defTile = tileEl(defenderPlayer, defenderCol);
+        var attSlot = slotEl(attackerPlayer, attackerCol);
+        var defSlot = slotEl(defenderPlayer, defenderCol);
         var lungeY  = attackerPlayer === 1 ? -20 : 20;
         var tl = g.timeline();
-        if (attTile) {
-          tl.to(attTile, { y: lungeY, duration: 0.11, ease: 'power3.out' }, 0);
-          tl.to(attTile, { y: 0, duration: 0.22, ease: 'power2.inOut',
-            onComplete: function () { g.set(attTile, { clearProps: 'y' }); } }, 0.11);
+        if (attSlot) {
+          tl.to(attSlot, { y: lungeY, duration: 0.11, ease: 'power3.out' }, 0);
+          tl.to(attSlot, { y: 0, duration: 0.22, ease: 'power2.inOut',
+            onComplete: function () { g.set(attSlot, { clearProps: 'y' }); } }, 0.11);
         }
-        if (defTile) {
-          tl.to(defTile, { keyframes: [
+        if (defSlot) {
+          tl.to(defSlot, { keyframes: [
             { x: -7, duration: 0.05 }, { x: 6, duration: 0.05 },
             { x: -4, duration: 0.05 }, { x: 3, duration: 0.05 },
             { x: 0,  duration: 0.05 }],
-            onComplete: function () { g.set(defTile, { clearProps: 'x' }); } }, 0.09);
+            onComplete: function () { g.set(defSlot, { clearProps: 'x' }); } }, 0.09);
         }
       },
 
-      // §4 — Damage shake (non-attack source; also replaces flashDamageSlot).
+      // §4 — Damage shake (non-attack source; also covers all flashDamageSlot calls).
       damageShake: function (player, col) {
         if (!g) return;
-        var tile = tileEl(player, col);
-        if (!tile) return;
-        g.to(tile, { keyframes: [
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        g.to(slot, { keyframes: [
           { x: -6, duration: 0.05 }, { x: 5, duration: 0.05 },
           { x: -4, duration: 0.05 }, { x: 3, duration: 0.05 },
           { x: 0,  duration: 0.05 }],
-          onComplete: function () { g.set(tile, { clearProps: 'x' }); } });
+          onComplete: function () { g.set(slot, { clearProps: 'x' }); } });
       },
 
       // §6 — Coin flip in the Theater Layer.
@@ -404,28 +406,27 @@
           onComplete: function () { removeEl(proxy); } });
       },
 
-      // §11 — Terrain effect activates: warm brightness pulse.
+      // §11 — Terrain effect activates: amber brightness flash on the slot.
+      // Animates the slot (not the mini-card element) so it survives renderBoard().
       terrainPulse: function (player, col) {
         if (!g) return;
         var slot = slotEl(player, col);
         if (!slot) return;
-        var tc = slot.querySelector('.unit-mini-card--terrain');
-        if (!tc) return;
         g.timeline()
-          .to(tc, { filter: 'brightness(2)', duration: 0.18, ease: 'power2.out' })
-          .to(tc, { filter: 'brightness(1)', duration: 0.35, ease: 'power1.inOut',
-              onComplete: function () { g.set(tc, { clearProps: 'filter' }); } });
+          .to(slot, { filter: 'brightness(1.6) sepia(0.4)', duration: 0.18, ease: 'power2.out' })
+          .to(slot, { filter: 'brightness(1) sepia(0)', duration: 0.4, ease: 'power1.inOut',
+              onComplete: function () { g.set(slot, { clearProps: 'filter' }); } });
       },
 
-      // §12 — Veteran effect fires: subtle scale pulse on unit card.
+      // §12 — Veteran effect fires: scale pulse on the slot (survives renderBoard).
       veteranPulse: function (player, col) {
         if (!g) return;
-        var tile = tileEl(player, col);
-        if (!tile) return;
+        var slot = slotEl(player, col);
+        if (!slot) return;
         g.timeline()
-          .to(tile, { scale: 1.06, duration: 0.15, ease: 'power2.out' })
-          .to(tile, { scale: 1, duration: 0.2, ease: 'power2.inOut',
-              onComplete: function () { g.set(tile, { clearProps: 'scale' }); } });
+          .to(slot, { scale: 1.06, duration: 0.15, ease: 'power2.out' })
+          .to(slot, { scale: 1, duration: 0.2, ease: 'power2.inOut',
+              onComplete: function () { g.set(slot, { clearProps: 'scale' }); } });
       },
 
       // §13 — Interrupt spotlight: amber glow around a card slot.
