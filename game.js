@@ -394,11 +394,12 @@
           g.to(proxy, { scaleX: 0, duration: 0.22, ease: 'power2.in', onComplete: function () {
             proxy.style.background = frontSrc
               ? 'url("' + frontSrc + '") center/cover no-repeat' : '#1e3a5f';
-            // Unhide the tile now — both proxy and tile show the same front art,
-            // so removing the class here produces a seamless crossfade (no blink).
-            if (slotElem) slotElem.classList.remove('slot--revealing');
-            // Phase 2: expand front face
+            // Phase 2: expand front face (tile still hidden — proxy covers it fully at scaleX:1)
             g.to(proxy, { scaleX: 1, duration: 0.22, ease: 'power2.out', onComplete: function () {
+              // Unhide the tile NOW — proxy is at full width and opacity:1, so both show
+              // the same front art simultaneously. The subsequent fade is a seamless
+              // crossfade: no blink and no duplicate visible during expansion.
+              if (slotElem) slotElem.classList.remove('slot--revealing');
               g.to(proxy, { opacity: 0, duration: 0.25, delay: 0.45,
                 onComplete: function () {
                   removeEl(proxy);
@@ -2044,16 +2045,22 @@
       }
       return defenderCol;
     }
+    // §8: reveal Harlund at their CURRENT position before the swap — this is the
+    // discovery moment. Capture move token too so the slide fires after the reveal.
+    const harlundWasHidden = !harlundCell.faceUp;
+    if (harlundWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, harlundCol);
+    const harlundSwapToken = Anim.captureMoveState(defenderPlayer, harlundCol, defenderCol);
     state.board[defenderPlayer][defenderCol] = harlundCell;
     state.board[defenderPlayer][harlundCol] = allyCell;
-    const harlundWasHidden = !state.board[defenderPlayer][defenderCol].faceUp;
     state.board[defenderPlayer][defenderCol].faceUp = true;
-    if (harlundWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, defenderCol);
     if (attackContext) {
       attackContext.harlundUsed = true;
       attackContext.protectedCol = harlundCol;
     }
     log("Harlund's Pack Shield — " + harlundCell.unit.name + " swaps in and takes the hit.");
+    // Slide fires after the reveal completes (or immediately if Harlund was already face-up)
+    var doSlide = function () { Anim.animateMove(harlundSwapToken); };
+    if (!Anim.afterReveal(defenderPlayer, harlundCol, doSlide)) doSlide();
     return defenderCol;
   }
 
