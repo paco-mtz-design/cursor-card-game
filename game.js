@@ -1831,6 +1831,7 @@
   function maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, didCapture) {
     if (!hasVeteranBuff(attCell, 'grolk') || !didCapture) return;
     const heads = Math.random() < 0.5;
+    CoinGate.push(heads, attackerPlayer, attackerCol);
     if (!heads) {
       log("Grolk's Bloodthirst: tails — no healing.");
       return;
@@ -2168,6 +2169,7 @@
     }
     if (finalTargetHadBarbed && (prompt.attClassForBarbed === 'Brawler' || prompt.attClassForBarbed === 'Lancer')) {
       const heads = Math.random() < 0.5;
+      CoinGate.push(heads, finalPlayer, finalCol);
       if (heads) {
         const attRef = state.board[prompt.attPlayer][prompt.attCol];
         if (attRef) {
@@ -3976,6 +3978,7 @@
 
     if (getTerrain(p, fromCol) === 'Paralyzing Vines') {
       const heads = Math.random() < 0.5;
+      CoinGate.push(heads, p, fromCol);
       if (!heads) {
         log("Paralyzing Vines: tails — " + myCell.unit.name + "'s teleport fails. " + myCell.unit.name + " must still attack.");
         state.moveDone = true;
@@ -4759,6 +4762,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'All revealing lantern-jar') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     cell.faceUp = true;
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
@@ -4768,6 +4772,7 @@
     log("Player " + state.currentPlayer + " uses All revealing lantern-jar on " + cell.unit.name + ". " + cell.unit.name + " is revealed.");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function applyDisablingNet(targetPlayer, targetCol) {
@@ -4781,6 +4786,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Tangle-Vine Bola') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     cell.cannotAttackNextTurnPending = true;
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
@@ -4790,6 +4796,7 @@
     log("Player " + state.currentPlayer + " uses Tangle-Vine Bola on " + cell.unit.name + ". " + cell.unit.name + " cannot attack on their next turn.");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function applyCorrosivePhial(targetPlayer, targetCol) {
@@ -4801,6 +4808,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Corrosive Phial') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     const gearRemoved = removeGearFromCell(cell);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(gearRemoved);
@@ -4815,6 +4823,7 @@
     }
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function applyObscuringBomb(handIndex) {
@@ -4822,6 +4831,7 @@
     const item = hand[handIndex];
     if (!item || item.name !== 'Obscuring bomb') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, handIndex);
     const p = state.currentPlayer;
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
@@ -4836,6 +4846,7 @@
     log("Player " + p + " uses Obscuring bomb — all units flipped face-down. Reorder by swapping slots, then click Done reordering.");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function doObscuringSwap(colA, colB) {
@@ -4955,6 +4966,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Tectonic Spike') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(terrainHere);
     state.terrain[targetPlayer][targetCol] = null;
@@ -4965,6 +4977,7 @@
     log("Player " + state.currentPlayer + " uses Tectonic Spike — " + terrainHere.name + " removed from tile (Player " + targetPlayer + ", column " + targetCol + ").");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function applyEquipArmor(targetPlayer, targetCol) {
@@ -5420,6 +5433,7 @@
         const ter = getTerrain(ar.defPlayer, c);
         if (ter === 'Reinforced Barricade') {
           const heads = Math.random() < 0.5;
+          CoinGate.push(heads, ar.defPlayer, c);
           if (heads) {
             log("Reinforced Barricade (column " + c + "): heads — Archmage's Tome hit fails for this unit.");
             ar.index++;
