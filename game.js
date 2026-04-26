@@ -167,6 +167,10 @@
 
   var Anim = (function () {
     var g = window.gsap;
+    // Per-slot deferred animation queue: while a cpuReveal flip is playing for a
+    // slot, flashDamageSlot and unitCapture register themselves here instead of
+    // firing immediately. When the flip completes the queue drains in order.
+    var _revealPending = {};
 
     function slotEl(player, col) {
       return document.querySelector('.row--player' + player + ' .slot[data-column="' + col + '"]');
@@ -359,11 +363,10 @@
 
       // §8 — CPU face-down reveal: accordion card flip (back squeezes, front expands).
       // Call BEFORE renderBoard() so tileEl still exists for proxy positioning.
-      // frontSrc is read from state (not the DOM img) because face-down cards render
-      // unit-card-back.png in the <img> element — the DOM img is always the back.
-      // onRevealComplete: optional callback fired after the proxy fades — used to
-      // chain a capture arc so it plays after the reveal, not simultaneously.
-      cpuReveal: function (player, col, onRevealComplete) {
+      // frontSrc is read from state because face-down cards render unit-card-back.png.
+      // Registers a _revealPending entry for this slot so any subsequent
+      // flashDamageSlot / unitCapture calls automatically chain after the flip.
+      cpuReveal: function (player, col) {
         if (!g) return;
         var tile = tileEl(player, col);
         if (!tile || !boardEl) return;
@@ -372,6 +375,7 @@
         var stateCell = state.board[player] && state.board[player][col];
         var frontSrc = (stateCell && stateCell.unit) ? getUnitCardImagePath(stateCell.unit) : '';
         var slotElem = slotEl(player, col);
+        var key = player + ':' + col;
 
         var theater = theaterEl();
         if (!theater) return;
@@ -384,21 +388,24 @@
 
         function startFlip() {
           proxy.style.display = '';
-          // Hide the underlying tile so the re-rendered face-up card doesn't show through
+          _revealPending[key] = [];
           if (slotElem) slotElem.classList.add('slot--revealing');
-          // Phase 1: squeeze the back face to edge-on
+          // Phase 1: squeeze back face to edge-on
           g.to(proxy, { scaleX: 0, duration: 0.22, ease: 'power2.in', onComplete: function () {
-            // Swap to front art
             proxy.style.background = frontSrc
-              ? 'url("' + frontSrc + '") center/cover no-repeat'
-              : '#1e3a5f';
-            // Phase 2: expand to reveal the front
+              ? 'url("' + frontSrc + '") center/cover no-repeat' : '#1e3a5f';
+            // Unhide the tile now — both proxy and tile show the same front art,
+            // so removing the class here produces a seamless crossfade (no blink).
+            if (slotElem) slotElem.classList.remove('slot--revealing');
+            // Phase 2: expand front face
             g.to(proxy, { scaleX: 1, duration: 0.22, ease: 'power2.out', onComplete: function () {
               g.to(proxy, { opacity: 0, duration: 0.25, delay: 0.45,
                 onComplete: function () {
                   removeEl(proxy);
-                  if (slotElem) slotElem.classList.remove('slot--revealing');
-                  if (onRevealComplete) onRevealComplete();
+                  // Drain any animations that were deferred until after this reveal
+                  var pending = _revealPending[key] || [];
+                  delete _revealPending[key];
+                  for (var i = 0; i < pending.length; i++) pending[i]();
                 }
               });
             } });
@@ -413,32 +420,15 @@
         }
       },
 
-      // Companion to unitCapture for sequenced animations: creates the arc proxy
-      // immediately (capturing DOM position + state image before the slot is cleared),
-      // but returns a startArc function instead of starting it. Used by applyDamage
-      // to chain the arc after a cpuReveal flip completes.
-      prepareCaptureArc: function (player, col) {
-        if (!g || !boardEl) return function () {};
-        var tile = tileEl(player, col);
-        if (!tile) return function () {};
-        var tr   = tile.getBoundingClientRect();
-        var br   = boardEl.getBoundingClientRect();
-        var dest = captureDestRect();
-        var stateCell = state.board[player] && state.board[player][col];
-        var imgSrc = (stateCell && stateCell.unit) ? getUnitCardImagePath(stateCell.unit)
-                     : (tile.querySelector('.unit-card__img') ? tile.querySelector('.unit-card__img').src : '');
-        var proxy = makeProxy(
-          { left: tr.left - br.left, top: tr.top - br.top, width: tr.width, height: tr.height },
-          imgSrc);
-        if (!proxy) return function () {};
-        proxy.style.display = 'none';
-        var dx = dest.left - (tr.left - br.left);
-        var dy = dest.top  - (tr.top  - br.top);
-        return function startArc() {
-          proxy.style.display = '';
-          g.to(proxy, { x: dx, y: dy, scale: 0.28, opacity: 0, duration: 0.45, ease: 'power2.inOut',
-            onComplete: function () { removeEl(proxy); } });
-        };
+      // If a cpuReveal is active for this slot, queue fn to run after it completes
+      // and return true. Otherwise return false (caller should run fn immediately).
+      afterReveal: function (player, col, fn) {
+        var key = player + ':' + col;
+        if (_revealPending[key] !== undefined) {
+          _revealPending[key].push(fn);
+          return true;
+        }
+        return false;
       },
 
       // §9 — Gear equipped: mini-card slides in from above its resting position.
@@ -580,6 +570,11 @@
           proxy.style.display = '';
           g.to(proxy, { x: dx, y: dy, scale: 0.28, opacity: 0, duration: 0.45, ease: 'power2.inOut',
             onComplete: function () { removeEl(proxy); } });
+        }
+        // Defer the arc until after any active cpuReveal for this slot
+        if (Anim.afterReveal(player, col, startArc)) {
+          proxy.style.display = 'none';
+          return;
         }
         if (CoinGate.active) {
           proxy.style.display = 'none';
@@ -1500,6 +1495,7 @@
     if (!cell) return false;
     if (!cell.faceUp) {
       cell.faceUp = true;
+      if (isCpuPlayer(player)) Anim.cpuReveal(player, col);
       log(cell.unit.name + " is revealed.");
     }
     cell.paralyzed = true;
@@ -2050,7 +2046,9 @@
     }
     state.board[defenderPlayer][defenderCol] = harlundCell;
     state.board[defenderPlayer][harlundCol] = allyCell;
+    const harlundWasHidden = !state.board[defenderPlayer][defenderCol].faceUp;
     state.board[defenderPlayer][defenderCol].faceUp = true;
+    if (harlundWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, defenderCol);
     if (attackContext) {
       attackContext.harlundUsed = true;
       attackContext.protectedCol = harlundCol;
@@ -2342,7 +2340,9 @@
         renderBoard();
         return;
       }
+      const unmakerWasHidden = !cell.faceUp;
       cell.faceUp = true;
+      if (unmakerWasHidden && isCpuPlayer(p)) Anim.cpuReveal(p, c);
       if (maybeCaptureUnmakerOnReveal(p, c, "on action reveal")) {
         state.selectedUnit = null;
         state.actionStep = 'select_unit';
@@ -5024,7 +5024,10 @@
     state.itemTargeting = null;
     if (item.name === 'Divine Light') {
       const cell = state.board[targetPlayer][targetCol];
-      if (cell) cell.faceUp = true;
+      if (cell && !cell.faceUp) {
+        cell.faceUp = true;
+        if (isCpuPlayer(targetPlayer)) Anim.cpuReveal(targetPlayer, targetCol);
+      }
     }
 
     log("Player " + state.currentPlayer + " places " + item.name + " on tile (Player " + targetPlayer + ", column " + targetCol + ").");
@@ -5107,16 +5110,11 @@
         const gears = getCellGearCards(cell);
         for (let g = 0; g < gears.length; g++) state.itemDiscard.push(gears[g]);
       }
-      // §8+§15: for hidden CPU units, sequence the reveal flip THEN the capture arc.
-      // prepareCaptureArc creates the proxy now (before state.board is nulled),
-      // and cpuReveal chains startArc via onRevealComplete after the flip fades.
-      if (wasHidden && isCpuPlayer(player)) {
-        var startCapArc = Anim.prepareCaptureArc(player, col);
-        Anim.cpuReveal(player, col, startCapArc);
-      } else {
-        // §15: unit was already face-up — go straight to capture arc
-        Anim.unitCapture(player, col);
-      }
+      // §8: reveal flip for face-down CPU units (unitCapture below will auto-defer
+      // until after the flip via _revealPending)
+      if (wasHidden && isCpuPlayer(player)) Anim.cpuReveal(player, col);
+      // §15: capture arc — deferred automatically if a cpuReveal is in progress
+      Anim.unitCapture(player, col);
       state.board[player][col] = null;
       if (player === 1) {
         state.p2Captures = (state.p2Captures || 0) + 1;
@@ -5145,17 +5143,20 @@
     }
     cell.damage = newTotal;
     if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
-    // §8: reveal flip for face-down CPU units that survive the hit (before renderBoard)
-    if (wasHidden && isCpuPlayer(player)) Anim.cpuReveal(player, col);
     flashDamageSlot(player, col);
     return false;
   }
 
   function flashDamageSlot(player, col) {
-    if (CoinGate.active) {
-      CoinGate.bufCapture(function () { Anim.damageShake(player, col); });
-    } else {
+    function doShake() {
+      if (!state.board[player] || !state.board[player][col]) return; // skip on empty slot (unit captured)
+      if (Anim.afterReveal(player, col, doShake)) return;
       Anim.damageShake(player, col);
+    }
+    if (CoinGate.active) {
+      CoinGate.bufCapture(doShake);
+    } else {
+      doShake();
     }
   }
 
@@ -5245,13 +5246,16 @@
           const lancerCell = state.board[defenderPlayer][lancerCol];
           if (lancerCell) {
             const guarantee = selected.guarantee;
+            const lancerWasHidden = !lancerCell.faceUp;
             lancerCell.faceUp = true;
+            if (lancerWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, lancerCol);
             log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
 
             if (guarantee.revealCol !== null) {
               const allyCell = state.board[defenderPlayer][guarantee.revealCol];
               if (allyCell && !allyCell.faceUp) {
                 allyCell.faceUp = true;
+                if (isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, guarantee.revealCol);
                 log("Rowka's Twin Guard reveals " + allyCell.unit.name + ".");
               }
             }
@@ -5312,7 +5316,10 @@
     var attackHitDefender = false;
     var attackAppliedToUnit = false;
     if (!attackBlocked) {
+      const defWasHidden = !defCell.faceUp;
       defCell.faceUp = true;
+      // §8: reveal flip before renderBoard — flashDamageSlot/unitCapture will auto-defer
+      if (defWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, defenderCol);
       log("Target revealed: Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
       if (maybeCaptureUnmakerOnReveal(defenderPlayer, defenderCol, "on attack reveal")) {
         attackHitDefender = false;
@@ -5517,7 +5524,9 @@
         ar.index++;
         continue;
       }
+      const archmageTargetWasHidden = !targetCell.faceUp;
       targetCell.faceUp = true;
+      if (archmageTargetWasHidden && isCpuPlayer(ar.defPlayer)) Anim.cpuReveal(ar.defPlayer, c);
       if (!ar.trueStrike) {
         const ter = getTerrain(ar.defPlayer, c);
         if (ter === 'Reinforced Barricade') {
