@@ -358,19 +358,17 @@
       },
 
       // §8 — CPU face-down reveal: accordion card flip (back squeezes, front expands).
-      // Call BEFORE renderBoard() so tileEl still exists; a proxy in the theater layer
-      // finishes playing after renderBoard() empties the slot.
+      // Call BEFORE renderBoard() so tileEl still exists for proxy positioning.
+      // frontSrc is read from state (not the DOM img) because face-down cards render
+      // unit-card-back.png in the <img> element — the DOM img is always the back.
       cpuReveal: function (player, col) {
         if (!g) return;
         var tile = tileEl(player, col);
         if (!tile || !boardEl) return;
         var tr = tile.getBoundingClientRect();
         var br = boardEl.getBoundingClientRect();
-        // Capture the front art path from the card image (currently showing back, but
-        // the state mutation that follows will expose the real path via the card object).
-        // We'll use the unit img src that may already be loaded under the overlay.
-        var cardImg = tile.querySelector('.unit-card__img');
-        var frontSrc = cardImg ? cardImg.src : '';
+        var stateCell = state.board[player] && state.board[player][col];
+        var frontSrc = (stateCell && stateCell.unit) ? getUnitCardImagePath(stateCell.unit) : '';
 
         var theater = theaterEl();
         if (!theater) return;
@@ -3901,11 +3899,13 @@
       }
     }
     log("Player " + player + "'s " + cell.unit.name + " (" + cell.unit.class + ") is revealed and acts.");
+    // §8: cpuReveal proxy must be created before renderBoard() re-renders the tile
+    if (wasHidden && isCpuPlayer(player)) Anim.cpuReveal(player, column);
     renderTurnUI();
     renderBoard();
-    // §1: pulse on the selected card; §7: veil lift if it was face-down
+    // §1: pulse on the selected card; §7: veil lift for P1 face-down units
     Anim.unitSelected(player, column);
-    if (wasHidden) Anim.ownReveal(player, column);
+    if (wasHidden && !isCpuPlayer(player)) Anim.ownReveal(player, column);
   }
 
   function doMove(direction) {
@@ -4801,6 +4801,8 @@
 
     const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     cell.faceUp = true;
+    // §8: reveal flip before renderBoard() while tile is still face-down in DOM
+    if (isCpuPlayer(targetPlayer)) Anim.cpuReveal(targetPlayer, targetCol);
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
@@ -5099,6 +5101,8 @@
     }
     cell.damage = newTotal;
     if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
+    // §8: reveal flip for face-down CPU units that survive the hit (before renderBoard)
+    if (wasHidden && isCpuPlayer(player)) Anim.cpuReveal(player, col);
     flashDamageSlot(player, col);
     return false;
   }
