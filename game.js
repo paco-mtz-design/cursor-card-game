@@ -126,6 +126,7 @@
   var CoinGate = (function () {
     var _queue        = [];
     var _bufLog       = [];
+    var _bufCapture   = [];   // deferred capture/reveal arc starters
     var _boardDirty   = false;
     var _turnUIDirty  = false;
     var _running      = false;
@@ -136,6 +137,10 @@
       for (var i = 0; i < logs.length; i++) renderLogEntry(logs[i].msg, logs[i].tone);
       if (_turnUIDirty) { _turnUIDirty = false; renderTurnUI(); }
       if (_boardDirty)  { _boardDirty  = false; renderBoard();  }
+      // Capture arcs start after the board re-renders so the slot is already empty
+      // when the proxy appears and flies away.
+      var captures = _bufCapture.splice(0);
+      for (var i = 0; i < captures.length; i++) captures[i]();
     }
 
     function _drain() {
@@ -154,6 +159,7 @@
         }
       },
       bufLog:     function (msg, tone) { _bufLog.push({ msg: msg, tone: tone }); },
+      bufCapture: function (fn)        { _bufCapture.push(fn); },
       markBoard:  function () { _boardDirty  = true; },
       markTurnUI: function () { _turnUIDirty = true; },
     };
@@ -382,20 +388,30 @@
           'background:url("assets/units/unit-card-back.png") center/cover no-repeat;';
         theater.appendChild(proxy);
 
-        // Phase 1: squeeze the back face to edge-on
-        g.to(proxy, { scaleX: 0, duration: 0.22, ease: 'power2.in', onComplete: function () {
-          // Swap to front art
-          if (frontSrc) {
-            proxy.style.background = 'url("' + frontSrc + '") center/cover no-repeat';
-          } else {
-            proxy.style.background = '#1e3a5f';
-          }
-          // Phase 2: expand to reveal the front
-          g.to(proxy, { scaleX: 1, duration: 0.22, ease: 'power2.out', onComplete: function () {
-            g.to(proxy, { opacity: 0, duration: 0.25, delay: 0.45,
-              onComplete: function () { removeEl(proxy); } });
+        function startFlip() {
+          proxy.style.display = '';
+          // Phase 1: squeeze the back face to edge-on
+          g.to(proxy, { scaleX: 0, duration: 0.22, ease: 'power2.in', onComplete: function () {
+            // Swap to front art
+            if (frontSrc) {
+              proxy.style.background = 'url("' + frontSrc + '") center/cover no-repeat';
+            } else {
+              proxy.style.background = '#1e3a5f';
+            }
+            // Phase 2: expand to reveal the front
+            g.to(proxy, { scaleX: 1, duration: 0.22, ease: 'power2.out', onComplete: function () {
+              g.to(proxy, { opacity: 0, duration: 0.25, delay: 0.45,
+                onComplete: function () { removeEl(proxy); } });
+            } });
           } });
-        } });
+        }
+
+        if (CoinGate.active) {
+          proxy.style.display = 'none';
+          CoinGate.bufCapture(startFlip);
+        } else {
+          startFlip();
+        }
       },
 
       // §9 — Gear equipped: mini-card slides in from above its resting position.
@@ -529,11 +545,19 @@
           { left: tr.left - br.left, top: tr.top - br.top, width: tr.width, height: tr.height },
           cimg ? cimg.src : '');
         if (!proxy) return;
-        g.to(proxy, {
-          x: dest.left - (tr.left - br.left),
-          y: dest.top  - (tr.top  - br.top),
-          scale: 0.28, opacity: 0, duration: 0.45, ease: 'power2.inOut',
-          onComplete: function () { removeEl(proxy); } });
+        var dx = dest.left - (tr.left - br.left);
+        var dy = dest.top  - (tr.top  - br.top);
+        function startArc() {
+          proxy.style.display = '';
+          g.to(proxy, { x: dx, y: dy, scale: 0.28, opacity: 0, duration: 0.45, ease: 'power2.inOut',
+            onComplete: function () { removeEl(proxy); } });
+        }
+        if (CoinGate.active) {
+          proxy.style.display = 'none';
+          CoinGate.bufCapture(startArc);
+        } else {
+          startArc();
+        }
       },
 
       // §16 — Unit placed during setup: slides in from below.
