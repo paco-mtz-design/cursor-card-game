@@ -3274,7 +3274,13 @@
     for (let i = 0; i < n; i++) {
       Anim.unitPlacement(player, emptySlots[i], i * 70);
     }
-    if (handRef.length === 0) finishPlacementForPlayer(player);
+    // Delay finishPlacementForPlayer until after the last animation completes.
+    // Calling it immediately would trigger a renderBoard() that replaces the
+    // freshly-created tile elements before GSAP has animated them.
+    if (handRef.length === 0) {
+      var finishDelay = (n - 1) * 70 + 370;
+      window.setTimeout(function () { finishPlacementForPlayer(player); }, finishDelay);
+    }
   }
 
   function finishPlacementForPlayer(player) {
@@ -3956,8 +3962,13 @@
     log(moveLog, 'blue');
     renderTurnUI();
     renderBoard();
-    // §2: animate both cards sliding to their new positions
-    Anim.animateMove(moveAnimToken);
+    // §2: defer through CoinGate when Paralyzing Vines coin is mid-flight so the
+    // slide fires after renderBoard() actually runs and tiles are at new positions.
+    if (CoinGate.active) {
+      CoinGate.bufCapture(function () { Anim.animateMove(moveAnimToken); });
+    } else {
+      Anim.animateMove(moveAnimToken);
+    }
   }
 
   function doSkipMove() {
@@ -4007,6 +4018,9 @@
       log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and teleports.");
     }
 
+    // §2: capture pre-teleport slot positions before any state mutation
+    const moveAnimToken = Anim.captureMoveState(p, fromCol, toCol);
+
     if (targetCell == null) {
       state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.board[p][fromCol] = null;
@@ -4035,6 +4049,12 @@
     if (maybeTriggerVaelaFrontStrike(p, toCol)) return;
     renderTurnUI();
     renderBoard();
+    // §2: defer through CoinGate when Paralyzing Vines coin is mid-flight
+    if (CoinGate.active) {
+      CoinGate.bufCapture(function () { Anim.animateMove(moveAnimToken); });
+    } else {
+      Anim.animateMove(moveAnimToken);
+    }
   }
 
   function doPass() {
