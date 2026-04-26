@@ -2127,6 +2127,11 @@ textarea {
   animation: cpu-damage-flash 0.4s ease-out forwards;
 }
 
+/* Hide the underlying tile while a cpuReveal flip proxy plays over it */
+.slot--revealing .unit-tile {
+  visibility: hidden;
+}
+
 @keyframes cpu-pulse-active {
   from { outline-color: #f59e0b; }
   to   { outline-color: #fcd34d; box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
