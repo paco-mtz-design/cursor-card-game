@@ -14,6 +14,59 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 2 — Animation layer: CoinGate fixes and wiring completion
+
+**Status:** Shipped. All known animation gaps closed; CoinGate sequencing corrected for capture arcs and defender shakes.
+
+### What shipped
+
+**CoinGate — deferred proxy animations**
+
+`CoinGate` previously buffered log entries and render calls during coin-flip animations, but theater-layer proxies (`unitCapture`, `cpuReveal`) fired immediately and unconditionally. This caused visual cause-and-effect inversions: for example, Mivara's False Self would show the defender's card arc to the discard pile before the coin had even appeared, then the coin would land showing "tails" after the fact.
+
+Fixed by adding a `_bufCapture` queue to `CoinGate` (parallel to `_bufLog`). `Anim.unitCapture()` and `Anim.cpuReveal()` now detect `CoinGate.active`: if the gate is open, the proxy is created immediately (capturing DOM position and image while the slot still exists) but hidden, and the animation start function is queued via `CoinGate.bufCapture()`. After all queued coins settle, `_flush()` empties the log buffer, re-renders the board and UI, then starts the deferred proxy animations — so the slot empties and the capture arc begins in the same paint frame.
+
+**Defender shake — only fires on confirmed hits**
+
+`Anim.attack()` previously fired both the attacker lunge and a defender shake simultaneously at the start of `resolveCombat()`, before any veteran effects, terrain coins, Lancer counters, or Wardstone interrupts were evaluated. The defender shook even when the attack was later canceled, blocked, or redirected.
+
+Fixed by removing the defender shake from `Anim.attack()` (lunge only). The shake already existed in `flashDamageSlot()` → `Anim.damageShake()`, called at the end of every `applyDamage()` path — so it naturally fires only when damage actually resolves. `flashDamageSlot()` is also now CoinGate-aware: when a coin is mid-flight the shake is buffered and plays after the coin settles.
+
+**Attack-blocking cases now correctly silent (no defender shake):**
+
+| Effect | Block condition |
+|---|---|
+| Unstable Ground on attacker | Tails → `return` before `applyDamage(defender)` |
+| Lancer counter (heads) | `attackBlocked = true` gates `applyDamage(defender)` |
+| Senya's Hex Haze (heads) | Attack negated; `applyDamage(Senya)` never called |
+| Mivara's False Self (heads) | Redirected; `applyDamage` fires on a different target |
+| Elevated Ground (heads) | `defenderTerrainBlocked` skips `applyDamage(defender)` |
+| Reinforced Barricade (heads) | Same |
+| Wardstone Bracelet used | Interrupt flow skips `applyDamage(original defender)` |
+| Harlund's Pack Shield used | `applyDamage` fires on Harlund, not original target |
+| Unmaker on reveal | Unmaker lethal capture bypasses the normal damage path |
+
+**Wired coin flips (previously silent)**
+
+Four `Math.random() < 0.5` calls had no `CoinGate.push()` and fired silently:
+- Grolk's Bloodthirst (attacker heals 1 HP on capture)
+- Barbed Gauntlets in the Archmage multi-hit path
+- Paralyzing Vines in the Teleport Boots move path
+- Reinforced Barricade in the Archmage multi-hit path (per-target)
+
+**Wired item consume animations (previously silent)**
+
+Five single-use items disappeared from the hand without animation:
+- All-revealing lantern-jar (`applyRevealingLight`)
+- Tangle-Vine Bola (`applyDisablingNet`)
+- Corrosive Phial (`applyCorrosivePhial`)
+- Obscuring Bomb (`applyObscuringBomb`)
+- Tectonic Spike (`applyTectonicSpike`)
+
+**Files touched:** `game.js`, `DEV_LOG.md`.
+
+---
+
 ## Phase 18 — Restriction flag holistic fix
 
 **Status:** Shipped. Covers all unit restriction/paralysis mechanics identified during CPU opponent QA.
