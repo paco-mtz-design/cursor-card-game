@@ -268,26 +268,19 @@
         }
       },
 
-      // §3 — Attack lunge (attacker surges, defender shakes simultaneously).
-      // Animates the .slot element (not .unit-tile) because renderBoard() replaces
-      // slot innerHTML in the same synchronous call stack — slots survive the re-render.
-      attack: function (attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
+      // §3 — Attack lunge (attacker surges toward opponent row).
+      // Defender shake is intentionally omitted here — flashDamageSlot() handles it
+      // after all checks (veteran effects, terrain, counters) confirm the hit landed.
+      // Animates the .slot element so it survives renderBoard() re-renders.
+      attack: function (attackerPlayer, attackerCol) {
         if (!g) return;
         var attSlot = slotEl(attackerPlayer, attackerCol);
-        var defSlot = slotEl(defenderPlayer, defenderCol);
         var lungeY  = attackerPlayer === 1 ? -20 : 20;
-        var tl = g.timeline();
         if (attSlot) {
-          tl.to(attSlot, { y: lungeY, duration: 0.11, ease: 'power3.out' }, 0);
-          tl.to(attSlot, { y: 0, duration: 0.22, ease: 'power2.inOut',
-            onComplete: function () { g.set(attSlot, { clearProps: 'y' }); } }, 0.11);
-        }
-        if (defSlot) {
-          tl.to(defSlot, { keyframes: [
-            { x: -7, duration: 0.05 }, { x: 6, duration: 0.05 },
-            { x: -4, duration: 0.05 }, { x: 3, duration: 0.05 },
-            { x: 0,  duration: 0.05 }],
-            onComplete: function () { g.set(defSlot, { clearProps: 'x' }); } }, 0.09);
+          g.timeline()
+            .to(attSlot, { y: lungeY, duration: 0.11, ease: 'power3.out' }, 0)
+            .to(attSlot, { y: 0, duration: 0.22, ease: 'power2.inOut',
+              onComplete: function () { g.set(attSlot, { clearProps: 'y' }); } }, 0.11);
         }
       },
 
@@ -5091,7 +5084,11 @@
   }
 
   function flashDamageSlot(player, col) {
-    Anim.damageShake(player, col);
+    if (CoinGate.active) {
+      CoinGate.bufCapture(function () { Anim.damageShake(player, col); });
+    } else {
+      Anim.damageShake(player, col);
+    }
   }
 
   function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
@@ -5109,8 +5106,8 @@
     const bypassAllCounters   = vorpalPacket || isScopeStrike;
     const bypassVeteranEffects = vorpalPacket || isScopeStrike;
 
-    // §3: attack lunge + defender shake
-    Anim.attack(attackerPlayer, attackerCol, defenderPlayer, defenderCol);
+    // §3: attack lunge (shake fires later via flashDamageSlot when hit confirmed)
+    Anim.attack(attackerPlayer, attackerCol);
 
     log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").", 'red');
     if (vorpalPacket) {
@@ -5209,8 +5206,8 @@
                   log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
                   attackBlocked = true;
                   tivalFailureReason = "attack was blocked by a Lancer counter";
-                  // §5: counter-attack lunge (roles reversed)
-                  Anim.attack(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
+                  // §5: counter-attack lunge (shake fires via flashDamageSlot)
+                  Anim.attack(defenderPlayer, lancerCol);
                   applyDamage(attackerPlayer, attackerCol, 1, "");
                   resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
                 } else {
