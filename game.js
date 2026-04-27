@@ -400,18 +400,24 @@
           g.to(proxy, { scaleX: 0, duration: 0.22, ease: 'power2.in', onComplete: function () {
             proxy.style.background = frontSrc
               ? 'url("' + frontSrc + '") center/cover no-repeat' : '#1e3a5f';
-            // Phase 2: expand front face (tile still hidden)
+            // Patch the underlying tile to show face-up art RIGHT NOW — before Phase 2
+            // starts expanding. This means the tile already shows the correct front art
+            // when slot--revealing is removed, regardless of when renderBoard runs.
+            // Phase 2 then expands over an identical tile: no duplicate, no stale
+            // face-down flash even if a different coin is still gating renderBoard.
+            if (slotElem) slotElem.classList.remove('slot--revealing');
+            var tileCard = slotElem && slotElem.querySelector('.unit-card');
+            if (tileCard) {
+              tileCard.classList.remove('unit-card--face-down-soft');
+              tileCard.classList.add('unit-card--face-up');
+            }
+            var tileImg = slotElem && slotElem.querySelector('.unit-card__img');
+            if (tileImg && frontSrc) tileImg.src = frontSrc;
+            var tileOverlay = slotElem && slotElem.querySelector('.unit-card__face-down-overlay');
+            if (tileOverlay) removeEl(tileOverlay);
+            // Phase 2: expand front face. Both proxy and tile now show the same art,
+            // so no duplicate is visible during expansion.
             g.to(proxy, { scaleX: 1, duration: 0.22, ease: 'power2.out', onComplete: function () {
-              // Unhide the tile. If CoinGate is still buffering renderBoard, defer the
-              // class removal to after the flush so the face-up tile is already rendered
-              // when it becomes visible (avoids showing stale face-down DOM).
-              if (CoinGate.active) {
-                CoinGate.bufCapture(function () {
-                  if (slotElem) slotElem.classList.remove('slot--revealing');
-                });
-              } else {
-                if (slotElem) slotElem.classList.remove('slot--revealing');
-              }
               g.to(proxy, { opacity: 0, duration: 0.25, delay: 0.45,
                 onComplete: function () {
                   removeEl(proxy);
@@ -593,6 +599,10 @@
         var dy = dest.top  - (tr.top  - br.top);
         function startArc() {
           proxy.style.display = '';
+          // Hide the stale DOM tile immediately so it doesn't show alongside
+          // the arcing proxy (renderBoard may still be buffered by CoinGate).
+          var srcTile = tileEl(player, col);
+          if (srcTile) srcTile.style.display = 'none';
           g.to(proxy, { x: dx, y: dy, scale: 0.28, opacity: 0, duration: 0.45, ease: 'power2.inOut',
             onComplete: function () { removeEl(proxy); } });
         }
