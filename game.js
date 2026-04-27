@@ -171,6 +171,9 @@
     // slot, flashDamageSlot and unitCapture register themselves here instead of
     // firing immediately. When the flip completes the queue drains in order.
     var _revealPending = {};
+    // Cross-slot deferral: maps "p:c" → "op:oc" so animations for slot (p,c)
+    // wait for the reveal on slot (op,oc) — used for Lancer/Nyss counter-attack.
+    var _crossSlotDefer = {};
 
     function slotEl(player, col) {
       return document.querySelector('.row--player' + player + ' .slot[data-column="' + col + '"]');
@@ -386,24 +389,33 @@
           'background:url("assets/units/unit-card-back.png") center/cover no-repeat;';
         theater.appendChild(proxy);
 
+        // Register IMMEDIATELY (before any CoinGate branch) so afterReveal() works
+        // even when startFlip is deferred into CoinGate.bufCapture.
+        _revealPending[key] = [];
+
         function startFlip() {
           proxy.style.display = '';
-          _revealPending[key] = [];
           if (slotElem) slotElem.classList.add('slot--revealing');
           // Phase 1: squeeze back face to edge-on
           g.to(proxy, { scaleX: 0, duration: 0.22, ease: 'power2.in', onComplete: function () {
             proxy.style.background = frontSrc
               ? 'url("' + frontSrc + '") center/cover no-repeat' : '#1e3a5f';
-            // Phase 2: expand front face (tile still hidden — proxy covers it fully at scaleX:1)
+            // Phase 2: expand front face (tile still hidden)
             g.to(proxy, { scaleX: 1, duration: 0.22, ease: 'power2.out', onComplete: function () {
-              // Unhide the tile NOW — proxy is at full width and opacity:1, so both show
-              // the same front art simultaneously. The subsequent fade is a seamless
-              // crossfade: no blink and no duplicate visible during expansion.
-              if (slotElem) slotElem.classList.remove('slot--revealing');
+              // Unhide the tile. If CoinGate is still buffering renderBoard, defer the
+              // class removal to after the flush so the face-up tile is already rendered
+              // when it becomes visible (avoids showing stale face-down DOM).
+              if (CoinGate.active) {
+                CoinGate.bufCapture(function () {
+                  if (slotElem) slotElem.classList.remove('slot--revealing');
+                });
+              } else {
+                if (slotElem) slotElem.classList.remove('slot--revealing');
+              }
               g.to(proxy, { opacity: 0, duration: 0.25, delay: 0.45,
                 onComplete: function () {
                   removeEl(proxy);
-                  // Drain any animations that were deferred until after this reveal
+                  if (slotElem) slotElem.classList.remove('slot--revealing'); // safety net
                   var pending = _revealPending[key] || [];
                   delete _revealPending[key];
                   for (var i = 0; i < pending.length; i++) pending[i]();
@@ -421,15 +433,27 @@
         }
       },
 
-      // If a cpuReveal is active for this slot, queue fn to run after it completes
-      // and return true. Otherwise return false (caller should run fn immediately).
+      // If a cpuReveal is active for this slot (or a cross-slot deferral points
+      // here to another active reveal), queue fn and return true.
       afterReveal: function (player, col, fn) {
         var key = player + ':' + col;
         if (_revealPending[key] !== undefined) {
           _revealPending[key].push(fn);
           return true;
         }
+        // Cross-slot: animations for this slot wait for a DIFFERENT slot's reveal
+        var xKey = _crossSlotDefer[key];
+        if (xKey && _revealPending[xKey] !== undefined) {
+          _revealPending[xKey].push(fn);
+          return true;
+        }
         return false;
+      },
+
+      // Register that animations for (player, col) should wait for the reveal
+      // active on (revealPlayer, revealCol). Call before applyDamage.
+      deferForReveal: function (player, col, revealPlayer, revealCol) {
+        _crossSlotDefer[player + ':' + col] = revealPlayer + ':' + revealCol;
       },
 
       // §9 — Gear equipped: mini-card slides in from above its resting position.
@@ -5285,8 +5309,11 @@
                   log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
                   attackBlocked = true;
                   tivalFailureReason = "attack was blocked by a Lancer counter";
-                  // §5: counter-attack lunge (shake fires via flashDamageSlot)
+                  // §5: counter-attack lunge; attacker's animations defer until after Lancer's reveal
                   Anim.attack(defenderPlayer, lancerCol);
+                  if (lancerWasHidden && isCpuPlayer(defenderPlayer)) {
+                    Anim.deferForReveal(attackerPlayer, attackerCol, defenderPlayer, lancerCol);
+                  }
                   applyDamage(attackerPlayer, attackerCol, 1, "");
                   resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
                 } else {
@@ -5305,8 +5332,11 @@
                 log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
                 attackBlocked = true;
                 tivalFailureReason = "attack was blocked by a Lancer counter";
-                // §5: counter-attack lunge (roles reversed)
-                Anim.attack(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
+                // §5: counter-attack lunge; attacker's animations defer until after Lancer's reveal
+                Anim.attack(defenderPlayer, lancerCol);
+                if (lancerWasHidden && isCpuPlayer(defenderPlayer)) {
+                  Anim.deferForReveal(attackerPlayer, attackerCol, defenderPlayer, lancerCol);
+                }
                 applyDamage(attackerPlayer, attackerCol, 1, "");
                 resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
               } else {
