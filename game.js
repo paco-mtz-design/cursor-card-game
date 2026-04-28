@@ -500,11 +500,11 @@
           onComplete: function () { g.set(terrainCard, { clearProps: 'y,opacity' }); } });
       },
 
-      // Helper: get the .hand-card element at a given index for a player's item hand.
+      // Helper: get the .item-card element at a given index for a player's item hand.
       captureHandCard: function (player, handIndex) {
         var hEl = player === 1 ? itemHandP1El : itemHandP2El;
         if (!hEl) return null;
-        var cards = hEl.querySelectorAll('.hand-card');
+        var cards = hEl.querySelectorAll('.item-card');
         return cards[handIndex] || null;
       },
 
@@ -694,13 +694,36 @@
         }
       },
 
+      // §19 — Mini-card (gear, terrain) arcs from a board slot to the item discard pile.
+      // Call BEFORE renderBoard() while the mini-card still exists in the DOM.
+      boardMiniCardDiscard: function (player, col, selector) {
+        if (!g || !boardEl) return;
+        var slotElem = slotEl(player, col);
+        if (!slotElem) return;
+        var miniCard = slotElem.querySelector(selector);
+        if (!miniCard) return;
+        var mr   = miniCard.getBoundingClientRect();
+        var br   = boardEl.getBoundingClientRect();
+        var dest = itemDestRect();
+        var img  = miniCard.querySelector('img');
+        var proxy = makeProxy(
+          { left: mr.left - br.left, top: mr.top - br.top, width: mr.width, height: mr.height },
+          img ? img.src : '');
+        if (!proxy) return;
+        miniCard.style.visibility = 'hidden'; // hide original until renderBoard removes it
+        var dx = dest.left - (mr.left - br.left);
+        var dy = dest.top  - (mr.top  - br.top);
+        g.to(proxy, { x: dx, y: dy, scale: 0.5, opacity: 0, duration: 0.38, ease: 'power2.in',
+          onComplete: function () { removeEl(proxy); } });
+      },
+
       // §18 — Card drawn into hand: last card in hand slides in.
       // Call AFTER renderItemHands() so the new card is in the DOM.
       cardDraw: function (player) {
         if (!g) return;
         var hEl = player === 1 ? itemHandP1El : itemHandP2El;
         if (!hEl) return;
-        var cards = hEl.querySelectorAll('.hand-card');
+        var cards = hEl.querySelectorAll('.item-card');
         var last  = cards[cards.length - 1];
         if (!last) return;
         var startY = player === 1 ? -28 : 28;
@@ -4942,6 +4965,8 @@
     if (!item || item.name !== 'Corrosive Phial') return;
 
     const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
+    // §19: capture gear mini-card position before renderBoard removes it
+    Anim.boardMiniCardDiscard(targetPlayer, targetCol, '.unit-mini-card--gear, .unit-mini-card--bonus-gear');
     const gearRemoved = removeGearFromCell(cell);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(gearRemoved);
@@ -5103,6 +5128,8 @@
     if (!item || item.name !== 'Tectonic Spike') return;
 
     const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
+    // §19: capture terrain mini-card position before renderBoard removes it
+    Anim.boardMiniCardDiscard(targetPlayer, targetCol, '.unit-mini-card--terrain');
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(terrainHere);
     state.terrain[targetPlayer][targetCol] = null;
@@ -6232,10 +6259,10 @@
   if (itemZoomUseBtn) {
     itemZoomUseBtn.addEventListener('click', function () {
       if (!_itemZoomContext || state.gameOver) return;
-      closeItemZoom();
-      // Simulate clicking Use on the hand card by synthesising the same state path
+      // Capture context before closeItemZoom() clears _itemZoomContext.
       var ctx = _itemZoomContext;
       _itemZoomContext = null;
+      closeItemZoom();
       if (state.phase !== 'playing' || state.actionStep !== 'use_items' || state.itemTargeting || state.obscuringReorder) return;
       if (ctx.player !== state.currentPlayer) return;
       var itemName = ctx.itemName;

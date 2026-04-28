@@ -52,6 +52,8 @@ Fixed by keeping `slot--revealing` active through Phase 2. At Phase 2 end (proxy
 
 **Harlund Pack Shield + Archmage's Tome (multi-target)** — The Archmage multi-hit sequence involves several overlapping animations in rapid succession: original target reveal, Harlund redirect, Harlund reveal (if face-down), swap slide, capture arc, Reinforced Barricade coin per adjacent target. With BeatQueue these are sequenced more correctly than before but the interaction is still visually imperfect under adversarial combinations. Root cause: the multi-target resolution loop runs all `applyDamage` calls synchronously, producing a burst of queued animations that BeatQueue can't fully interleave. A proper fix requires restructuring the Archmage multi-hit resolution into an async step loop (outside current scope). Deferred.
 
+**§15 Captured unit — new reinforcement immediately visible** (UX debt) — When a unit is captured and its capture arc plays, the next face-down unit from the opposing row is already visible in the slot underneath as the arc exits. There is currently no animation for drawing a reinforcement from the units deck and placing it onto the board. This should be addressed as part of a broader "card draw from deck" animation scope (units deck → board, item deck → hand) rather than as a standalone fix. Deferred.
+
 **Files touched:** `game.js`, `style.css`, `DEV_LOG.md`.
 
 ---
