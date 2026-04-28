@@ -14,6 +14,48 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 2 — Animation layer: BeatQueue foundation + display sequencing fixes
+
+**Status:** Shipped. BeatQueue generalises CoinGate; reveal/arc/board display now sequenced correctly.
+
+### What shipped
+
+**BeatQueue — generalised display gate**
+
+`CoinGate` only buffered `renderBoard`, `renderTurnUI`, and log during coin-flip animations. All other animations (reveal flips, capture arcs) were fire-and-forget, so HP counters, log entries, and the CPU continue button could appear mid-animation.
+
+Replaced the internal `_running` boolean with a new `BeatQueue` object (reference-counted gate). `BeatQueue.open()` / `BeatQueue.close()` allow any blocking animation to hold display. CoinGate's public API is unchanged — it delegates internally to BeatQueue. `_flush()` order changed: logs → capture starters (which may call `open()` to extend the gate) → board/turnUI only if gate is closed. This ensures `maybeScheduleCpuTurn()` and the Continue button don't fire while a capture arc is in flight.
+
+**cpuReveal — ghost-card (duplicate) eliminated**
+
+Previously the DOM tile was patched to face-up art at Phase 1 end (edge-on). During Phase 2 expansion both the proxy and the tile were visible simultaneously; the tile showed HP markers and gear the proxy didn't, creating a ghost/duplicate effect.
+
+Fixed by keeping `slot--revealing` active through Phase 2. At Phase 2 end (proxy fully expanded, covering the tile), `slot--revealing` is removed and the tile is patched. The proxy then fades, crossfading into the fully-detailed tile underneath. No ghost.
+
+**cpuReveal — display gated for the full flip sequence**
+
+`startFlip()` now calls `BeatQueue.open()` at the start. HP counters, log entries, and board state are held until the proxy fade completes (and any pending items like the capture arc have also finished).
+
+**unitCapture arc — gates Continue button**
+
+`startArc()` now calls `BeatQueue.open()` at start and `BeatQueue.close()` in its `onComplete`. The board renders (and `maybeScheduleCpuTurn()` fires) only after the card has physically left the board.
+
+**Face-down shake guard**
+
+`flashDamageSlot.doShake()` now checks whether the DOM tile still has `unit-card--face-down-soft` before firing the shake. When `renderBoard` is buffered and no reveal animation is active (e.g. a P1 face-down unit hit by a Lancer counter), the shake is suppressed on the stale face-down tile instead of playing on a card that hasn't been revealed yet.
+
+**Coin z-index lifted above proxies**
+
+`#theater-coin` raised from z-index 160 → 210 (above `.theater-proxy` at 200) so the coin always appears on top of reveal and capture proxies when they occupy the same area.
+
+### Known tech debt (deferred)
+
+**Harlund Pack Shield + Archmage's Tome (multi-target)** — The Archmage multi-hit sequence involves several overlapping animations in rapid succession: original target reveal, Harlund redirect, Harlund reveal (if face-down), swap slide, capture arc, Reinforced Barricade coin per adjacent target. With BeatQueue these are sequenced more correctly than before but the interaction is still visually imperfect under adversarial combinations. Root cause: the multi-target resolution loop runs all `applyDamage` calls synchronously, producing a burst of queued animations that BeatQueue can't fully interleave. A proper fix requires restructuring the Archmage multi-hit resolution into an async step loop (outside current scope). Deferred.
+
+**Files touched:** `game.js`, `style.css`, `DEV_LOG.md`.
+
+---
+
 ## Phase 2 — Animation layer: CoinGate fixes and wiring completion
 
 **Status:** Shipped. All known animation gaps closed; CoinGate sequencing corrected for capture arcs and defender shakes.

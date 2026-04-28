@@ -934,7 +934,7 @@ textarea {
   height: 76px;
   display: none;
   pointer-events: none;
-  z-index: 160;
+  z-index: 210;
   perspective: 500px;
 }
 #theater-coin.theater-coin--centered {

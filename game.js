@@ -117,51 +117,67 @@
 
   // ============================================================
   // Anim — Phase 2 animation layer
-  // All functions are fire-and-forget; they do not block game logic.
+  // BeatQueue is a reference-counted display gate. Any blocking animation calls
+  // BeatQueue.open() at start and BeatQueue.close() in its onComplete. While count > 0,
+  // renderBoard / renderTurnUI / log are buffered. When count reaches 0, _flush()
+  // releases them. CoinGate sequences coin flips as BeatQueue beats; its public API
+  // is unchanged so all call sites continue to work without modification.
   // ============================================================
-  // CoinGate — buffers all visual updates (log DOM, renderBoard, renderTurnUI) while a
-  // coin-flip animation sequence is running. Game state mutates immediately; only the
-  // display is held back. Each CoinGate.push() enqueues a flip; after the last one
-  // settles and holds, _flush() releases everything at once.
-  var CoinGate = (function () {
-    var _queue        = [];
-    var _bufLog       = [];
-    var _bufCapture   = [];   // deferred capture/reveal arc starters
-    var _boardDirty   = false;
-    var _turnUIDirty  = false;
-    var _running      = false;
+  var BeatQueue = (function () {
+    var _count       = 0;
+    var _bufLog      = [];
+    var _bufCapture  = [];
+    var _boardDirty  = false;
+    var _turnUIDirty = false;
 
     function _flush() {
-      _running = false;
       var logs = _bufLog.splice(0);
       for (var i = 0; i < logs.length; i++) renderLogEntry(logs[i].msg, logs[i].tone);
+      // Drain capture/reveal starters before rendering — each may call open() to extend
+      // the gate, deferring board render until that animation also finishes.
+      var caps = _bufCapture.splice(0);
+      for (var i = 0; i < caps.length; i++) caps[i]();
+      if (_count > 0) return;
       if (_turnUIDirty) { _turnUIDirty = false; renderTurnUI(); }
       if (_boardDirty)  { _boardDirty  = false; renderBoard();  }
-      // Capture arcs start after the board re-renders so the slot is already empty
-      // when the proxy appears and flies away.
-      var captures = _bufCapture.splice(0);
-      for (var i = 0; i < captures.length; i++) captures[i]();
     }
 
+    return {
+      get active()  { return _count > 0; },
+      open:         function () { _count++; },
+      close:        function () { if (--_count <= 0) { _count = 0; _flush(); } },
+      bufLog:       function (msg, tone) { _bufLog.push({ msg: msg, tone: tone }); },
+      bufCapture:   function (fn)        { _bufCapture.push(fn); },
+      markBoard:    function () { _boardDirty  = true; },
+      markTurnUI:   function () { _turnUIDirty = true; },
+    };
+  }());
+
+  // CoinGate — sequences coin-flip animations as BeatQueue beats. Public API unchanged.
+  var CoinGate = (function () {
+    var _queue   = [];
+    var _running = false;
+
     function _drain() {
-      if (!_queue.length) { _flush(); return; }
+      if (!_queue.length) { _running = false; BeatQueue.close(); return; }
       var c = _queue.shift();
       Anim.coinFlip(c.heads, c.player, c.col, null, _drain);
     }
 
     return {
-      get active() { return _running; },
+      get active() { return BeatQueue.active; },
       push: function (heads, player, col) {
         _queue.push({ heads: heads, player: player, col: col });
         if (!_running) {
           _running = true;
+          BeatQueue.open();
           window.requestAnimationFrame(_drain);
         }
       },
-      bufLog:     function (msg, tone) { _bufLog.push({ msg: msg, tone: tone }); },
-      bufCapture: function (fn)        { _bufCapture.push(fn); },
-      markBoard:  function () { _boardDirty  = true; },
-      markTurnUI: function () { _turnUIDirty = true; },
+      bufLog:     function (msg, tone) { BeatQueue.bufLog(msg, tone); },
+      bufCapture: function (fn)        { BeatQueue.bufCapture(fn); },
+      markBoard:  function ()          { BeatQueue.markBoard(); },
+      markTurnUI: function ()          { BeatQueue.markTurnUI(); },
     };
   }());
 
@@ -394,37 +410,36 @@
         _revealPending[key] = [];
 
         function startFlip() {
+          BeatQueue.open();
           proxy.style.display = '';
           if (slotElem) slotElem.classList.add('slot--revealing');
           // Phase 1: squeeze back face to edge-on
           g.to(proxy, { scaleX: 0, duration: 0.22, ease: 'power2.in', onComplete: function () {
             proxy.style.background = frontSrc
               ? 'url("' + frontSrc + '") center/cover no-repeat' : '#1e3a5f';
-            // Patch the underlying tile to show face-up art RIGHT NOW — before Phase 2
-            // starts expanding. This means the tile already shows the correct front art
-            // when slot--revealing is removed, regardless of when renderBoard runs.
-            // Phase 2 then expands over an identical tile: no duplicate, no stale
-            // face-down flash even if a different coin is still gating renderBoard.
-            if (slotElem) slotElem.classList.remove('slot--revealing');
-            var tileCard = slotElem && slotElem.querySelector('.unit-card');
-            if (tileCard) {
-              tileCard.classList.remove('unit-card--face-down-soft');
-              tileCard.classList.add('unit-card--face-up');
-            }
-            var tileImg = slotElem && slotElem.querySelector('.unit-card__img');
-            if (tileImg && frontSrc) tileImg.src = frontSrc;
-            var tileOverlay = slotElem && slotElem.querySelector('.unit-card__face-down-overlay');
-            if (tileOverlay) removeEl(tileOverlay);
-            // Phase 2: expand front face. Both proxy and tile now show the same art,
-            // so no duplicate is visible during expansion.
+            // Phase 2: expand front face. slot--revealing keeps the tile hidden so only
+            // the proxy is visible during expansion — no ghost/duplicate artifact.
             g.to(proxy, { scaleX: 1, duration: 0.22, ease: 'power2.out', onComplete: function () {
+              // Proxy is now full-size covering the tile. Remove slot--revealing and patch
+              // the tile to front art so the proxy and tile match before the crossfade.
+              if (slotElem) slotElem.classList.remove('slot--revealing');
+              var tileCard = slotElem && slotElem.querySelector('.unit-card');
+              if (tileCard) {
+                tileCard.classList.remove('unit-card--face-down-soft');
+                tileCard.classList.add('unit-card--face-up');
+              }
+              var tileImg = slotElem && slotElem.querySelector('.unit-card__img');
+              if (tileImg && frontSrc) tileImg.src = frontSrc;
+              var tileOverlay = slotElem && slotElem.querySelector('.unit-card__face-down-overlay');
+              if (tileOverlay) removeEl(tileOverlay);
+              // Fade proxy: crossfades to reveal the fully-detailed tile underneath.
               g.to(proxy, { opacity: 0, duration: 0.25, delay: 0.45,
                 onComplete: function () {
                   removeEl(proxy);
-                  if (slotElem) slotElem.classList.remove('slot--revealing'); // safety net
                   var pending = _revealPending[key] || [];
                   delete _revealPending[key];
                   for (var i = 0; i < pending.length; i++) pending[i]();
+                  BeatQueue.close();
                 }
               });
             } });
@@ -598,13 +613,13 @@
         var dx = dest.left - (tr.left - br.left);
         var dy = dest.top  - (tr.top  - br.top);
         function startArc() {
+          BeatQueue.open();
           proxy.style.display = '';
-          // Hide the stale DOM tile immediately so it doesn't show alongside
-          // the arcing proxy (renderBoard may still be buffered by CoinGate).
+          // Hide the stale DOM tile so it doesn't show alongside the arcing proxy.
           var srcTile = tileEl(player, col);
           if (srcTile) srcTile.style.display = 'none';
           g.to(proxy, { x: dx, y: dy, scale: 0.28, opacity: 0, duration: 0.45, ease: 'power2.inOut',
-            onComplete: function () { removeEl(proxy); } });
+            onComplete: function () { removeEl(proxy); BeatQueue.close(); } });
         }
         // Defer the arc until after any active cpuReveal for this slot
         if (Anim.afterReveal(player, col, startArc)) {
@@ -5192,6 +5207,11 @@
     function doShake() {
       if (!state.board[player] || !state.board[player][col]) return; // skip on empty slot (unit captured)
       if (Anim.afterReveal(player, col, doShake)) return;
+      // Skip shake if the DOM tile is still face-down (renderBoard buffered, no reveal
+      // animation active for this slot — e.g. P1 face-down unit hit by Lancer counter).
+      var tileCard = document.querySelector(
+        '.row--player' + player + ' .slot[data-column="' + col + '"] .unit-card');
+      if (tileCard && tileCard.classList.contains('unit-card--face-down-soft')) return;
       Anim.damageShake(player, col);
     }
     if (CoinGate.active) {
