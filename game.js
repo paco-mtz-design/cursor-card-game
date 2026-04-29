@@ -525,6 +525,9 @@
       itemConsume: function (handCardEl, afterRenderFn) {
         if (!g || !handCardEl || !boardEl) return;
         BeatQueue.open();
+        handCardEl.style.visibility = 'hidden'; // hide original immediately so it doesn't
+                                                // ghost alongside the proxy when renderBoard
+                                                // is deferred (BeatQueue active).
         var fr = handCardEl._capturedRect || handCardEl.getBoundingClientRect();
         var br = boardEl.getBoundingClientRect();
         var dest = itemDestRect();
