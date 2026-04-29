@@ -127,6 +127,7 @@
     var _count       = 0;
     var _bufLog      = [];
     var _bufCapture  = [];
+    var _postRender  = [];   // callbacks fired after renderBoard — used for chained item arcs
     var _boardDirty  = false;
     var _turnUIDirty = false;
 
@@ -140,6 +141,10 @@
       if (_count > 0) return;
       if (_turnUIDirty) { _turnUIDirty = false; renderTurnUI(); }
       if (_boardDirty)  { _boardDirty  = false; renderBoard();  }
+      // Post-render callbacks run after the board is up-to-date, so they can read fresh
+      // DOM positions (e.g. gear mini-card still on unit after phase-1 phial arc).
+      var posts = _postRender.splice(0);
+      for (var i = 0; i < posts.length; i++) posts[i]();
     }
 
     return {
@@ -148,6 +153,7 @@
       close:        function () { if (--_count <= 0) { _count = 0; _flush(); } },
       bufLog:       function (msg, tone) { _bufLog.push({ msg: msg, tone: tone }); },
       bufCapture:   function (fn)        { _bufCapture.push(fn); },
+      afterRender:  function (fn)        { _postRender.push(fn); },
       markBoard:    function () { _boardDirty  = true; },
       markTurnUI:   function () { _turnUIDirty = true; },
     };
@@ -501,30 +507,41 @@
       },
 
       // Helper: get the .item-card element at a given index for a player's item hand.
+      // Snapshots getBoundingClientRect() immediately so itemConsume can use the
+      // correct position even after renderBoard() detaches the element from the DOM.
       captureHandCard: function (player, handIndex) {
         var hEl = player === 1 ? itemHandP1El : itemHandP2El;
         if (!hEl) return null;
         var cards = hEl.querySelectorAll('.item-card');
-        return cards[handIndex] || null;
+        var el = cards[handIndex] || null;
+        if (el) el._capturedRect = el.getBoundingClientRect();
+        return el;
       },
 
       // §10 — Item used/consumed: hand card arcs to item discard pile.
-      // handCardEl: the .hand-card DOM element before the hand re-renders.
-      itemConsume: function (handCardEl) {
+      // handCardEl: element captured by captureHandCard() — rect already snapshotted.
+      // afterRenderFn: optional callback fired after the arc completes and the board
+      // re-renders (used to chain a second arc, e.g. gear following the phial).
+      itemConsume: function (handCardEl, afterRenderFn) {
         if (!g || !handCardEl || !boardEl) return;
-        var fr = handCardEl.getBoundingClientRect();
+        BeatQueue.open();
+        var fr = handCardEl._capturedRect || handCardEl.getBoundingClientRect();
         var br = boardEl.getBoundingClientRect();
         var dest = itemDestRect();
         var img  = handCardEl.querySelector('img');
         var proxy = makeProxy(
           { left: fr.left - br.left, top: fr.top - br.top, width: fr.width, height: fr.height },
           img ? img.src : '');
-        if (!proxy) return;
+        if (!proxy) { BeatQueue.close(); return; }
         g.to(proxy, {
           x: dest.left - (fr.left - br.left),
           y: dest.top  - (fr.top  - br.top),
           scale: 0.35, opacity: 0, duration: 0.42, ease: 'power2.in',
-          onComplete: function () { removeEl(proxy); } });
+          onComplete: function () {
+            removeEl(proxy);
+            if (afterRenderFn) BeatQueue.afterRender(afterRenderFn);
+            BeatQueue.close();
+          } });
       },
 
       // §11 — Terrain effect activates: amber brightness flash on the slot.
@@ -695,13 +712,16 @@
       },
 
       // §19 — Mini-card (gear, terrain) arcs from a board slot to the item discard pile.
-      // Call BEFORE renderBoard() while the mini-card still exists in the DOM.
+      // Call when the mini-card is visible in the DOM (either before renderBoard removes
+      // it, or after a fresh renderBoard shows it). Gates display via BeatQueue so the
+      // board doesn't update until the arc exits.
       boardMiniCardDiscard: function (player, col, selector) {
         if (!g || !boardEl) return;
         var slotElem = slotEl(player, col);
         if (!slotElem) return;
         var miniCard = slotElem.querySelector(selector);
         if (!miniCard) return;
+        BeatQueue.open();
         var mr   = miniCard.getBoundingClientRect();
         var br   = boardEl.getBoundingClientRect();
         var dest = itemDestRect();
@@ -709,12 +729,12 @@
         var proxy = makeProxy(
           { left: mr.left - br.left, top: mr.top - br.top, width: mr.width, height: mr.height },
           img ? img.src : '');
-        if (!proxy) return;
-        miniCard.style.visibility = 'hidden'; // hide original until renderBoard removes it
+        if (!proxy) { BeatQueue.close(); return; }
+        miniCard.style.visibility = 'hidden';
         var dx = dest.left - (mr.left - br.left);
         var dy = dest.top  - (mr.top  - br.top);
         g.to(proxy, { x: dx, y: dy, scale: 0.5, opacity: 0, duration: 0.38, ease: 'power2.in',
-          onComplete: function () { removeEl(proxy); } });
+          onComplete: function () { removeEl(proxy); BeatQueue.close(); } });
       },
 
       // §18 — Card drawn into hand: last card in hand slides in.
@@ -4965,23 +4985,31 @@
     if (!item || item.name !== 'Corrosive Phial') return;
 
     const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
-    // §19: capture gear mini-card position before renderBoard removes it
-    Anim.boardMiniCardDiscard(targetPlayer, targetCol, '.unit-mini-card--gear, .unit-mini-card--bonus-gear');
-    const gearRemoved = removeGearFromCell(cell);
-    if (!state.itemDiscard) state.itemDiscard = [];
-    state.itemDiscard.push(gearRemoved);
+    const gearName = getCellGearCards(cell)[0] ? getCellGearCards(cell)[0].name : 'gear';
+
+    // Phase 1: consume the phial — gear stays on the unit until the arc lands.
     hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
     state.itemTargeting = null;
 
-    log("Player " + state.currentPlayer + " uses Corrosive Phial on " + cell.unit.name + " — " + gearRemoved.name + " destroyed.");
-    // If stripping the armor dropped max HP below existing damage, capture the unit now.
-    if (state.board[targetPlayer][targetCol] && (cell.damage || 0) >= getMaxHP(cell)) {
-      applyDamage(targetPlayer, targetCol, 0, "Armor stripped —", false);
-    }
+    log("Player " + state.currentPlayer + " uses Corrosive Phial on " + cell.unit.name + " — " + gearName + " destroyed.");
     renderTurnUI();
-    renderBoard();
-    Anim.itemConsume(handCardEl);
+    BeatQueue.markBoard(); // after phial arc: board shows +1 discard, gear still on unit
+
+    // Phase 2 runs after the phial arc completes and the board re-renders (+1).
+    // boardMiniCardDiscard reads the gear mini-card from the freshly rendered DOM.
+    Anim.itemConsume(handCardEl, function () {
+      Anim.boardMiniCardDiscard(targetPlayer, targetCol, '.unit-mini-card--gear, .unit-mini-card--bonus-gear');
+      const gearRemoved = removeGearFromCell(cell);
+      if (!state.itemDiscard) state.itemDiscard = [];
+      state.itemDiscard.push(gearRemoved);
+      BeatQueue.markBoard(); // after gear arc: board shows +2 discard, gear gone
+      // If armor loss dropped HP below max, capture fires after the gear arc completes.
+      if (state.board[targetPlayer][targetCol] && (cell.damage || 0) >= getMaxHP(cell)) {
+        applyDamage(targetPlayer, targetCol, 0, "Armor stripped —", false);
+      }
+    });
   }
 
   function applyObscuringBomb(handIndex) {
@@ -5128,19 +5156,25 @@
     if (!item || item.name !== 'Tectonic Spike') return;
 
     const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
-    // §19: capture terrain mini-card position before renderBoard removes it
-    Anim.boardMiniCardDiscard(targetPlayer, targetCol, '.unit-mini-card--terrain');
-    if (!state.itemDiscard) state.itemDiscard = [];
-    state.itemDiscard.push(terrainHere);
-    state.terrain[targetPlayer][targetCol] = null;
+
+    // Phase 1: consume the spike — terrain stays on the board until the arc lands.
     hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
     state.itemTargeting = null;
 
     log("Player " + state.currentPlayer + " uses Tectonic Spike — " + terrainHere.name + " removed from tile (Player " + targetPlayer + ", column " + targetCol + ").");
     renderTurnUI();
-    renderBoard();
-    Anim.itemConsume(handCardEl);
+    BeatQueue.markBoard(); // after spike arc: board shows +1 discard, terrain still visible
+
+    // Phase 2 runs after the spike arc completes and the board re-renders (+1).
+    Anim.itemConsume(handCardEl, function () {
+      Anim.boardMiniCardDiscard(targetPlayer, targetCol, '.unit-mini-card--terrain');
+      state.terrain[targetPlayer][targetCol] = null;
+      if (!state.itemDiscard) state.itemDiscard = [];
+      state.itemDiscard.push(terrainHere);
+      BeatQueue.markBoard(); // after terrain arc: board shows +2 discard, terrain gone
+    });
   }
 
   function applyEquipArmor(targetPlayer, targetCol) {
