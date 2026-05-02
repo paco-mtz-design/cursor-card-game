@@ -14,6 +14,22 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 2 — UX polish: turn banner, item summoning zoom, Wardstone activation summon
+
+**Status:** Shipped. Three player-facing animation moments added; project conventions checked into the repo.
+
+### What shipped
+
+**§20 Turn-start banner with full BeatQueue gating.** A pill banner now announces every turn handover ("Your turn" in blue / "Opponent's turn" in red, with a per-round "Current turn: X" subtitle). Same shape and timing as the bestiary banner (0.32 s in / 1.5 s hold / 0.28 s out, ~2.1 s total). The banner enforces a full pause: any in-flight previous-turn animations (coin flips, captures, etc.) resolve first via `BeatQueue.afterRender` — `startOfTurn()` defers itself if the queue is still draining and clears any pending CPU think-timer so the CPU can't slip under the banner. While the banner shows, logs / `renderTurnUI` / `renderBoard` are buffered; `animateCardIntoHand` and `maybeScheduleCpuTurn` are moved into the banner's `onComplete` so they fire only after fade-out. `state.turnsCompleted` added to track per-round count, incremented in `endTurn`.
+
+**§23 Item summoning zoom.** Repurposes the existing `#item-zoom-modal` as a brief "card being played" beat that plays before every Equip / Build / Use action — pop in 0.32 s → hold 1.0 s → fade 0.28 s, with the card image plus a small italic caption ("Equipping…" / "Building…" / "Using…") under it. Skipped intentionally when (a) the player commits via the modal's existing "Use this item" button — they were just looking at the zoomed card, and (b) the CPU equips gear to a face-down unit — revealing the gear card without the unit's identity reads as noise. The same modal is also wired to the **Wardstone Bracelet activation interrupt** with the caption "Wardstone's protection activated…", clearing `state.pendingWardstone` immediately so a button double-click or the CPU's think-timer can't re-enter and queue a second summoning. Apply functions' slide-in animations (`gearEquip`, `terrainEquip`) work correctly because `Anim.itemSummon` closes its BeatQueue gate **before** running its `onComplete` continuation — that lets the apply function's `renderBoard` fire synchronously so the slide queries a freshly-rendered DOM. The outdated `#item-zoom-effect` paragraph under the inspection modal's card image is removed entirely (HTML, CSS, JS).
+
+**`CLAUDE.md` checked into the repo.** Codifies architecture conventions (file responsibilities, `game.js` internal structure, key state fields, CPU pattern, asset conventions) and collaboration preferences (design-first explanations, conversation-before-detailed-plan rule).
+
+**Files touched:** `game.js`, `index.html`, `style.css`, `CLAUDE.md` (new), `DEV_LOG.md`.
+
+---
+
 ## Phase 2 — Damage resolution sequence (§24 damageResolve)
 
 **Status:** Shipped. Rattle/capture/HP-update timing redesigned around `Anim.damageResolve`.
