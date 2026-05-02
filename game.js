@@ -190,8 +190,8 @@
   var Anim = (function () {
     var g = window.gsap;
     // Per-slot deferred animation queue: while a cpuReveal flip is playing for a
-    // slot, flashDamageSlot and unitCapture register themselves here instead of
-    // firing immediately. When the flip completes the queue drains in order.
+    // slot, damageResolve registers itself here instead of firing immediately.
+    // When the flip completes the queue drains in order.
     var _revealPending = {};
     // Cross-slot deferral: maps "p:c" → "op:oc" so animations for slot (p,c)
     // wait for the reveal on slot (op,oc) — used for Lancer/Nyss counter-attack.
@@ -298,7 +298,7 @@
       },
 
       // §3 — Attack lunge (attacker surges toward opponent row).
-      // Defender shake is intentionally omitted here — flashDamageSlot() handles it
+      // Defender shake is intentionally omitted here — damageResolve handles it
       // after all checks (veteran effects, terrain, counters) confirm the hit landed.
       // Animates the .slot element so it survives renderBoard() re-renders.
       attack: function (attackerPlayer, attackerCol) {
@@ -313,7 +313,8 @@
         }
       },
 
-      // §4 — Damage shake (non-attack source; also covers all flashDamageSlot calls).
+      // §4 — Damage shake primitive: pure rattle on a slot. Always invoked through
+      // §24 damageResolve (which sequences rattle + buffer + capture arc).
       damageShake: function (player, col) {
         if (!g) return;
         var slot = slotEl(player, col);
@@ -390,7 +391,7 @@
       // Call BEFORE renderBoard() so tileEl still exists for proxy positioning.
       // frontSrc is read from state because face-down cards render unit-card-back.png.
       // Registers a _revealPending entry for this slot so any subsequent
-      // flashDamageSlot / unitCapture calls automatically chain after the flip.
+      // damageResolve call automatically chains after the flip.
       cpuReveal: function (player, col) {
         if (!g) return;
         var tile = tileEl(player, col);
@@ -776,6 +777,54 @@
           BeatQueue.close();
           if (onComplete) onComplete();
         });
+      },
+
+      // §24 — Damage resolution: rattle, buffer, and (if captured) capture arc, all
+      // sequenced so the player sees a clean confirmation beat. Caller must have
+      // already mutated state (cell.damage = newTotal OR cell = null + discard
+      // pushes) BEFORE calling. This function owns the visual sequence:
+      //   rattle (250ms) → if captured: 150ms buffer → unitCapture arc (450ms).
+      // BeatQueue is held open through the whole sequence so renderBoard is buffered;
+      // the HP counter / empty slot only paints AFTER the rattle (and arc) finish.
+      //
+      // Defers the entire sequence if a reveal is in flight for this slot or a
+      // cross-slot deferral points here (Lancer counter that lands on attacker).
+      // If BeatQueue is active for any other reason (coin flip, etc.) the sequence
+      // is buffered via bufCapture so the rattle never overlaps with the moment
+      // that decides whether damage actually lands.
+      //
+      // Tech debt — multi-target damage events: when a single attack damages two
+      // or more units (Archmage's Tome AOE, Iron Maiden retaliation, Pack Shield
+      // bounceback, Magic Grenade), each target currently kicks off its own
+      // damageResolve in parallel. They rattle at the same time and resolve
+      // independently. The agreed direction is to make these sequential — one
+      // target rattles + resolves, then the next — so the player can read each
+      // hit individually. Implementation idea: collect all damage events in
+      // resolveCombat into a queue, drain them one at a time with each target's
+      // damageResolve onComplete chaining to the next. Out of scope for this
+      // change; flagged for a follow-up.
+      damageResolve: function (player, col, opts) {
+        opts = opts || {};
+        var captured = !!opts.captured;
+
+        function sequence() {
+          BeatQueue.open();
+          Anim.damageShake(player, col);
+          window.setTimeout(function () {
+            if (captured) {
+              window.setTimeout(function () {
+                Anim.unitCapture(player, col);
+                BeatQueue.close();
+              }, 150);
+            } else {
+              BeatQueue.close();
+            }
+          }, 250);
+        }
+
+        if (Anim.afterReveal(player, col, sequence)) return;
+        if (BeatQueue.active) { BeatQueue.bufCapture(sequence); return; }
+        sequence();
       },
 
       // §23 — Item summoning zoom: shown when the player commits to using a hand
@@ -5354,11 +5403,9 @@
         const gears = getCellGearCards(cell);
         for (let g = 0; g < gears.length; g++) state.itemDiscard.push(gears[g]);
       }
-      // §8: reveal flip for face-down CPU units (unitCapture below will auto-defer
-      // until after the flip via _revealPending)
+      // §8: reveal flip for face-down CPU units. damageResolve below will auto-defer
+      // its rattle + capture arc via afterReveal so the reveal plays first.
       if (wasHidden && isCpuPlayer(player)) Anim.cpuReveal(player, col);
-      // §15: capture arc — deferred automatically if a cpuReveal is in progress
-      Anim.unitCapture(player, col);
       state.board[player][col] = null;
       if (player === 1) {
         state.p2Captures = (state.p2Captures || 0) + 1;
@@ -5382,31 +5429,16 @@
           }
         }
       }
-      flashDamageSlot(player, col);
+      // §24: rattle + 150ms buffer + capture arc, all gated so the unit is shown
+      // (in its pre-capture state) until the sequence finishes.
+      Anim.damageResolve(player, col, { captured: true });
       return true;
     }
     cell.damage = newTotal;
     if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
-    flashDamageSlot(player, col);
+    // §24: rattle, then HP counter updates after.
+    Anim.damageResolve(player, col, { captured: false });
     return false;
-  }
-
-  function flashDamageSlot(player, col) {
-    function doShake() {
-      if (!state.board[player] || !state.board[player][col]) return; // skip on empty slot (unit captured)
-      if (Anim.afterReveal(player, col, doShake)) return;
-      // Skip shake if the DOM tile is still face-down (renderBoard buffered, no reveal
-      // animation active for this slot — e.g. P1 face-down unit hit by Lancer counter).
-      var tileCard = document.querySelector(
-        '.row--player' + player + ' .slot[data-column="' + col + '"] .unit-card');
-      if (tileCard && tileCard.classList.contains('unit-card--face-down-soft')) return;
-      Anim.damageShake(player, col);
-    }
-    if (CoinGate.active) {
-      CoinGate.bufCapture(doShake);
-    } else {
-      doShake();
-    }
   }
 
   function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
@@ -5424,7 +5456,7 @@
     const bypassAllCounters   = vorpalPacket || isScopeStrike;
     const bypassVeteranEffects = vorpalPacket || isScopeStrike;
 
-    // §3: attack lunge (shake fires later via flashDamageSlot when hit confirmed)
+    // §3: attack lunge (shake fires later via damageResolve when hit confirmed)
     Anim.attack(attackerPlayer, attackerCol);
 
     log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").", 'red');
@@ -5573,7 +5605,7 @@
     if (!attackBlocked) {
       const defWasHidden = !defCell.faceUp;
       defCell.faceUp = true;
-      // §8: reveal flip before renderBoard — flashDamageSlot/unitCapture will auto-defer
+      // §8: reveal flip before renderBoard — damageResolve will auto-defer
       if (defWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, defenderCol);
       log("Target revealed: Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
       if (maybeCaptureUnmakerOnReveal(defenderPlayer, defenderCol, "on attack reveal")) {

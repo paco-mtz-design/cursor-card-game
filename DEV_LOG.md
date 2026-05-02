@@ -14,6 +14,36 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 2 — Damage resolution sequence (§24 damageResolve)
+
+**Status:** Shipped. Rattle/capture/HP-update timing redesigned around `Anim.damageResolve`.
+
+### What shipped
+
+The damage rattle was regressed (not firing at all) and the previous implementation was structurally fragile — `flashDamageSlot` ran AFTER `state.board[player][col] = null` for captures, so its first guard (`!state.board[player][col]`) always cancelled the rattle. The face-down-soft DOM guard added during the BeatQueue refactor was also bailing on survivor rattles when `renderBoard` was buffered.
+
+Replaced both branches' rattle calls with a single new `Anim.damageResolve(player, col, { captured })` (game.js, in the Anim namespace). It owns the entire visual sequence and is BeatQueue-gated:
+
+- **Survivor**: rattle (250ms), then BeatQueue closes → `renderBoard` paints the new HP counter.
+- **Captured**: rattle (250ms) → 150ms buffer → `Anim.unitCapture` arc (450ms) → BeatQueue closes → `renderBoard` paints the now-empty slot.
+
+Defers the entire sequence via `Anim.afterReveal` if a reveal animation is in flight for the slot or a cross-slot deferral points here (Lancer counter that lands on attacker). If BeatQueue is active for any other reason (coin flip), the sequence is buffered via `bufCapture` so the rattle only starts once the coin lands. State mutation still happens synchronously inside `applyDamage`; `damageResolve` only owns the visual sequence.
+
+The old `flashDamageSlot` and the early `Anim.unitCapture` call inside `applyDamage`'s capture branch are removed — both now live inside `damageResolve`.
+
+### Tech debt — multi-target damage sequencing
+
+When a single attack damages two or more units (Archmage's Tome AOE, Iron Maiden retaliation that captures the attacker, Pack Shield bounceback, Magic Grenade), each target currently kicks off its own `Anim.damageResolve` in parallel. They rattle at the same time and resolve independently. Agreed direction: make these **sequential** — one target rattles + resolves, then the next — so the player can read each hit individually.
+
+**Implementation idea**: collect all damage events from a single attack into a queue inside `resolveCombat` (or its callers), then drain them one at a time with each target's `damageResolve` `onComplete` chaining to the next. Will require:
+- An optional `onComplete` parameter on `Anim.damageResolve` (currently fire-and-forget).
+- A small helper at the combat-resolution layer to walk the queue.
+- Care for the Iron Maiden retaliation case where the second damage event fires *recursively* inside the first `applyDamage` — easiest fix is to defer the recursive call into the queue rather than calling it inline.
+
+Out of scope for the §24 change. Flagged here for a follow-up.
+
+---
+
 ## Phase 2 — Animation layer: BeatQueue foundation + display sequencing fixes
 
 **Status:** Shipped. BeatQueue generalises CoinGate; reveal/arc/board display now sequenced correctly.
