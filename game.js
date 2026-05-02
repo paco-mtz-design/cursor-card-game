@@ -744,6 +744,40 @@
           onComplete: function () { g.set(last, { clearProps: 'y,opacity' }); } });
       },
 
+      // §20 — Turn-start banner: pauses the game while announcing whose turn it is.
+      // Reuses #theater-banner (same shape/timing as bestiaryBanner) and gates display
+      // via BeatQueue so logs / renderBoard / renderTurnUI all buffer until the banner
+      // finishes fading. The onComplete callback runs the un-gated turn-start work
+      // (animateCardIntoHand + maybeScheduleCpuTurn) so the CPU can't act until then.
+      turnBanner: function (playerNum, onComplete) {
+        if (!g) { if (onComplete) onComplete(); return; }
+        var bannerEl = document.getElementById('theater-banner');
+        if (!bannerEl) { if (onComplete) onComplete(); return; }
+        BeatQueue.open();
+        var isOpponent = isCpuMode() && playerNum === 2;
+        var primary = isOpponent ? "Opponent's turn" : "Your turn";
+        var turnNum = Math.floor((state.turnsCompleted || 0) / 2) + 1;
+        var secondary = "Current turn: " + turnNum;
+        bannerEl.innerHTML =
+          '<strong>' + primary + '</strong>' +
+          '<br><span style="font-size:0.82em;opacity:0.88">' + secondary + '</span>';
+        bannerEl.style.color       = isOpponent ? '#f87171' : '#60a5fa';
+        bannerEl.style.borderColor = isOpponent ? 'rgba(248,113,113,0.55)' : 'rgba(96,165,250,0.55)';
+        bannerEl.style.display = 'block';
+        var tl = g.timeline();
+        tl.fromTo(bannerEl, { opacity: 0, scale: 0.9 },
+          { opacity: 1, scale: 1, duration: 0.32, ease: 'back.out(1.4)' });
+        tl.to(bannerEl, { opacity: 0, scale: 0.94, duration: 0.28, ease: 'power1.in', delay: 1.5 });
+        tl.call(function () {
+          bannerEl.style.display     = 'none';
+          bannerEl.style.color       = '';
+          bannerEl.style.borderColor = '';
+          g.set(bannerEl, { clearProps: 'opacity,scale' });
+          BeatQueue.close();
+          if (onComplete) onComplete();
+        });
+      },
+
     };
   }()); // end Anim
 
@@ -845,6 +879,7 @@
       cpuPendingExecute: null,
       cpuLastBlockReason: '',
       cpuAnnouncing: false,
+      turnsCompleted: 0,
     };
   }
 
@@ -3460,6 +3495,20 @@
   }
 
   function startOfTurn() {
+    // Wait for any in-flight animations from the previous turn (coin flips,
+    // captures, reveals, etc.) to fully resolve before announcing the next
+    // turn. Without this gate, the banner overlaps with still-playing coins
+    // in the theater layer. afterRender fires the deferred callback inside
+    // the same flush that drains the queue, so we re-enter once idle.
+    if (BeatQueue.active) {
+      BeatQueue.afterRender(startOfTurn);
+      return;
+    }
+    // The previous turn's flush may have called maybeScheduleCpuTurn (via
+    // renderBoard) which queued a CPU think-timer. Cancel it so the CPU can't
+    // start acting under the banner; the banner's onComplete re-schedules.
+    clearCpuThinkTimer();
+
     const p = state.currentPlayer;
     state.cpuItemsUsedThisTurn = 0;
     state.actionStep = 'use_items';
@@ -3509,6 +3558,16 @@
       return;
     }
 
+    // Open the turn-start banner FIRST. It opens BeatQueue, so all logs /
+    // renderTurnUI / renderBoard calls below get buffered until the banner
+    // finishes fading. The post-banner callback runs animateCardIntoHand and
+    // maybeScheduleCpuTurn — those bypass BeatQueue, so they live here to
+    // guarantee the CPU never starts acting until the banner is gone.
+    Anim.turnBanner(p, function () {
+      animateCardIntoHand(p);
+      maybeScheduleCpuTurn();
+    });
+
     log("Player " + p + "'s turn.");
     if (currentPlayerHasMuzzledUnit()) {
       log("[Bestiary] Muzzled Beast is active: Player " + p + " cannot use single-use items this turn.");
@@ -3521,8 +3580,6 @@
     updateCaptureDisplay();
     renderTurnUI();
     renderBoard();
-    animateCardIntoHand(p);
-    maybeScheduleCpuTurn();
   }
 
   function runReinforcement(player) {
@@ -5728,6 +5785,7 @@
     var playerWhoJustFinished = state.currentPlayer;
     updateJorrenFlagsAtTurnEnd(playerWhoJustFinished);
     state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
+    state.turnsCompleted = (state.turnsCompleted || 0) + 1;
     startOfTurn();
   }
 
