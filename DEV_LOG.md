@@ -14,6 +14,149 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Phase 2 — UX polish: turn banner, item summoning zoom, Wardstone activation summon
+
+**Status:** Shipped. Three player-facing animation moments added; project conventions checked into the repo.
+
+### What shipped
+
+**§20 Turn-start banner with full BeatQueue gating.** A pill banner now announces every turn handover ("Your turn" in blue / "Opponent's turn" in red, with a per-round "Current turn: X" subtitle). Same shape and timing as the bestiary banner (0.32 s in / 1.5 s hold / 0.28 s out, ~2.1 s total). The banner enforces a full pause: any in-flight previous-turn animations (coin flips, captures, etc.) resolve first via `BeatQueue.afterRender` — `startOfTurn()` defers itself if the queue is still draining and clears any pending CPU think-timer so the CPU can't slip under the banner. While the banner shows, logs / `renderTurnUI` / `renderBoard` are buffered; `animateCardIntoHand` and `maybeScheduleCpuTurn` are moved into the banner's `onComplete` so they fire only after fade-out. `state.turnsCompleted` added to track per-round count, incremented in `endTurn`.
+
+**§23 Item summoning zoom.** Repurposes the existing `#item-zoom-modal` as a brief "card being played" beat that plays before every Equip / Build / Use action — pop in 0.32 s → hold 1.0 s → fade 0.28 s, with the card image plus a small italic caption ("Equipping…" / "Building…" / "Using…") under it. Skipped intentionally when (a) the player commits via the modal's existing "Use this item" button — they were just looking at the zoomed card, and (b) the CPU equips gear to a face-down unit — revealing the gear card without the unit's identity reads as noise. The same modal is also wired to the **Wardstone Bracelet activation interrupt** with the caption "Wardstone's protection activated…", clearing `state.pendingWardstone` immediately so a button double-click or the CPU's think-timer can't re-enter and queue a second summoning. Apply functions' slide-in animations (`gearEquip`, `terrainEquip`) work correctly because `Anim.itemSummon` closes its BeatQueue gate **before** running its `onComplete` continuation — that lets the apply function's `renderBoard` fire synchronously so the slide queries a freshly-rendered DOM. The outdated `#item-zoom-effect` paragraph under the inspection modal's card image is removed entirely (HTML, CSS, JS).
+
+**`CLAUDE.md` checked into the repo.** Codifies architecture conventions (file responsibilities, `game.js` internal structure, key state fields, CPU pattern, asset conventions) and collaboration preferences (design-first explanations, conversation-before-detailed-plan rule).
+
+**Files touched:** `game.js`, `index.html`, `style.css`, `CLAUDE.md` (new), `DEV_LOG.md`.
+
+---
+
+## Phase 2 — Damage resolution sequence (§24 damageResolve)
+
+**Status:** Shipped. Rattle/capture/HP-update timing redesigned around `Anim.damageResolve`.
+
+### What shipped
+
+The damage rattle was regressed (not firing at all) and the previous implementation was structurally fragile — `flashDamageSlot` ran AFTER `state.board[player][col] = null` for captures, so its first guard (`!state.board[player][col]`) always cancelled the rattle. The face-down-soft DOM guard added during the BeatQueue refactor was also bailing on survivor rattles when `renderBoard` was buffered.
+
+Replaced both branches' rattle calls with a single new `Anim.damageResolve(player, col, { captured })` (game.js, in the Anim namespace). It owns the entire visual sequence and is BeatQueue-gated:
+
+- **Survivor**: rattle (250ms), then BeatQueue closes → `renderBoard` paints the new HP counter.
+- **Captured**: rattle (250ms) → 150ms buffer → `Anim.unitCapture` arc (450ms) → BeatQueue closes → `renderBoard` paints the now-empty slot.
+
+Defers the entire sequence via `Anim.afterReveal` if a reveal animation is in flight for the slot or a cross-slot deferral points here (Lancer counter that lands on attacker). If BeatQueue is active for any other reason (coin flip), the sequence is buffered via `bufCapture` so the rattle only starts once the coin lands. State mutation still happens synchronously inside `applyDamage`; `damageResolve` only owns the visual sequence.
+
+The old `flashDamageSlot` and the early `Anim.unitCapture` call inside `applyDamage`'s capture branch are removed — both now live inside `damageResolve`.
+
+### Tech debt — multi-target damage sequencing
+
+When a single attack damages two or more units (Archmage's Tome AOE, Iron Maiden retaliation that captures the attacker, Pack Shield bounceback, Magic Grenade), each target currently kicks off its own `Anim.damageResolve` in parallel. They rattle at the same time and resolve independently. Agreed direction: make these **sequential** — one target rattles + resolves, then the next — so the player can read each hit individually.
+
+**Implementation idea**: collect all damage events from a single attack into a queue inside `resolveCombat` (or its callers), then drain them one at a time with each target's `damageResolve` `onComplete` chaining to the next. Will require:
+- An optional `onComplete` parameter on `Anim.damageResolve` (currently fire-and-forget).
+- A small helper at the combat-resolution layer to walk the queue.
+- Care for the Iron Maiden retaliation case where the second damage event fires *recursively* inside the first `applyDamage` — easiest fix is to defer the recursive call into the queue rather than calling it inline.
+
+Out of scope for the §24 change. Flagged here for a follow-up.
+
+---
+
+## Phase 2 — Animation layer: BeatQueue foundation + display sequencing fixes
+
+**Status:** Shipped. BeatQueue generalises CoinGate; reveal/arc/board display now sequenced correctly.
+
+### What shipped
+
+**BeatQueue — generalised display gate**
+
+`CoinGate` only buffered `renderBoard`, `renderTurnUI`, and log during coin-flip animations. All other animations (reveal flips, capture arcs) were fire-and-forget, so HP counters, log entries, and the CPU continue button could appear mid-animation.
+
+Replaced the internal `_running` boolean with a new `BeatQueue` object (reference-counted gate). `BeatQueue.open()` / `BeatQueue.close()` allow any blocking animation to hold display. CoinGate's public API is unchanged — it delegates internally to BeatQueue. `_flush()` order changed: logs → capture starters (which may call `open()` to extend the gate) → board/turnUI only if gate is closed. This ensures `maybeScheduleCpuTurn()` and the Continue button don't fire while a capture arc is in flight.
+
+**cpuReveal — ghost-card (duplicate) eliminated**
+
+Previously the DOM tile was patched to face-up art at Phase 1 end (edge-on). During Phase 2 expansion both the proxy and the tile were visible simultaneously; the tile showed HP markers and gear the proxy didn't, creating a ghost/duplicate effect.
+
+Fixed by keeping `slot--revealing` active through Phase 2. At Phase 2 end (proxy fully expanded, covering the tile), `slot--revealing` is removed and the tile is patched. The proxy then fades, crossfading into the fully-detailed tile underneath. No ghost.
+
+**cpuReveal — display gated for the full flip sequence**
+
+`startFlip()` now calls `BeatQueue.open()` at the start. HP counters, log entries, and board state are held until the proxy fade completes (and any pending items like the capture arc have also finished).
+
+**unitCapture arc — gates Continue button**
+
+`startArc()` now calls `BeatQueue.open()` at start and `BeatQueue.close()` in its `onComplete`. The board renders (and `maybeScheduleCpuTurn()` fires) only after the card has physically left the board.
+
+**Face-down shake guard**
+
+`flashDamageSlot.doShake()` now checks whether the DOM tile still has `unit-card--face-down-soft` before firing the shake. When `renderBoard` is buffered and no reveal animation is active (e.g. a P1 face-down unit hit by a Lancer counter), the shake is suppressed on the stale face-down tile instead of playing on a card that hasn't been revealed yet.
+
+**Coin z-index lifted above proxies**
+
+`#theater-coin` raised from z-index 160 → 210 (above `.theater-proxy` at 200) so the coin always appears on top of reveal and capture proxies when they occupy the same area.
+
+### Known tech debt (deferred)
+
+**Harlund Pack Shield + Archmage's Tome (multi-target)** — The Archmage multi-hit sequence involves several overlapping animations in rapid succession: original target reveal, Harlund redirect, Harlund reveal (if face-down), swap slide, capture arc, Reinforced Barricade coin per adjacent target. With BeatQueue these are sequenced more correctly than before but the interaction is still visually imperfect under adversarial combinations. Root cause: the multi-target resolution loop runs all `applyDamage` calls synchronously, producing a burst of queued animations that BeatQueue can't fully interleave. A proper fix requires restructuring the Archmage multi-hit resolution into an async step loop (outside current scope). Deferred.
+
+**§15 Captured unit — new reinforcement immediately visible** (UX debt) — When a unit is captured and its capture arc plays, the next face-down unit from the opposing row is already visible in the slot underneath as the arc exits. There is currently no animation for drawing a reinforcement from the units deck and placing it onto the board. This should be addressed as part of a broader "card draw from deck" animation scope (units deck → board, item deck → hand) rather than as a standalone fix. Deferred.
+
+**Files touched:** `game.js`, `style.css`, `DEV_LOG.md`.
+
+---
+
+## Phase 2 — Animation layer: CoinGate fixes and wiring completion
+
+**Status:** Shipped. All known animation gaps closed; CoinGate sequencing corrected for capture arcs and defender shakes.
+
+### What shipped
+
+**CoinGate — deferred proxy animations**
+
+`CoinGate` previously buffered log entries and render calls during coin-flip animations, but theater-layer proxies (`unitCapture`, `cpuReveal`) fired immediately and unconditionally. This caused visual cause-and-effect inversions: for example, Mivara's False Self would show the defender's card arc to the discard pile before the coin had even appeared, then the coin would land showing "tails" after the fact.
+
+Fixed by adding a `_bufCapture` queue to `CoinGate` (parallel to `_bufLog`). `Anim.unitCapture()` and `Anim.cpuReveal()` now detect `CoinGate.active`: if the gate is open, the proxy is created immediately (capturing DOM position and image while the slot still exists) but hidden, and the animation start function is queued via `CoinGate.bufCapture()`. After all queued coins settle, `_flush()` empties the log buffer, re-renders the board and UI, then starts the deferred proxy animations — so the slot empties and the capture arc begins in the same paint frame.
+
+**Defender shake — only fires on confirmed hits**
+
+`Anim.attack()` previously fired both the attacker lunge and a defender shake simultaneously at the start of `resolveCombat()`, before any veteran effects, terrain coins, Lancer counters, or Wardstone interrupts were evaluated. The defender shook even when the attack was later canceled, blocked, or redirected.
+
+Fixed by removing the defender shake from `Anim.attack()` (lunge only). The shake already existed in `flashDamageSlot()` → `Anim.damageShake()`, called at the end of every `applyDamage()` path — so it naturally fires only when damage actually resolves. `flashDamageSlot()` is also now CoinGate-aware: when a coin is mid-flight the shake is buffered and plays after the coin settles.
+
+**Attack-blocking cases now correctly silent (no defender shake):**
+
+| Effect | Block condition |
+|---|---|
+| Unstable Ground on attacker | Tails → `return` before `applyDamage(defender)` |
+| Lancer counter (heads) | `attackBlocked = true` gates `applyDamage(defender)` |
+| Senya's Hex Haze (heads) | Attack negated; `applyDamage(Senya)` never called |
+| Mivara's False Self (heads) | Redirected; `applyDamage` fires on a different target |
+| Elevated Ground (heads) | `defenderTerrainBlocked` skips `applyDamage(defender)` |
+| Reinforced Barricade (heads) | Same |
+| Wardstone Bracelet used | Interrupt flow skips `applyDamage(original defender)` |
+| Harlund's Pack Shield used | `applyDamage` fires on Harlund, not original target |
+| Unmaker on reveal | Unmaker lethal capture bypasses the normal damage path |
+
+**Wired coin flips (previously silent)**
+
+Four `Math.random() < 0.5` calls had no `CoinGate.push()` and fired silently:
+- Grolk's Bloodthirst (attacker heals 1 HP on capture)
+- Barbed Gauntlets in the Archmage multi-hit path
+- Paralyzing Vines in the Teleport Boots move path
+- Reinforced Barricade in the Archmage multi-hit path (per-target)
+
+**Wired item consume animations (previously silent)**
+
+Five single-use items disappeared from the hand without animation:
+- All-revealing lantern-jar (`applyRevealingLight`)
+- Tangle-Vine Bola (`applyDisablingNet`)
+- Corrosive Phial (`applyCorrosivePhial`)
+- Obscuring Bomb (`applyObscuringBomb`)
+- Tectonic Spike (`applyTectonicSpike`)
+
+**Files touched:** `game.js`, `DEV_LOG.md`.
+
+---
+
 ## Phase 18 — Restriction flag holistic fix
 
 **Status:** Shipped. Covers all unit restriction/paralysis mechanics identified during CPU opponent QA.

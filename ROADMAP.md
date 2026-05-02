@@ -35,7 +35,7 @@ Single source of truth for **phase order**, **scope**, and **status**. Implement
 | **15** | Veteran buffs | Done | Veteran implementation complete through R3 (Lancer/on-hit/interrupt/caster + Ardan Veilstep). Remaining QA debt is documented and deferred to Phase 19 sweep. |
 | **16** | Seer's Bestiary (advanced ruleset) | Done | Optional default-on mode, milestone reveal flow, stacked faction effects, QA fixes, and documented deferred UX debt |
 | **17** | Further UI improvements | Planned | Layout, polish, and deferred Bestiary UX refinements (including battlefield dual-gear presentation) |
-| **18** | CPU opponent | Planned | Autonomous opponent; fog-of-war for opponent face-down can align here |
+| **18** | CPU opponent + animation layer | Done | Autonomous CPU opponent (`cpu.js` policy module, Continue-button announce flow); full GSAP animation layer on top — BeatQueue reference-counted display gate, coin-flip / reveal / capture / item-arc sequencing, turn-start banner, item summoning zoom (incl. Wardstone activation), §24 damage-resolution sequence (rattle → buffer → capture arc with HP-counter gating). Implementation history split across two specs in `feature specs/`: Phase 1 (CPU policy + wiring) and Phase 2 (animation layer + UX polish). |
 | **19** | Cross regression sweep at scale (R4) | Planned | Large-scope validation pass for Veteran Buffs and related combat/item interactions before broad feature expansion. Includes completion of open QA checklists. |
 
 ---
@@ -46,7 +46,10 @@ Single source of truth for **phase order**, **scope**, and **status**. Implement
 - **Open QA lists for Phase 19:** `QA_PHASE15_R2_LOG_TEMPLATE.md`, `QA_TARGETED_REGRESSION_CHECKLIST.md`, plus R3 targeted follow-up scenarios noted in `DEV_LOG.md`.
 - **Seer's Bestiary reveal-flow lock (deferred):** In certain milestone-reveal sequences, header can remain stuck on `"Seer's Bestiary reveal in progress."` after modal dismissal. Manual unblock exists (force affected column inactive). Detailed repro/theories documented in `DEV_LOG.md`.
 - **Seer's Bestiary battlefield dual-gear UX debt (deferred):** Unit zoom supports the second Iron-Clad Shield gear slot, but in-battle stacked-layer rendering for dual gear remains postponed for a later refinement pass.
-- **Fog of war:** Deferred to **Phase 18** with the CPU opponent. No need to hide opponent face-down during solo development.
+- **Multi-target damage sequencing (Phase 18 animation tech debt):** Archmage's Tome AOE, Iron Maiden retaliation, Pack Shield bounceback and Magic Grenade currently rattle their targets in parallel. Agreed direction is sequential resolution (one target rattles + resolves, then the next). Full implementation idea documented in the §24 entry of `DEV_LOG.md`.
+- **Reinforcement-from-deck animation (Phase 18 UX debt):** No animation today for drawing a reinforcement from the units deck onto a vacated slot — the new face-down unit just appears. Best handled inside a broader "card draw from deck" pass (units deck → board, item deck → hand). Documented in `DEV_LOG.md`.
+- **Harlund / Archmage multi-hit visual interleaving (Phase 18 deferred):** Multi-target resolution loop runs `applyDamage` calls synchronously, producing a burst of overlapping animations. Sequencing improved with BeatQueue but still imperfect under adversarial combinations. Proper fix needs an async step loop in combat resolution. Documented in `DEV_LOG.md`.
+- **Fog of war:** No longer blocked — Phase 18 ships CPU opponent. A dedicated fog-of-war pass for opponent face-down units is still open as a Phase 17 / future polish item.
 
 ### Resolved (historical)
 
@@ -56,6 +59,6 @@ Phases **8–14** delivered: use-items flow, discard piles, gear/terrain/single-
 
 ## Implementation order (reference)
 
-**Done:** Phases **1–16** (MVP through Seer's Bestiary implementation). **Next:** **17** → **18**, with **Phase 19** cross-regression sweep scheduled as dedicated QA hardening.
+**Done:** Phases **1–16** (MVP through Seer's Bestiary) plus **Phase 18** (CPU opponent + animation layer). **Next:** **17** (further UI improvements + deferred Bestiary UX), then **Phase 19** cross-regression sweep as dedicated QA hardening.
 
-Within the original items track, work landed in order: **8–9** (use-items + armor), **10** accessories, **11** terrain, **12** remaining single-use + True-Strike Lens + true strike, **13** promotions, then **14** UI.
+Within the original items track, work landed in order: **8–9** (use-items + armor), **10** accessories, **11** terrain, **12** remaining single-use + True-Strike Lens + true strike, **13** promotions, then **14** UI. Phase **18** landed in two passes: CPU policy + Continue-button wiring on `cpu-opponent`, then the GSAP animation layer + UX polish on `animations`.

@@ -91,7 +91,7 @@
   const itemZoomBackdrop = document.getElementById('item-zoom-backdrop');
   const itemZoomTitle = document.getElementById('item-zoom-title');
   const itemZoomImgWrap = document.getElementById('item-zoom-img-wrap');
-  const itemZoomEffect = document.getElementById('item-zoom-effect');
+  const itemZoomCaption = document.getElementById('item-zoom-caption');
   const scoreMarkersP1El = document.getElementById('score-markers-p1');
   const scoreMarkersP2El = document.getElementById('score-markers-p2');
 
@@ -114,6 +114,773 @@
       pause: function () { _paused = true; },
     };
   }());
+
+  // ============================================================
+  // Anim — Phase 2 animation layer
+  // BeatQueue is a reference-counted display gate. Any blocking animation calls
+  // BeatQueue.open() at start and BeatQueue.close() in its onComplete. While count > 0,
+  // renderBoard / renderTurnUI / log are buffered. When count reaches 0, _flush()
+  // releases them. CoinGate sequences coin flips as BeatQueue beats; its public API
+  // is unchanged so all call sites continue to work without modification.
+  // ============================================================
+  var BeatQueue = (function () {
+    var _count       = 0;
+    var _bufLog      = [];
+    var _bufCapture  = [];
+    var _postRender  = [];   // callbacks fired after renderBoard — used for chained item arcs
+    var _boardDirty  = false;
+    var _turnUIDirty = false;
+
+    function _flush() {
+      var logs = _bufLog.splice(0);
+      for (var i = 0; i < logs.length; i++) renderLogEntry(logs[i].msg, logs[i].tone);
+      // Drain capture/reveal starters before rendering — each may call open() to extend
+      // the gate, deferring board render until that animation also finishes.
+      var caps = _bufCapture.splice(0);
+      for (var i = 0; i < caps.length; i++) caps[i]();
+      if (_count > 0) return;
+      if (_turnUIDirty) { _turnUIDirty = false; renderTurnUI(); }
+      if (_boardDirty)  { _boardDirty  = false; renderBoard();  }
+      // Post-render callbacks run after the board is up-to-date, so they can read fresh
+      // DOM positions (e.g. gear mini-card still on unit after phase-1 phial arc).
+      var posts = _postRender.splice(0);
+      for (var i = 0; i < posts.length; i++) posts[i]();
+    }
+
+    return {
+      get active()  { return _count > 0; },
+      open:         function () { _count++; },
+      close:        function () { if (--_count <= 0) { _count = 0; _flush(); } },
+      bufLog:       function (msg, tone) { _bufLog.push({ msg: msg, tone: tone }); },
+      bufCapture:   function (fn)        { _bufCapture.push(fn); },
+      afterRender:  function (fn)        { _postRender.push(fn); },
+      markBoard:    function () { _boardDirty  = true; },
+      markTurnUI:   function () { _turnUIDirty = true; },
+    };
+  }());
+
+  // CoinGate — sequences coin-flip animations as BeatQueue beats. Public API unchanged.
+  var CoinGate = (function () {
+    var _queue   = [];
+    var _running = false;
+
+    function _drain() {
+      if (!_queue.length) { _running = false; BeatQueue.close(); return; }
+      var c = _queue.shift();
+      Anim.coinFlip(c.heads, c.player, c.col, null, _drain);
+    }
+
+    return {
+      get active() { return BeatQueue.active; },
+      push: function (heads, player, col) {
+        _queue.push({ heads: heads, player: player, col: col });
+        if (!_running) {
+          _running = true;
+          BeatQueue.open();
+          window.requestAnimationFrame(_drain);
+        }
+      },
+      bufLog:     function (msg, tone) { BeatQueue.bufLog(msg, tone); },
+      bufCapture: function (fn)        { BeatQueue.bufCapture(fn); },
+      markBoard:  function ()          { BeatQueue.markBoard(); },
+      markTurnUI: function ()          { BeatQueue.markTurnUI(); },
+    };
+  }());
+
+  var Anim = (function () {
+    var g = window.gsap;
+    // Per-slot deferred animation queue: while a cpuReveal flip is playing for a
+    // slot, damageResolve registers itself here instead of firing immediately.
+    // When the flip completes the queue drains in order.
+    var _revealPending = {};
+    // Cross-slot deferral: maps "p:c" → "op:oc" so animations for slot (p,c)
+    // wait for the reveal on slot (op,oc) — used for Lancer/Nyss counter-attack.
+    var _crossSlotDefer = {};
+
+    function slotEl(player, col) {
+      return document.querySelector('.row--player' + player + ' .slot[data-column="' + col + '"]');
+    }
+    function cardEl(player, col) {
+      var s = slotEl(player, col);
+      return s ? s.querySelector('.unit-card') : null;
+    }
+    function tileEl(player, col) {
+      var s = slotEl(player, col);
+      return s ? s.querySelector('.unit-tile') : null;
+    }
+    function theaterEl() {
+      return document.getElementById('theater-layer');
+    }
+    // Bounding rect of a slot relative to the board element.
+    function slotRectRel(player, col) {
+      var s = slotEl(player, col);
+      if (!s || !boardEl) return null;
+      var sr = s.getBoundingClientRect();
+      var br = boardEl.getBoundingClientRect();
+      return { left: sr.left - br.left, top: sr.top - br.top, width: sr.width, height: sr.height };
+    }
+    // Destination rect for arcing cards — approximates the unit discard pile position.
+    function captureDestRect() {
+      var pile = unitsDiscardPileEl || document.getElementById('units-discard-pile');
+      if (pile && boardEl) {
+        var pr = pile.getBoundingClientRect();
+        var br = boardEl.getBoundingClientRect();
+        return { left: pr.left - br.left, top: pr.top - br.top, width: pr.width, height: pr.height };
+      }
+      return { left: boardEl ? boardEl.offsetWidth - 50 : 400, top: 80, width: 40, height: 56 };
+    }
+    // Destination rect for item cards arcing to discard.
+    function itemDestRect() {
+      var pile = itemDiscardStackEl || document.getElementById('item-discard-stack');
+      if (pile && boardEl) {
+        var pr = pile.getBoundingClientRect();
+        var br = boardEl.getBoundingClientRect();
+        return { left: pr.left - br.left, top: pr.top - br.top, width: pr.width, height: pr.height };
+      }
+      return { left: boardEl ? boardEl.offsetWidth - 50 : 400, top: 140, width: 40, height: 56 };
+    }
+    // Create a flying card proxy element in the theater layer.
+    function makeProxy(fromRect, imgSrc) {
+      var theater = theaterEl();
+      if (!theater) return null;
+      var el = document.createElement('div');
+      el.className = 'theater-proxy';
+      el.style.cssText = 'left:' + fromRect.left + 'px;top:' + fromRect.top + 'px;' +
+        'width:' + fromRect.width + 'px;height:' + fromRect.height + 'px;';
+      if (imgSrc) {
+        var img = document.createElement('img');
+        img.src = imgSrc;
+        el.appendChild(img);
+      }
+      theater.appendChild(el);
+      return el;
+    }
+    function removeEl(el) { if (el && el.parentNode) el.parentNode.removeChild(el); }
+
+    return {
+
+      // §1 — Unit selected: subtle pulse on the selected card.
+      unitSelected: function (player, col) {
+        if (!g) return;
+        var tile = tileEl(player, col);
+        if (!tile) return;
+        g.timeline()
+          .to(tile, { scale: 1.05, filter: 'brightness(1.25)', duration: 0.18, ease: 'power2.out' })
+          .to(tile, { scale: 1, filter: 'brightness(1)', duration: 0.18, ease: 'power2.inOut',
+              onComplete: function () { g.set(tile, { clearProps: 'scale,filter' }); } });
+      },
+
+      // §2 — Unit moves between slots.
+      // Call captureMoveState BEFORE the state mutation; animateMove AFTER renderBoard().
+      captureMoveState: function (player, fromCol, toCol) {
+        var fromSlot = slotEl(player, fromCol);
+        var toSlot   = slotEl(player, toCol);
+        if (!fromSlot || !toSlot) return null;
+        return { player: player, fromCol: fromCol, toCol: toCol,
+          fromRect: fromSlot.getBoundingClientRect(),
+          toRect:   toSlot.getBoundingClientRect() };
+      },
+      animateMove: function (token) {
+        if (!g || !token) return;
+        var movedTile   = tileEl(token.player, token.toCol);
+        var swappedTile = tileEl(token.player, token.fromCol);
+        var fr = token.fromRect, tr = token.toRect;
+        if (movedTile) {
+          g.fromTo(movedTile, { x: fr.left - tr.left, y: fr.top - tr.top },
+            { x: 0, y: 0, duration: 0.35, ease: 'power2.out',
+              onComplete: function () { g.set(movedTile, { clearProps: 'x,y' }); } });
+        }
+        if (swappedTile) {
+          g.fromTo(swappedTile, { x: tr.left - fr.left, y: tr.top - fr.top },
+            { x: 0, y: 0, duration: 0.35, ease: 'power2.out',
+              onComplete: function () { g.set(swappedTile, { clearProps: 'x,y' }); } });
+        }
+      },
+
+      // §3 — Attack lunge (attacker surges toward opponent row).
+      // Defender shake is intentionally omitted here — damageResolve handles it
+      // after all checks (veteran effects, terrain, counters) confirm the hit landed.
+      // Animates the .slot element so it survives renderBoard() re-renders.
+      attack: function (attackerPlayer, attackerCol) {
+        if (!g) return;
+        var attSlot = slotEl(attackerPlayer, attackerCol);
+        var lungeY  = attackerPlayer === 1 ? -20 : 20;
+        if (attSlot) {
+          g.timeline()
+            .to(attSlot, { y: lungeY, duration: 0.11, ease: 'power3.out' }, 0)
+            .to(attSlot, { y: 0, duration: 0.22, ease: 'power2.inOut',
+              onComplete: function () { g.set(attSlot, { clearProps: 'y' }); } }, 0.11);
+        }
+      },
+
+      // §4 — Damage shake primitive: pure rattle on a slot. Always invoked through
+      // §24 damageResolve (which sequences rattle + buffer + capture arc).
+      damageShake: function (player, col) {
+        if (!g) return;
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        g.to(slot, { keyframes: [
+          { x: -6, duration: 0.05 }, { x: 5, duration: 0.05 },
+          { x: -4, duration: 0.05 }, { x: 3, duration: 0.05 },
+          { x: 0,  duration: 0.05 }],
+          onComplete: function () { g.set(slot, { clearProps: 'x' }); } });
+      },
+
+      // §6 — Coin flip in the Theater Layer.
+      // anchorPlayer/anchorCol: null → centered; otherwise near that slot.
+      // onLand: called when coin settles (e.g. show result text for setup coin).
+      // onComplete: called after the coin fades — used by CoinGate to drain the queue.
+      coinFlip: function (heads, anchorPlayer, anchorCol, onLand, onComplete) {
+        if (!g) { if (onLand) onLand(); if (onComplete) onComplete(); return; }
+        var coin  = document.getElementById('theater-coin');
+        var inner = document.getElementById('theater-coin-inner');
+        if (!coin || !inner) { if (onLand) onLand(); if (onComplete) onComplete(); return; }
+
+        if (anchorPlayer != null && anchorCol != null) {
+          var rect = slotRectRel(anchorPlayer, anchorCol);
+          if (rect) {
+            coin.style.left   = (rect.left + rect.width / 2 - 38) + 'px';
+            coin.style.top    = Math.max(8, rect.top - 104) + 'px';
+            coin.style.transform = '';
+            coin.classList.remove('theater-coin--centered');
+          }
+        } else {
+          coin.style.left = coin.style.top = '';
+          coin.classList.add('theater-coin--centered');
+        }
+
+        coin.style.display = 'block';
+        g.set(coin,  { opacity: 0, y: 16, scale: 0.82 });
+        g.set(inner, { rotationY: 0 });
+
+        // Heads lands at 720° (even multiples of 360); tails at 900° (180° + 2×360°).
+        var finalRot = heads ? 720 : 900;
+
+        var tl = g.timeline();
+        tl.to(coin,  { opacity: 1, y: 0, scale: 1, duration: 0.2, ease: 'back.out(1.4)' });
+        tl.to(inner, { rotationY: finalRot, duration: 0.6, ease: 'power2.inOut' }, 0.1);
+        tl.call(function () { if (onLand) onLand(); });
+        tl.to(coin, { opacity: 0, duration: 0.28, ease: 'power1.in', delay: 0.42 });
+        tl.call(function () {
+          coin.style.display = 'none';
+          coin.classList.remove('theater-coin--centered');
+          g.set(coin,  { clearProps: 'opacity,y,scale' });
+          g.set(inner, { clearProps: 'rotationY' });
+          if (onComplete) onComplete();
+        });
+      },
+
+      // §7 — Own face-down reveal: veil lifts off the card.
+      // Call AFTER renderBoard() so the card is already face-up in the DOM.
+      ownReveal: function (player, col) {
+        if (!g) return;
+        var card = cardEl(player, col);
+        if (!card) return;
+        var imgWrap = card.querySelector('.unit-card__img-wrap');
+        if (!imgWrap) return;
+        var overlay = document.createElement('div');
+        overlay.className = 'unit-card__face-down-overlay';
+        overlay.style.pointerEvents = 'none';
+        imgWrap.appendChild(overlay);
+        g.fromTo(overlay, { opacity: 1 },
+          { opacity: 0, duration: 0.7, ease: 'power1.inOut',
+            onComplete: function () { removeEl(overlay); } });
+      },
+
+      // §8 — CPU face-down reveal: accordion card flip (back squeezes, front expands).
+      // Call BEFORE renderBoard() so tileEl still exists for proxy positioning.
+      // frontSrc is read from state because face-down cards render unit-card-back.png.
+      // Registers a _revealPending entry for this slot so any subsequent
+      // damageResolve call automatically chains after the flip.
+      cpuReveal: function (player, col) {
+        if (!g) return;
+        var tile = tileEl(player, col);
+        if (!tile || !boardEl) return;
+        var tr = tile.getBoundingClientRect();
+        var br = boardEl.getBoundingClientRect();
+        var stateCell = state.board[player] && state.board[player][col];
+        var frontSrc = (stateCell && stateCell.unit) ? getUnitCardImagePath(stateCell.unit) : '';
+        var slotElem = slotEl(player, col);
+        var key = player + ':' + col;
+
+        var theater = theaterEl();
+        if (!theater) return;
+        var proxy = document.createElement('div');
+        proxy.className = 'theater-proxy';
+        proxy.style.cssText = 'left:' + (tr.left - br.left) + 'px;top:' + (tr.top - br.top) + 'px;' +
+          'width:' + tr.width + 'px;height:' + tr.height + 'px;' +
+          'background:url("assets/units/unit-card-back.png") center/cover no-repeat;';
+        theater.appendChild(proxy);
+
+        // Register IMMEDIATELY (before any CoinGate branch) so afterReveal() works
+        // even when startFlip is deferred into CoinGate.bufCapture.
+        _revealPending[key] = [];
+
+        function startFlip() {
+          BeatQueue.open();
+          proxy.style.display = '';
+          if (slotElem) slotElem.classList.add('slot--revealing');
+          // Phase 1: squeeze back face to edge-on
+          g.to(proxy, { scaleX: 0, duration: 0.22, ease: 'power2.in', onComplete: function () {
+            proxy.style.background = frontSrc
+              ? 'url("' + frontSrc + '") center/cover no-repeat' : '#1e3a5f';
+            // Phase 2: expand front face. slot--revealing keeps the tile hidden so only
+            // the proxy is visible during expansion — no ghost/duplicate artifact.
+            g.to(proxy, { scaleX: 1, duration: 0.22, ease: 'power2.out', onComplete: function () {
+              // Proxy is now full-size covering the tile. Remove slot--revealing and patch
+              // the tile to front art so the proxy and tile match before the crossfade.
+              if (slotElem) slotElem.classList.remove('slot--revealing');
+              var tileCard = slotElem && slotElem.querySelector('.unit-card');
+              if (tileCard) {
+                tileCard.classList.remove('unit-card--face-down-soft');
+                tileCard.classList.add('unit-card--face-up');
+              }
+              var tileImg = slotElem && slotElem.querySelector('.unit-card__img');
+              if (tileImg && frontSrc) tileImg.src = frontSrc;
+              var tileOverlay = slotElem && slotElem.querySelector('.unit-card__face-down-overlay');
+              if (tileOverlay) removeEl(tileOverlay);
+              // Fade proxy: crossfades to reveal the fully-detailed tile underneath.
+              g.to(proxy, { opacity: 0, duration: 0.25, delay: 0.45,
+                onComplete: function () {
+                  removeEl(proxy);
+                  var pending = _revealPending[key] || [];
+                  delete _revealPending[key];
+                  for (var i = 0; i < pending.length; i++) pending[i]();
+                  BeatQueue.close();
+                }
+              });
+            } });
+          } });
+        }
+
+        if (CoinGate.active) {
+          proxy.style.display = 'none';
+          CoinGate.bufCapture(startFlip);
+        } else {
+          startFlip();
+        }
+      },
+
+      // If a cpuReveal is active for this slot (or a cross-slot deferral points
+      // here to another active reveal), queue fn and return true.
+      afterReveal: function (player, col, fn) {
+        var key = player + ':' + col;
+        if (_revealPending[key] !== undefined) {
+          _revealPending[key].push(fn);
+          return true;
+        }
+        // Cross-slot: animations for this slot wait for a DIFFERENT slot's reveal
+        var xKey = _crossSlotDefer[key];
+        if (xKey && _revealPending[xKey] !== undefined) {
+          _revealPending[xKey].push(fn);
+          return true;
+        }
+        return false;
+      },
+
+      // Register that animations for (player, col) should wait for the reveal
+      // active on (revealPlayer, revealCol). Call before applyDamage.
+      deferForReveal: function (player, col, revealPlayer, revealCol) {
+        _crossSlotDefer[player + ':' + col] = revealPlayer + ':' + revealCol;
+      },
+
+      // §9 — Gear equipped: mini-card slides in from above its resting position.
+      // Call AFTER renderBoard().
+      gearEquip: function (player, col) {
+        if (!g) return;
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        var gearCard = slot.querySelector('.unit-mini-card--gear, .unit-mini-card--bonus-gear');
+        if (!gearCard) return;
+        g.from(gearCard, { y: -22, opacity: 0, duration: 0.3, ease: 'power2.out',
+          onComplete: function () { g.set(gearCard, { clearProps: 'y,opacity' }); } });
+      },
+
+      // Terrain card slides in from above (same motion as gear).
+      terrainEquip: function (player, col) {
+        if (!g) return;
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        var terrainCard = slot.querySelector('.unit-mini-card--terrain');
+        if (!terrainCard) return;
+        g.from(terrainCard, { y: -22, opacity: 0, duration: 0.3, ease: 'power2.out',
+          onComplete: function () { g.set(terrainCard, { clearProps: 'y,opacity' }); } });
+      },
+
+      // Helper: get the .item-card element at a given index for a player's item hand.
+      // Snapshots getBoundingClientRect() immediately so itemConsume can use the
+      // correct position even after renderBoard() detaches the element from the DOM.
+      captureHandCard: function (player, handIndex) {
+        var hEl = player === 1 ? itemHandP1El : itemHandP2El;
+        if (!hEl) return null;
+        var cards = hEl.querySelectorAll('.item-card');
+        var el = cards[handIndex] || null;
+        if (el) el._capturedRect = el.getBoundingClientRect();
+        return el;
+      },
+
+      // §10 — Item used/consumed: hand card arcs to item discard pile.
+      // handCardEl: element captured by captureHandCard() — rect already snapshotted.
+      // afterRenderFn: optional callback fired after the arc completes and the board
+      // re-renders (used to chain a second arc, e.g. gear following the phial).
+      itemConsume: function (handCardEl, afterRenderFn) {
+        if (!g || !handCardEl || !boardEl) return;
+        BeatQueue.open();
+        handCardEl.style.visibility = 'hidden'; // hide original immediately so it doesn't
+                                                // ghost alongside the proxy when renderBoard
+                                                // is deferred (BeatQueue active).
+        var fr = handCardEl._capturedRect || handCardEl.getBoundingClientRect();
+        var br = boardEl.getBoundingClientRect();
+        var dest = itemDestRect();
+        var img  = handCardEl.querySelector('img');
+        var proxy = makeProxy(
+          { left: fr.left - br.left, top: fr.top - br.top, width: fr.width, height: fr.height },
+          img ? img.src : '');
+        if (!proxy) { BeatQueue.close(); return; }
+        g.to(proxy, {
+          x: dest.left - (fr.left - br.left),
+          y: dest.top  - (fr.top  - br.top),
+          scale: 0.35, opacity: 0, duration: 0.42, ease: 'power2.in',
+          onComplete: function () {
+            removeEl(proxy);
+            if (afterRenderFn) BeatQueue.afterRender(afterRenderFn);
+            BeatQueue.close();
+          } });
+      },
+
+      // §11 — Terrain effect activates: amber brightness flash on the slot.
+      // Animates the slot (not the mini-card element) so it survives renderBoard().
+      terrainPulse: function (player, col) {
+        if (!g) return;
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        g.timeline()
+          .to(slot, { filter: 'brightness(1.6) sepia(0.4)', duration: 0.18, ease: 'power2.out' })
+          .to(slot, { filter: 'brightness(1) sepia(0)', duration: 0.4, ease: 'power1.inOut',
+              onComplete: function () { g.set(slot, { clearProps: 'filter' }); } });
+      },
+
+      // §12 — Veteran effect fires: scale pulse on the slot (survives renderBoard).
+      veteranPulse: function (player, col) {
+        if (!g) return;
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        g.timeline()
+          .to(slot, { scale: 1.06, duration: 0.15, ease: 'power2.out' })
+          .to(slot, { scale: 1, duration: 0.2, ease: 'power2.inOut',
+              onComplete: function () { g.set(slot, { clearProps: 'scale' }); } });
+      },
+
+      // §13 — Interrupt spotlight: amber glow around a card slot.
+      // onReady fires after ~700 ms so the Turn Strip interrupt UI can appear.
+      spotlightStart: function (player, col, onReady) {
+        if (!g) { if (onReady) window.setTimeout(onReady, 0); return; }
+        var spotEl = document.getElementById('theater-spotlight');
+        if (!spotEl) { if (onReady) window.setTimeout(onReady, 0); return; }
+        var rect = slotRectRel(player, col);
+        if (!rect) { if (onReady) window.setTimeout(onReady, 0); return; }
+        var pad = 7;
+        spotEl.style.left   = (rect.left   - pad) + 'px';
+        spotEl.style.top    = (rect.top    - pad) + 'px';
+        spotEl.style.width  = (rect.width  + pad * 2) + 'px';
+        spotEl.style.height = (rect.height + pad * 2) + 'px';
+        spotEl.style.display = 'block';
+        g.fromTo(spotEl, { opacity: 0 }, { opacity: 1, duration: 0.25, ease: 'power2.out' });
+        if (onReady) window.setTimeout(onReady, 700);
+      },
+      spotlightEnd: function () {
+        if (!g) return;
+        var spotEl = document.getElementById('theater-spotlight');
+        if (!spotEl) return;
+        g.to(spotEl, { opacity: 0, duration: 0.3, ease: 'power1.in',
+          onComplete: function () { spotEl.style.display = 'none'; } });
+      },
+
+      // §14 — Bestiary / effect announcement banner.
+      bestiaryBanner: function (factionName, effectName) {
+        if (!g) return;
+        var bannerEl = document.getElementById('theater-banner');
+        if (!bannerEl) return;
+        bannerEl.innerHTML =
+          '<strong>' + (factionName || 'Fortune Revealed') + '</strong>' +
+          (effectName ? '<br><span style="font-size:0.82em;opacity:0.88">' + effectName + '</span>' : '');
+        bannerEl.style.display = 'block';
+        var tl = g.timeline();
+        tl.fromTo(bannerEl, { opacity: 0, scale: 0.9 },
+          { opacity: 1, scale: 1, duration: 0.32, ease: 'back.out(1.4)' });
+        tl.to(bannerEl, { opacity: 0, scale: 0.94, duration: 0.28, ease: 'power1.in', delay: 1.5 });
+        tl.call(function () {
+          bannerEl.style.display = 'none';
+          g.set(bannerEl, { clearProps: 'opacity,scale' });
+        });
+      },
+
+      // §15 — Unit captured: tile arcs off-board to the discard pile area.
+      // Call BEFORE state.board[player][col] = null so tile DOM still exists.
+      unitCapture: function (player, col) {
+        if (!g || !boardEl) return;
+        var tile = tileEl(player, col);
+        if (!tile) return;
+        var tr   = tile.getBoundingClientRect();
+        var br   = boardEl.getBoundingClientRect();
+        var dest = captureDestRect();
+        var stateCell = state.board[player] && state.board[player][col];
+        var imgSrc = (stateCell && stateCell.unit) ? getUnitCardImagePath(stateCell.unit)
+                     : (tile.querySelector('.unit-card__img') ? tile.querySelector('.unit-card__img').src : '');
+        var proxy = makeProxy(
+          { left: tr.left - br.left, top: tr.top - br.top, width: tr.width, height: tr.height },
+          imgSrc);
+        if (!proxy) return;
+        var dx = dest.left - (tr.left - br.left);
+        var dy = dest.top  - (tr.top  - br.top);
+        function startArc() {
+          BeatQueue.open();
+          proxy.style.display = '';
+          // Hide the stale DOM tile so it doesn't show alongside the arcing proxy.
+          var srcTile = tileEl(player, col);
+          if (srcTile) srcTile.style.display = 'none';
+          g.to(proxy, { x: dx, y: dy, scale: 0.28, opacity: 0, duration: 0.45, ease: 'power2.inOut',
+            onComplete: function () { removeEl(proxy); BeatQueue.close(); } });
+        }
+        // Defer the arc until after any active cpuReveal for this slot
+        if (Anim.afterReveal(player, col, startArc)) {
+          proxy.style.display = 'none';
+          return;
+        }
+        if (CoinGate.active) {
+          proxy.style.display = 'none';
+          CoinGate.bufCapture(startArc);
+        } else {
+          startArc();
+        }
+      },
+
+      // §16 — Unit placed during setup: slides in from below.
+      unitPlacement: function (player, col, delayMs) {
+        if (!g) return;
+        var tile = tileEl(player, col);
+        if (!tile) return;
+        g.from(tile, { y: 28, opacity: 0, duration: 0.32, ease: 'power2.out',
+          delay: (delayMs || 0) / 1000,
+          onComplete: function () { g.set(tile, { clearProps: 'y,opacity' }); } });
+      },
+
+      // §17 — Reorder mode: entry overlay, swap slide, exit dissolve.
+      reorderEntry: function (player, col) {
+        if (!g) return;
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        // Animate the slot element (not a child div) so the dimming survives
+        // renderBoard() calls that replace slot innerHTML during swaps.
+        g.to(slot, { filter: 'brightness(0.45)', duration: 0.35, ease: 'power1.inOut' });
+      },
+      captureReorderSwap: function (player, colA, colB) {
+        var sA = slotEl(player, colA), sB = slotEl(player, colB);
+        if (!sA || !sB) return null;
+        return { player: player, colA: colA, colB: colB,
+          rectA: sA.getBoundingClientRect(), rectB: sB.getBoundingClientRect() };
+      },
+      animateReorderSwap: function (token) {
+        if (!g || !token) return;
+        var tA = tileEl(token.player, token.colA);
+        var tB = tileEl(token.player, token.colB);
+        if (tA) {
+          g.fromTo(tA,
+            { x: token.rectA.left - token.rectB.left, y: token.rectA.top - token.rectB.top },
+            { x: 0, y: 0, duration: 0.3, ease: 'power2.out',
+              onComplete: function () { g.set(tA, { clearProps: 'x,y' }); } });
+        }
+        if (tB) {
+          g.fromTo(tB,
+            { x: token.rectB.left - token.rectA.left, y: token.rectB.top - token.rectA.top },
+            { x: 0, y: 0, duration: 0.3, ease: 'power2.out',
+              onComplete: function () { g.set(tB, { clearProps: 'x,y' }); } });
+        }
+      },
+      reorderExit: function (player, col) {
+        if (!g) return;
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        g.to(slot, { filter: 'brightness(1)', duration: 0.5, ease: 'power1.inOut',
+          onComplete: function () { g.set(slot, { clearProps: 'filter' }); } });
+      },
+
+      // §19 — Mini-card (gear, terrain) arcs from a board slot to the item discard pile.
+      // Call when the mini-card is visible in the DOM (either before renderBoard removes
+      // it, or after a fresh renderBoard shows it). Gates display via BeatQueue so the
+      // board doesn't update until the arc exits.
+      boardMiniCardDiscard: function (player, col, selector) {
+        if (!g || !boardEl) return;
+        var slotElem = slotEl(player, col);
+        if (!slotElem) return;
+        var miniCard = slotElem.querySelector(selector);
+        if (!miniCard) return;
+        BeatQueue.open();
+        var mr   = miniCard.getBoundingClientRect();
+        var br   = boardEl.getBoundingClientRect();
+        var dest = itemDestRect();
+        var img  = miniCard.querySelector('img');
+        var proxy = makeProxy(
+          { left: mr.left - br.left, top: mr.top - br.top, width: mr.width, height: mr.height },
+          img ? img.src : '');
+        if (!proxy) { BeatQueue.close(); return; }
+        miniCard.style.visibility = 'hidden';
+        var dx = dest.left - (mr.left - br.left);
+        var dy = dest.top  - (mr.top  - br.top);
+        g.to(proxy, { x: dx, y: dy, scale: 0.5, opacity: 0, duration: 0.38, ease: 'power2.in',
+          onComplete: function () { removeEl(proxy); BeatQueue.close(); } });
+      },
+
+      // §18 — Card drawn into hand: last card in hand slides in.
+      // Call AFTER renderItemHands() so the new card is in the DOM.
+      cardDraw: function (player) {
+        if (!g) return;
+        var hEl = player === 1 ? itemHandP1El : itemHandP2El;
+        if (!hEl) return;
+        var cards = hEl.querySelectorAll('.item-card');
+        var last  = cards[cards.length - 1];
+        if (!last) return;
+        var startY = player === 1 ? -28 : 28;
+        g.from(last, { y: startY, opacity: 0, duration: 0.32, ease: 'power2.out',
+          onComplete: function () { g.set(last, { clearProps: 'y,opacity' }); } });
+      },
+
+      // §20 — Turn-start banner: pauses the game while announcing whose turn it is.
+      // Reuses #theater-banner (same shape/timing as bestiaryBanner) and gates display
+      // via BeatQueue so logs / renderBoard / renderTurnUI all buffer until the banner
+      // finishes fading. The onComplete callback runs the un-gated turn-start work
+      // (animateCardIntoHand + maybeScheduleCpuTurn) so the CPU can't act until then.
+      turnBanner: function (playerNum, onComplete) {
+        if (!g) { if (onComplete) onComplete(); return; }
+        var bannerEl = document.getElementById('theater-banner');
+        if (!bannerEl) { if (onComplete) onComplete(); return; }
+        BeatQueue.open();
+        var isOpponent = isCpuMode() && playerNum === 2;
+        var primary = isOpponent ? "Opponent's turn" : "Your turn";
+        var turnNum = Math.floor((state.turnsCompleted || 0) / 2) + 1;
+        var secondary = "Current turn: " + turnNum;
+        bannerEl.innerHTML =
+          '<strong>' + primary + '</strong>' +
+          '<br><span style="font-size:0.82em;opacity:0.88">' + secondary + '</span>';
+        bannerEl.style.color       = isOpponent ? '#f87171' : '#60a5fa';
+        bannerEl.style.borderColor = isOpponent ? 'rgba(248,113,113,0.55)' : 'rgba(96,165,250,0.55)';
+        bannerEl.style.display = 'block';
+        var tl = g.timeline();
+        tl.fromTo(bannerEl, { opacity: 0, scale: 0.9 },
+          { opacity: 1, scale: 1, duration: 0.32, ease: 'back.out(1.4)' });
+        tl.to(bannerEl, { opacity: 0, scale: 0.94, duration: 0.28, ease: 'power1.in', delay: 1.5 });
+        tl.call(function () {
+          bannerEl.style.display     = 'none';
+          bannerEl.style.color       = '';
+          bannerEl.style.borderColor = '';
+          g.set(bannerEl, { clearProps: 'opacity,scale' });
+          BeatQueue.close();
+          if (onComplete) onComplete();
+        });
+      },
+
+      // §24 — Damage resolution: rattle, buffer, and (if captured) capture arc, all
+      // sequenced so the player sees a clean confirmation beat. Caller must have
+      // already mutated state (cell.damage = newTotal OR cell = null + discard
+      // pushes) BEFORE calling. This function owns the visual sequence:
+      //   rattle (250ms) → if captured: 150ms buffer → unitCapture arc (450ms).
+      // BeatQueue is held open through the whole sequence so renderBoard is buffered;
+      // the HP counter / empty slot only paints AFTER the rattle (and arc) finish.
+      //
+      // Defers the entire sequence if a reveal is in flight for this slot or a
+      // cross-slot deferral points here (Lancer counter that lands on attacker).
+      // If BeatQueue is active for any other reason (coin flip, etc.) the sequence
+      // is buffered via bufCapture so the rattle never overlaps with the moment
+      // that decides whether damage actually lands.
+      //
+      // Tech debt — multi-target damage events: when a single attack damages two
+      // or more units (Archmage's Tome AOE, Iron Maiden retaliation, Pack Shield
+      // bounceback, Magic Grenade), each target currently kicks off its own
+      // damageResolve in parallel. They rattle at the same time and resolve
+      // independently. The agreed direction is to make these sequential — one
+      // target rattles + resolves, then the next — so the player can read each
+      // hit individually. Implementation idea: collect all damage events in
+      // resolveCombat into a queue, drain them one at a time with each target's
+      // damageResolve onComplete chaining to the next. Out of scope for this
+      // change; flagged for a follow-up.
+      damageResolve: function (player, col, opts) {
+        opts = opts || {};
+        var captured = !!opts.captured;
+
+        function sequence() {
+          BeatQueue.open();
+          Anim.damageShake(player, col);
+          window.setTimeout(function () {
+            if (captured) {
+              window.setTimeout(function () {
+                Anim.unitCapture(player, col);
+                BeatQueue.close();
+              }, 150);
+            } else {
+              BeatQueue.close();
+            }
+          }, 250);
+        }
+
+        if (Anim.afterReveal(player, col, sequence)) return;
+        if (BeatQueue.active) { BeatQueue.bufCapture(sequence); return; }
+        sequence();
+      },
+
+      // §23 — Item summoning zoom: shown when the player commits to using a hand
+      // card (Equip / Build / Use). Reuses #item-zoom-modal in "summoning mode" —
+      // chrome (close button, title, Use button) is hidden via the
+      // .item-zoom-modal--summoning class, leaving only the card image plus a
+      // small action caption ("Equipping…" / "Building…" / "Using…").
+      // BeatQueue-gated so logs / renders / CPU scheduling all buffer until the
+      // zoom finishes; onComplete then triggers the existing target-selection or
+      // immediate-apply path. Skipped when "Use this item" is clicked from the
+      // inspection modal (the player is already looking at the zoomed card).
+      itemSummon: function (itemName, actionLabel, onComplete) {
+        if (!g) { if (onComplete) onComplete(); return; }
+        var modal   = document.getElementById('item-zoom-modal');
+        var imgWrap = document.getElementById('item-zoom-img-wrap');
+        var caption = document.getElementById('item-zoom-caption');
+        var content = modal && modal.querySelector('.modal__content');
+        if (!modal || !imgWrap || !content) { if (onComplete) onComplete(); return; }
+
+        BeatQueue.open();
+
+        modal.classList.add('item-zoom-modal--summoning');
+        imgWrap.innerHTML = '';
+        var img = document.createElement('img');
+        img.src = getItemCardImagePath(itemName);
+        img.alt = itemName || '';
+        img.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
+        imgWrap.appendChild(img);
+        if (caption) {
+          caption.textContent = actionLabel || '';
+          caption.hidden = !actionLabel;
+        }
+        modal.hidden = false;
+
+        var tl = g.timeline();
+        tl.fromTo(content, { opacity: 0, scale: 0.85 },
+          { opacity: 1, scale: 1, duration: 0.32, ease: 'back.out(1.4)' });
+        tl.to(content, { opacity: 0, scale: 0.92, duration: 0.28, ease: 'power1.in', delay: 1.0 });
+        tl.call(function () {
+          modal.hidden = true;
+          modal.classList.remove('item-zoom-modal--summoning');
+          if (caption) { caption.textContent = ''; caption.hidden = true; }
+          g.set(content, { clearProps: 'opacity,scale' });
+          // Close BeatQueue BEFORE running the continuation so the apply
+          // function's renderBoard fires synchronously. Slide-in animations
+          // (gearEquip, terrainEquip) query the DOM right after their
+          // renderBoard call — if BeatQueue were still active here, the
+          // render would be buffered and the slide would find no element,
+          // making the gear/terrain "blink" into place instead of sliding.
+          BeatQueue.close();
+          if (onComplete) onComplete();
+        });
+      },
+
+    };
+  }()); // end Anim
 
   function getHiddenCpuEntityNames() {
     const hiddenUnitNames = [];
@@ -160,8 +927,8 @@
   }
 
   // tone: 'default' | 'red' | 'amber' | 'blue' | 'gray'
-  function log(message, tone) {
-    if (state.rawLogEntries) state.rawLogEntries.push(message);
+  // Direct DOM append — bypasses CoinGate; called by CoinGate._flush and by log().
+  function renderLogEntry(message, tone) {
     if (!gameLogEntries) return;
     if (!tone) {
       if (/: tails —|: heads —/.test(message)) tone = 'amber';
@@ -177,6 +944,12 @@
     entry.textContent = redactHiddenCpuInfo(message);
     gameLogEntries.appendChild(entry);
     gameLogEntries.scrollTop = gameLogEntries.scrollHeight;
+  }
+
+  function log(message, tone) {
+    if (state.rawLogEntries) state.rawLogEntries.push(message);
+    if (CoinGate.active) { CoinGate.bufLog(message, tone); return; }
+    renderLogEntry(message, tone);
   }
 
   function getInitialState() {
@@ -207,6 +980,7 @@
       cpuPendingExecute: null,
       cpuLastBlockReason: '',
       cpuAnnouncing: false,
+      turnsCompleted: 0,
     };
   }
 
@@ -632,6 +1406,8 @@
     const faction = getFactionCardDefById(getColumnEffectiveFactionId(col));
     const bestiaryCard = getBestiaryCardDefById(getColumnEffectiveBestiaryId(col));
     log("[Bestiary] Column " + (idx + 1) + " revealed: " + (faction ? faction.name : 'Faction') + " + " + (bestiaryCard ? bestiaryCard.name : 'Bestiary'));
+    // §14: Bestiary banner announcement
+    Anim.bestiaryBanner(faction ? faction.name : 'Fortune Revealed', bestiaryCard ? bestiaryCard.name : '');
     renderBestiaryMiniGrid();
   }
 
@@ -941,6 +1717,7 @@
     if (!cell) return false;
     if (!cell.faceUp) {
       cell.faceUp = true;
+      if (isCpuPlayer(player)) Anim.cpuReveal(player, col);
       log(cell.unit.name + " is revealed.");
     }
     cell.paralyzed = true;
@@ -962,9 +1739,10 @@
     log(reasonLabel + " — " + cell.unit.name + " recovers " + recovered + " HP.");
   }
 
-  function maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol) {
+  function maybeApplyTorraGearBreak(attCell, attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
     if (!hasVeteranBuff(attCell, 'torra')) return;
     const heads = Math.random() < 0.5;
+    CoinGate.push(heads, attackerPlayer, attackerCol);
     const defCell = state.board[defenderPlayer][defenderCol];
     if (!heads) {
       log("Torra's Shattering Hammer: tails — no gear destroyed.");
@@ -978,16 +1756,19 @@
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(removed);
     log("Torra's Shattering Hammer: heads — " + removed.name + " on " + defCell.unit.name + " is destroyed before damage.");
+    Anim.veteranPulse(defenderPlayer, defenderCol);
   }
 
-  function getRokkloDamageBonus(attCell) {
+  function getRokkloDamageBonus(attCell, attackerPlayer, attackerCol) {
     if (!hasVeteranBuff(attCell, 'rokklo')) return 0;
     const heads = Math.random() < 0.5;
+    CoinGate.push(heads, attackerPlayer, attackerCol);
     if (!heads) {
       log("Rokklo's Returning Hit: tails — no bonus damage.");
       return 0;
     }
     log("Rokklo's Returning Hit: heads — +1 damage.");
+    CoinGate.bufCapture(function () { Anim.veteranPulse(attackerPlayer, attackerCol); });
     return 1;
   }
 
@@ -1005,9 +1786,10 @@
     log("Haskel's Pirate Claw — steals " + stolen.name + " from Player " + defenderPlayer + ".");
   }
 
-  function maybeApplyLyraEcho(attCell, attackerCol, defenderPlayer, defenderCol) {
+  function maybeApplyLyraEcho(attCell, attackerPlayer, attackerCol, defenderPlayer, defenderCol) {
     if (!hasVeteranBuff(attCell, 'lyra')) return;
     const heads = Math.random() < 0.5;
+    CoinGate.push(heads, attackerPlayer, attackerCol);
     if (!heads) {
       log("Lyra's Blast Echo: tails — no extra hit.");
       return;
@@ -1028,6 +1810,7 @@
       return;
     }
     log("Lyra's Blast Echo: heads — extra 1 damage to " + betweenCell.unit.name + ".");
+    CoinGate.bufCapture(function () { Anim.veteranPulse(defenderPlayer, betweenCol); });
     applyDamage(defenderPlayer, betweenCol, 1, "");
   }
 
@@ -1114,6 +1897,7 @@
         log("Senya's Hex Haze is on cooldown this turn — damage is not negated.");
       } else {
         const senyaHeads = Math.random() < 0.5;
+        CoinGate.push(senyaHeads, defenderPlayer, defenderCol);
         if (!senyaHeads) {
           log("Senya's Hex Haze: tails — damage is not negated.");
         } else {
@@ -1130,6 +1914,7 @@
 
     if (hasVeteranBuff(defCell, 'mivara')) {
       const mivaraHeads = Math.random() < 0.5;
+      CoinGate.push(mivaraHeads, defenderPlayer, defenderCol);
       if (!mivaraHeads) {
         log("Mivara's False Self: tails — no redirection.");
       } else {
@@ -1241,6 +2026,8 @@
     log("Ardan's Veilstep — reorder Ardan with face-down allies, then click Done reordering.");
     renderTurnUI();
     renderBoard();
+    // §17: overlay fades in over the acting unit to show it's stepping back
+    Anim.reorderEntry(prompt.attPlayer, prompt.attCol);
   }
 
   function finishResolvedCombatTurn() {
@@ -1316,6 +2103,7 @@
   function maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, didCapture) {
     if (!hasVeteranBuff(attCell, 'grolk') || !didCapture) return;
     const heads = Math.random() < 0.5;
+    CoinGate.push(heads, attackerPlayer, attackerCol);
     if (!heads) {
       log("Grolk's Bloodthirst: tails — no healing.");
       return;
@@ -1436,8 +2224,13 @@
     if (!defCell) return false;
     if (cellHasGearName(defCell, 'Wardstone Bracelet')) {
       state.pendingWardstone = { attPlayer: attackerPlayer, attCol: attackerCol, defPlayer: defenderPlayer, defCol: defenderCol };
-      renderTurnUI();
+      state.wardstoneSpotlightPending = true;
       renderBoard();
+      // §13: spotlight appears on the reactive card; after 700ms the interrupt UI shows
+      Anim.spotlightStart(defenderPlayer, defenderCol, function () {
+        state.wardstoneSpotlightPending = false;
+        renderTurnUI();
+      });
       return true;
     }
     resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, opts);
@@ -1474,6 +2267,11 @@
       }
       return defenderCol;
     }
+    // §8: reveal Harlund at their CURRENT position before the swap — this is the
+    // discovery moment. Capture move token too so the slide fires after the reveal.
+    const harlundWasHidden = !harlundCell.faceUp;
+    if (harlundWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, harlundCol);
+    const harlundSwapToken = Anim.captureMoveState(defenderPlayer, harlundCol, defenderCol);
     state.board[defenderPlayer][defenderCol] = harlundCell;
     state.board[defenderPlayer][harlundCol] = allyCell;
     state.board[defenderPlayer][defenderCol].faceUp = true;
@@ -1482,6 +2280,9 @@
       attackContext.protectedCol = harlundCol;
     }
     log("Harlund's Pack Shield — " + harlundCell.unit.name + " swaps in and takes the hit.");
+    // Slide fires after the reveal completes (or immediately if Harlund was already face-up)
+    var doSlide = function () { Anim.animateMove(harlundSwapToken); };
+    if (!Anim.afterReveal(defenderPlayer, harlundCol, doSlide)) doSlide();
     return defenderCol;
   }
 
@@ -1511,6 +2312,7 @@
     const vaelaCell = state.board[opp][moverCol];
     if (!vaelaCell || !hasVeteranBuff(vaelaCell, 'vaela')) return false;
     const heads = Math.random() < 0.5;
+    CoinGate.push(heads, opp, moverCol);
     if (!heads) {
       log("Vaela's Instinctive Strike: tails — no interruption.");
       return false;
@@ -1637,7 +2439,7 @@
       log(state.board[finalPlayer][finalCol].unit.name + " is paralyzed (Magic Paralysis).");
     }
     maybeApplyHaskelSteal(attCell, prompt.attPlayer, prompt.defPlayer);
-    maybeApplyLyraEcho(attCell, prompt.attCol, finalPlayer, finalCol);
+    maybeApplyLyraEcho(attCell, prompt.attPlayer, prompt.attCol, finalPlayer, finalCol);
     maybeApplySolomonFrontParalyze(attCell, prompt.attCol, prompt.defPlayer);
     maybeApplyChronirAdjacentParalyze(attCell, finalPlayer, finalCol);
     maybeApplyGrolkCaptureHeal(attCell, prompt.attPlayer, prompt.attCol, captured);
@@ -1647,6 +2449,7 @@
     }
     if (finalTargetHadBarbed && (prompt.attClassForBarbed === 'Brawler' || prompt.attClassForBarbed === 'Lancer')) {
       const heads = Math.random() < 0.5;
+      CoinGate.push(heads, finalPlayer, finalCol);
       if (heads) {
         const attRef = state.board[prompt.attPlayer][prompt.attCol];
         if (attRef) {
@@ -1766,7 +2569,9 @@
         renderBoard();
         return;
       }
+      const unmakerWasHidden = !cell.faceUp;
       cell.faceUp = true;
+      if (unmakerWasHidden && isCpuPlayer(p)) Anim.cpuReveal(p, c);
       if (maybeCaptureUnmakerOnReveal(p, c, "on action reveal")) {
         state.selectedUnit = null;
         state.actionStep = 'select_unit';
@@ -1977,6 +2782,7 @@
   }
 
   function renderBoard() {
+    if (CoinGate.active) { CoinGate.markBoard(); return; }
     applyBestiaryBoardStateMaintenance();
     clearBoard();
     [1, 2].forEach(function (player) {
@@ -2397,10 +3203,13 @@
   function onFlipCoin() {
     const heads = Math.random() < 0.5;
     state.firstPlayer = heads ? 1 : 2;
-    coinResult.textContent = heads ? 'Heads — Player 1 goes first!' : 'Tails — Player 2 goes first!';
-    coinResult.hidden = false;
     btnFlipCoin.hidden = true;
-    btnAfterCoin.hidden = false;
+    // §6: animated coin flip — reveal result and Continue button when the coin lands
+    Anim.coinFlip(heads, null, null, function () {
+      coinResult.textContent = heads ? 'Heads — Player 1 goes first!' : 'Tails — Player 2 goes first!';
+      coinResult.hidden = false;
+      btnAfterCoin.hidden = false;
+    });
   }
 
   function onAfterCoin() {
@@ -2697,6 +3506,8 @@
     state.selectedPlacementIndex = null;
     renderBoard();
     renderPlacementStep();
+    // §16: single card slides in from below
+    Anim.unitPlacement(player, slotIndex, 0);
     if (hand.length === 0) finishPlacementForPlayer(player);
   }
 
@@ -2724,7 +3535,17 @@
     state.selectedPlacementIndex = null;
     renderBoard();
     renderPlacementStep();
-    if (handRef.length === 0) finishPlacementForPlayer(player);
+    // §16: staggered slide-in for all placed cards (left to right, 70ms apart)
+    for (let i = 0; i < n; i++) {
+      Anim.unitPlacement(player, emptySlots[i], i * 70);
+    }
+    // Delay finishPlacementForPlayer until after the last animation completes.
+    // Calling it immediately would trigger a renderBoard() that replaces the
+    // freshly-created tile elements before GSAP has animated them.
+    if (handRef.length === 0) {
+      var finishDelay = (n - 1) * 70 + 370;
+      window.setTimeout(function () { finishPlacementForPlayer(player); }, finishDelay);
+    }
   }
 
   function finishPlacementForPlayer(player) {
@@ -2775,6 +3596,20 @@
   }
 
   function startOfTurn() {
+    // Wait for any in-flight animations from the previous turn (coin flips,
+    // captures, reveals, etc.) to fully resolve before announcing the next
+    // turn. Without this gate, the banner overlaps with still-playing coins
+    // in the theater layer. afterRender fires the deferred callback inside
+    // the same flush that drains the queue, so we re-enter once idle.
+    if (BeatQueue.active) {
+      BeatQueue.afterRender(startOfTurn);
+      return;
+    }
+    // The previous turn's flush may have called maybeScheduleCpuTurn (via
+    // renderBoard) which queued a CPU think-timer. Cancel it so the CPU can't
+    // start acting under the banner; the banner's onComplete re-schedules.
+    clearCpuThinkTimer();
+
     const p = state.currentPlayer;
     state.cpuItemsUsedThisTurn = 0;
     state.actionStep = 'use_items';
@@ -2824,6 +3659,16 @@
       return;
     }
 
+    // Open the turn-start banner FIRST. It opens BeatQueue, so all logs /
+    // renderTurnUI / renderBoard calls below get buffered until the banner
+    // finishes fading. The post-banner callback runs animateCardIntoHand and
+    // maybeScheduleCpuTurn — those bypass BeatQueue, so they live here to
+    // guarantee the CPU never starts acting until the banner is gone.
+    Anim.turnBanner(p, function () {
+      animateCardIntoHand(p);
+      maybeScheduleCpuTurn();
+    });
+
     log("Player " + p + "'s turn.");
     if (currentPlayerHasMuzzledUnit()) {
       log("[Bestiary] Muzzled Beast is active: Player " + p + " cannot use single-use items this turn.");
@@ -2836,8 +3681,6 @@
     updateCaptureDisplay();
     renderTurnUI();
     renderBoard();
-    animateCardIntoHand(p);
-    maybeScheduleCpuTurn();
   }
 
   function runReinforcement(player) {
@@ -2887,12 +3730,10 @@
     if (bestiaryModal && !bestiaryModal.hidden) renderBestiaryModal();
   }
 
-  // [Phase 2 debt] animateCardIntoHand: GSAP transform animation removed because
-  // animating `y` and `scale` writes inline styles that overwrite the CSS tuck
-  // baseline (translateY(70px)), breaking card position and hover button visibility.
-  // Phase 2 will reimplement using a GSAP-native approach that accounts for the
-  // existing CSS transform rather than replacing it.
-  function animateCardIntoHand(_player) {}
+  // §18: card slides into hand from the deck direction after renderItemHands().
+  function animateCardIntoHand(player) {
+    Anim.cardDraw(player);
+  }
 
   function renderScoreMarkers() {
     const goal = state.captureGoal || 15;
@@ -3123,6 +3964,7 @@
   }
 
   function renderTurnUI() {
+    if (CoinGate.active) { CoinGate.markTurnUI(); return; }
     sanitizeBestiaryRevealState();
     const p = state.currentPlayer;
     const step = state.actionStep;
@@ -3157,7 +3999,7 @@
       return;
     }
 
-    if (state.pendingWardstone) {
+    if (state.pendingWardstone && !state.wardstoneSpotlightPending) {
       if (turnBanner) turnBanner.classList.add('turn-strip--interrupt');
       turnStep.textContent = "Use Wardstone to negate this attack?";
       turnActions.hidden = false;
@@ -3323,6 +4165,7 @@
       renderBoard();
       return;
     }
+    const wasHidden = !cell.faceUp;
     state.selectedUnit = { player: player, column: column };
     cell.faceUp = true;
     if (maybeCaptureUnmakerOnReveal(player, column, "on action reveal")) {
@@ -3345,8 +4188,13 @@
       }
     }
     log("Player " + player + "'s " + cell.unit.name + " (" + cell.unit.class + ") is revealed and acts.");
+    // §8: cpuReveal proxy must be created before renderBoard() re-renders the tile
+    if (wasHidden && isCpuPlayer(player)) Anim.cpuReveal(player, column);
     renderTurnUI();
     renderBoard();
+    // §1: pulse on the selected card; §7: veil lift for P1 face-down units
+    Anim.unitSelected(player, column);
+    if (wasHidden && !isCpuPlayer(player)) Anim.ownReveal(player, column);
   }
 
   function doMove(direction) {
@@ -3368,6 +4216,7 @@
 
     if (getTerrain(p, c) === 'Paralyzing Vines') {
       const heads = Math.random() < 0.5;
+      CoinGate.push(heads, p, c);
       if (!heads) {
         log("Paralyzing Vines: tails — " + myCell.unit.name + "'s move fails. " + myCell.unit.name + " must still attack.");
         state.moveDone = true;
@@ -3378,6 +4227,9 @@
       }
       log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and moves.");
     }
+
+    // §2: capture pre-move slot positions before state mutation
+    const moveAnimToken = Anim.captureMoveState(p, c, next);
 
     state.board[p][c] = { unit: otherCell.unit, faceUp: otherCell.faceUp, damage: otherCell.damage || 0, paralyzed: otherCell.paralyzed || false, cannotAttackNextTurn: otherCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: otherCell.cannotAttackNextTurnPending || false, mustRestNextTurn: otherCell.mustRestNextTurn || false, mustRestNextTurnPending: otherCell.mustRestNextTurnPending || false, nextAttackAsCaster: otherCell.nextAttackAsCaster || false, gear: otherCell.gear || null, bonusGear: otherCell.bonusGear || null, veteranState: otherCell.veteranState || {}, berserkerUsedThisTurn: otherCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: otherCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: otherCell.bestiaryExtraMovesRemaining || 0 };
     state.board[p][next] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
@@ -3399,6 +4251,13 @@
     log(moveLog, 'blue');
     renderTurnUI();
     renderBoard();
+    // §2: defer through CoinGate when Paralyzing Vines coin is mid-flight so the
+    // slide fires after renderBoard() actually runs and tiles are at new positions.
+    if (CoinGate.active) {
+      CoinGate.bufCapture(function () { Anim.animateMove(moveAnimToken); });
+    } else {
+      Anim.animateMove(moveAnimToken);
+    }
   }
 
   function doSkipMove() {
@@ -3436,6 +4295,7 @@
 
     if (getTerrain(p, fromCol) === 'Paralyzing Vines') {
       const heads = Math.random() < 0.5;
+      CoinGate.push(heads, p, fromCol);
       if (!heads) {
         log("Paralyzing Vines: tails — " + myCell.unit.name + "'s teleport fails. " + myCell.unit.name + " must still attack.");
         state.moveDone = true;
@@ -3446,6 +4306,9 @@
       }
       log("Paralyzing Vines: heads — " + myCell.unit.name + " breaks free and teleports.");
     }
+
+    // §2: capture pre-teleport slot positions before any state mutation
+    const moveAnimToken = Anim.captureMoveState(p, fromCol, toCol);
 
     if (targetCell == null) {
       state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
@@ -3475,6 +4338,12 @@
     if (maybeTriggerVaelaFrontStrike(p, toCol)) return;
     renderTurnUI();
     renderBoard();
+    // §2: defer through CoinGate when Paralyzing Vines coin is mid-flight
+    if (CoinGate.active) {
+      CoinGate.bufCapture(function () { Anim.animateMove(moveAnimToken); });
+    } else {
+      Anim.animateMove(moveAnimToken);
+    }
   }
 
   function doPass() {
@@ -4011,9 +4880,28 @@
         state.cpuPendingExecute = function () {
           if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
           clearCpuHighlights();
-          const applied = applyCpuItemAction(capturedAction);
-          if (applied) state.cpuItemsUsedThisTurn++;
-          maybeScheduleCpuTurn();
+          // Skip the summoning modal when the CPU equips gear to a face-down
+          // unit — the unit's identity is hidden, so showing the gear card in
+          // a big modal reveals it without context. The existing slide-in
+          // animation alone (face-down gear sliding into the tile) reads
+          // cleanly. For face-up targets and other item types we keep the
+          // ceremony so the player sees what was used.
+          var spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[capturedAction.itemName];
+          var isGearEquip = !!(spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion'));
+          var targetCell = (isGearEquip && capturedAction.targetPlayer != null && capturedAction.targetCol != null)
+            ? (state.board[capturedAction.targetPlayer] && state.board[capturedAction.targetPlayer][capturedAction.targetCol])
+            : null;
+          var skipSummon = !!(targetCell && !targetCell.faceUp);
+
+          function runApply() {
+            const applied = applyCpuItemAction(capturedAction);
+            if (applied) state.cpuItemsUsedThisTurn++;
+            maybeScheduleCpuTurn();
+          }
+
+          if (skipSummon) { runApply(); return; }
+          var actionLabel = getItemActionLabel(capturedAction.itemName, spec);
+          Anim.itemSummon(capturedAction.itemName, actionLabel, runApply);
         };
         state.cpuAnnouncing = true;
         renderTurnUI();
@@ -4116,42 +5004,49 @@
   }
 
   function doWardstoneUse() {
+    Anim.spotlightEnd();
     if (state.pendingVeteranPrompt) {
       doVeteranPromptUse();
       return;
     }
     if (!state.pendingWardstone) return;
     const pw = state.pendingWardstone;
-    const defCell = state.board[state.pendingWardstone.defPlayer][state.pendingWardstone.defCol];
+    const defCell = state.board[pw.defPlayer][pw.defCol];
     if (!defCell || !cellHasGearName(defCell, 'Wardstone Bracelet')) {
       state.pendingWardstone = null;
       renderTurnUI();
       renderBoard();
       return;
     }
-    if (!state.itemDiscard) state.itemDiscard = [];
-    state.itemDiscard.push(removeGearFromCell(defCell, 'Wardstone Bracelet'));
-    log("Player " + state.pendingWardstone.defPlayer + " uses Wardstone Bracelet — attack negated for this unit.");
+    // Clear pending state IMMEDIATELY so re-entry (button double-click, CPU's
+    // maybeScheduleCpuTurn timer) can't open a second summoning modal while
+    // this one is showing.
     state.pendingWardstone = null;
-    if (state.archmageMultiResolving) {
-      state.archmageMultiResolving.index++;
-      continueArchmageMulti();
-    } else {
-      if (runPendingCassaSecondAttackIfAvailable()) return;
-      if (queueTivalRetryPrompt(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol, "attack was negated by Wardstone")) {
+    Anim.itemSummon('Wardstone Bracelet', "Wardstone's protection activated…", function () {
+      if (!state.itemDiscard) state.itemDiscard = [];
+      state.itemDiscard.push(removeGearFromCell(defCell, 'Wardstone Bracelet'));
+      log("Player " + pw.defPlayer + " uses Wardstone Bracelet — attack negated for this unit.");
+      if (state.archmageMultiResolving) {
+        state.archmageMultiResolving.index++;
+        continueArchmageMulti();
+      } else {
+        if (runPendingCassaSecondAttackIfAvailable()) return;
+        if (queueTivalRetryPrompt(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol, "attack was negated by Wardstone")) {
+          renderTurnUI();
+          renderBoard();
+          return;
+        }
+        state.selectedUnit = null;
+        state.actionStep = 'select_unit';
         renderTurnUI();
         renderBoard();
-        return;
+        endTurn();
       }
-      state.selectedUnit = null;
-      state.actionStep = 'select_unit';
-      renderTurnUI();
-      renderBoard();
-      endTurn();
-    }
+    });
   }
 
   function doWardstoneNo() {
+    Anim.spotlightEnd();
     if (state.pendingVeteranPrompt) {
       doVeteranPromptNo();
       return;
@@ -4193,6 +5088,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Healing Potion') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     cell.damage = Math.max(0, (cell.damage || 0) - 1);
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
@@ -4202,6 +5098,7 @@
     log("Player " + state.currentPlayer + " uses Healing Potion on " + cell.unit.name + ". " + cell.unit.name + " recovers 1 HP.");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function applyRevealingLight(targetPlayer, targetCol) {
@@ -4215,7 +5112,10 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'All revealing lantern-jar') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     cell.faceUp = true;
+    // §8: reveal flip before renderBoard() while tile is still face-down in DOM
+    if (isCpuPlayer(targetPlayer)) Anim.cpuReveal(targetPlayer, targetCol);
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
@@ -4224,6 +5124,7 @@
     log("Player " + state.currentPlayer + " uses All revealing lantern-jar on " + cell.unit.name + ". " + cell.unit.name + " is revealed.");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function applyDisablingNet(targetPlayer, targetCol) {
@@ -4237,6 +5138,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Tangle-Vine Bola') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     cell.cannotAttackNextTurnPending = true;
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
@@ -4246,6 +5148,7 @@
     log("Player " + state.currentPlayer + " uses Tangle-Vine Bola on " + cell.unit.name + ". " + cell.unit.name + " cannot attack on their next turn.");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function applyCorrosivePhial(targetPlayer, targetCol) {
@@ -4257,20 +5160,32 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Corrosive Phial') return;
 
-    const gearRemoved = removeGearFromCell(cell);
-    if (!state.itemDiscard) state.itemDiscard = [];
-    state.itemDiscard.push(gearRemoved);
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
+    const gearName = getCellGearCards(cell)[0] ? getCellGearCards(cell)[0].name : 'gear';
+
+    // Phase 1: consume the phial — gear stays on the unit until the arc lands.
     hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
     state.itemTargeting = null;
 
-    log("Player " + state.currentPlayer + " uses Corrosive Phial on " + cell.unit.name + " — " + gearRemoved.name + " destroyed.");
-    // If stripping the armor dropped max HP below existing damage, capture the unit now.
-    if (state.board[targetPlayer][targetCol] && (cell.damage || 0) >= getMaxHP(cell)) {
-      applyDamage(targetPlayer, targetCol, 0, "Armor stripped —", false);
-    }
+    log("Player " + state.currentPlayer + " uses Corrosive Phial on " + cell.unit.name + " — " + gearName + " destroyed.");
     renderTurnUI();
-    renderBoard();
+    BeatQueue.markBoard(); // after phial arc: board shows +1 discard, gear still on unit
+
+    // Phase 2 runs after the phial arc completes and the board re-renders (+1).
+    // boardMiniCardDiscard reads the gear mini-card from the freshly rendered DOM.
+    Anim.itemConsume(handCardEl, function () {
+      Anim.boardMiniCardDiscard(targetPlayer, targetCol, '.unit-mini-card--gear, .unit-mini-card--bonus-gear');
+      const gearRemoved = removeGearFromCell(cell);
+      if (!state.itemDiscard) state.itemDiscard = [];
+      state.itemDiscard.push(gearRemoved);
+      BeatQueue.markBoard(); // after gear arc: board shows +2 discard, gear gone
+      // If armor loss dropped HP below max, capture fires after the gear arc completes.
+      if (state.board[targetPlayer][targetCol] && (cell.damage || 0) >= getMaxHP(cell)) {
+        applyDamage(targetPlayer, targetCol, 0, "Armor stripped —", false);
+      }
+    });
   }
 
   function applyObscuringBomb(handIndex) {
@@ -4278,6 +5193,7 @@
     const item = hand[handIndex];
     if (!item || item.name !== 'Obscuring bomb') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, handIndex);
     const p = state.currentPlayer;
     for (let c = 0; c < 5; c++) {
       const cell = state.board[p][c];
@@ -4292,6 +5208,7 @@
     log("Player " + p + " uses Obscuring bomb — all units flipped face-down. Reorder by swapping slots, then click Done reordering.");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function doObscuringSwap(colA, colB) {
@@ -4299,6 +5216,8 @@
     const reord = state.obscuringReorder;
     const p = reord.player;
     if (reord.allowedCols && (reord.allowedCols.indexOf(colA) === -1 || reord.allowedCols.indexOf(colB) === -1)) return;
+    // §17: capture slot positions before the state swap
+    const swapToken = Anim.captureReorderSwap(p, colA, colB);
     const a = state.board[p][colA];
     const b = state.board[p][colB];
     state.board[p][colA] = b;
@@ -4311,11 +5230,17 @@
     }
     renderTurnUI();
     renderBoard();
+    // §17: animate both cards sliding to their new positions
+    Anim.animateReorderSwap(swapToken);
   }
 
   function doDoneObscuringReorder() {
     if (!state.obscuringReorder) return;
     const reord = state.obscuringReorder;
+    // §17: dissolve the entry overlay on the acting unit (Ardan reorder)
+    if (reord.kind === 'ardan' && reord.attackerPlayer != null && reord.attackerCol != null) {
+      Anim.reorderExit(reord.attackerPlayer, reord.attackerCol);
+    }
     state.obscuringReorder = null;
     if (reord.kind === 'ardan') {
       log("Ardan's Veilstep complete.");
@@ -4335,6 +5260,7 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Magic Grenade') return;
 
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
     cell.nextAttackAsCaster = true;
     hand.splice(t.handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
@@ -4344,6 +5270,7 @@
     log("Player " + state.currentPlayer + " uses Magic Grenade on " + cell.unit.name + " — next attack will be as Caster (1 damage, paralyze).");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function applyVorpalHoningAmulet(handIndex) {
@@ -4351,6 +5278,8 @@
     const item = hand[handIndex];
     if (!item || item.name !== 'Vorpal Honing Amulet') return;
 
+    // §10: capture hand card before removing
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, handIndex);
     hand.splice(handIndex, 1);
     if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
@@ -4359,6 +5288,7 @@
     log("Player " + state.currentPlayer + " uses Vorpal Honing Amulet — their next attack ignores terrain and Lancer counters.");
     renderTurnUI();
     renderBoard();
+    Anim.itemConsume(handCardEl);
   }
 
   function isGearEquipTargeting() {
@@ -4379,12 +5309,17 @@
     state.itemTargeting = null;
     if (item.name === 'Divine Light') {
       const cell = state.board[targetPlayer][targetCol];
-      if (cell) cell.faceUp = true;
+      if (cell && !cell.faceUp) {
+        cell.faceUp = true;
+        if (isCpuPlayer(targetPlayer)) Anim.cpuReveal(targetPlayer, targetCol);
+      }
     }
 
     log("Player " + state.currentPlayer + " places " + item.name + " on tile (Player " + targetPlayer + ", column " + targetCol + ").");
     renderTurnUI();
     renderBoard();
+    // Terrain mini-card slides in from above after render
+    Anim.terrainEquip(targetPlayer, targetCol);
   }
 
   function applyTectonicSpike(targetPlayer, targetCol) {
@@ -4396,16 +5331,26 @@
     const item = hand[t.handIndex];
     if (!item || item.name !== 'Tectonic Spike') return;
 
-    if (!state.itemDiscard) state.itemDiscard = [];
-    state.itemDiscard.push(terrainHere);
-    state.terrain[targetPlayer][targetCol] = null;
+    const handCardEl = Anim.captureHandCard(state.currentPlayer, t.handIndex);
+
+    // Phase 1: consume the spike — terrain stays on the board until the arc lands.
     hand.splice(t.handIndex, 1);
+    if (!state.itemDiscard) state.itemDiscard = [];
     state.itemDiscard.push(item);
     state.itemTargeting = null;
 
     log("Player " + state.currentPlayer + " uses Tectonic Spike — " + terrainHere.name + " removed from tile (Player " + targetPlayer + ", column " + targetCol + ").");
     renderTurnUI();
-    renderBoard();
+    BeatQueue.markBoard(); // after spike arc: board shows +1 discard, terrain still visible
+
+    // Phase 2 runs after the spike arc completes and the board re-renders (+1).
+    Anim.itemConsume(handCardEl, function () {
+      Anim.boardMiniCardDiscard(targetPlayer, targetCol, '.unit-mini-card--terrain');
+      state.terrain[targetPlayer][targetCol] = null;
+      if (!state.itemDiscard) state.itemDiscard = [];
+      state.itemDiscard.push(terrainHere);
+      BeatQueue.markBoard(); // after terrain arc: board shows +2 discard, terrain gone
+    });
   }
 
   function applyEquipArmor(targetPlayer, targetCol) {
@@ -4436,6 +5381,8 @@
     state.itemTargeting = null;
     renderTurnUI();
     renderBoard();
+    // §9: gear mini-card slides in from above after render
+    Anim.gearEquip(targetPlayer, targetCol);
   }
 
   function applyDamage(player, col, damageAmount, logPrefix, skipLog, causeInfo) {
@@ -4445,6 +5392,7 @@
     const maxHP = getMaxHP(cell);
     const current = cell.damage || 0;
     const newTotal = current + damageAmount;
+    const wasHidden = !cell.faceUp; // capture before the forced reveal below
     cell.faceUp = true;
     if (newTotal >= maxHP) {
       if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " is captured (0/" + maxHP + " HP).");
@@ -4455,6 +5403,9 @@
         const gears = getCellGearCards(cell);
         for (let g = 0; g < gears.length; g++) state.itemDiscard.push(gears[g]);
       }
+      // §8: reveal flip for face-down CPU units. damageResolve below will auto-defer
+      // its rattle + capture arc via afterReveal so the reveal plays first.
+      if (wasHidden && isCpuPlayer(player)) Anim.cpuReveal(player, col);
       state.board[player][col] = null;
       if (player === 1) {
         state.p2Captures = (state.p2Captures || 0) + 1;
@@ -4469,6 +5420,7 @@
         const attackerCell = state.board[causeInfo.attackerPlayer] && state.board[causeInfo.attackerPlayer][causeInfo.attackerCol];
         if (attackerCell) {
           const heads = Math.random() < 0.5;
+          CoinGate.push(heads, causeInfo.attackerPlayer, causeInfo.attackerCol);
           if (heads) {
             log("[Bestiary] Iron Maiden: heads — " + attackerCell.unit.name + " is captured in retaliation.");
             applyDamage(causeInfo.attackerPlayer, causeInfo.attackerCol, getMaxHP(attackerCell), '', true);
@@ -4477,22 +5429,16 @@
           }
         }
       }
-      flashDamageSlot(player, col);
+      // §24: rattle + 150ms buffer + capture arc, all gated so the unit is shown
+      // (in its pre-capture state) until the sequence finishes.
+      Anim.damageResolve(player, col, { captured: true });
       return true;
     }
     cell.damage = newTotal;
     if (!skipLog) log((logPrefix ? logPrefix + " " : "") + cell.unit.name + " takes " + damageAmount + " damage (" + newTotal + "/" + maxHP + " HP).");
-    flashDamageSlot(player, col);
+    // §24: rattle, then HP counter updates after.
+    Anim.damageResolve(player, col, { captured: false });
     return false;
-  }
-
-  function flashDamageSlot(player, col) {
-    var dmgSlot = document.querySelector('.row--player' + player + ' .slot[data-column="' + col + '"]');
-    if (!dmgSlot) return;
-    dmgSlot.classList.remove('slot--cpu-damage');
-    void dmgSlot.offsetWidth; // force reflow to restart animation if called twice rapidly
-    dmgSlot.classList.add('slot--cpu-damage');
-    window.setTimeout(function () { dmgSlot.classList.remove('slot--cpu-damage'); }, 420);
   }
 
   function resolveCombat(attackerPlayer, attackerCol, defenderPlayer, defenderCol, options) {
@@ -4510,6 +5456,9 @@
     const bypassAllCounters   = vorpalPacket || isScopeStrike;
     const bypassVeteranEffects = vorpalPacket || isScopeStrike;
 
+    // §3: attack lunge (shake fires later via damageResolve when hit confirmed)
+    Anim.attack(attackerPlayer, attackerCol);
+
     log("Player " + attackerPlayer + "'s " + attCell.unit.name + " attacks (target in column " + defenderCol + ").", 'red');
     if (vorpalPacket) {
       log("True strike (Vorpal) — attack ignores terrain, Lancer counters, and all veteran effects.");
@@ -4521,6 +5470,7 @@
 
     if (!trueStrike && getTerrain(attackerPlayer, attackerCol) === 'Unstable Ground') {
       const heads = Math.random() < 0.5;
+      CoinGate.push(heads, attackerPlayer, attackerCol);
       if (!heads) {
         log("Unstable Ground (attacker's tile): tails — attack canceled.");
         if (state.pendingCassaSecondAttack && !state.cassaSecondAttackInProgress) state.pendingCassaSecondAttack = null;
@@ -4577,24 +5527,29 @@
           const lancerCell = state.board[defenderPlayer][lancerCol];
           if (lancerCell) {
             const guarantee = selected.guarantee;
+            const lancerWasHidden = !lancerCell.faceUp;
             lancerCell.faceUp = true;
+            if (lancerWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, lancerCol);
             log(lancerCell.unit.name + " (Lancer) is in counter range — counterattack attempt (target not revealed).");
 
             if (guarantee.revealCol !== null) {
               const allyCell = state.board[defenderPlayer][guarantee.revealCol];
               if (allyCell && !allyCell.faceUp) {
                 allyCell.faceUp = true;
+                if (isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, guarantee.revealCol);
                 log("Rowka's Twin Guard reveals " + allyCell.unit.name + ".");
               }
             }
 
             if (getTerrain(defenderPlayer, lancerCol) === 'Unstable Ground') {
               const unstableHeads = Math.random() < 0.5;
+              CoinGate.push(unstableHeads, defenderPlayer, lancerCol);
               if (!unstableHeads) {
                 log("Unstable Ground (Lancer's tile): tails — counter canceled.");
               } else {
                 log("Unstable Ground (Lancer's tile): heads — counter attempt proceeds.");
                 const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
+                if (!guarantee.guaranteed) CoinGate.push(counterHeads, defenderPlayer, lancerCol);
                 if (guarantee.guaranteed && guarantee.reason === 'rowka') {
                   log("Rowka's Twin Guard — counter is guaranteed.");
                 } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
@@ -4604,6 +5559,11 @@
                   log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
                   attackBlocked = true;
                   tivalFailureReason = "attack was blocked by a Lancer counter";
+                  // §5: counter-attack lunge; attacker's animations defer until after Lancer's reveal
+                  Anim.attack(defenderPlayer, lancerCol);
+                  if (lancerWasHidden && isCpuPlayer(defenderPlayer)) {
+                    Anim.deferForReveal(attackerPlayer, attackerCol, defenderPlayer, lancerCol);
+                  }
                   applyDamage(attackerPlayer, attackerCol, 1, "");
                   resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
                 } else {
@@ -4612,6 +5572,7 @@
               }
             } else {
               const counterHeads = guarantee.guaranteed ? true : (Math.random() < 0.5);
+              if (!guarantee.guaranteed) CoinGate.push(counterHeads, defenderPlayer, lancerCol);
               if (guarantee.guaranteed && guarantee.reason === 'rowka') {
                 log("Rowka's Twin Guard — counter is guaranteed.");
               } else if (guarantee.guaranteed && guarantee.reason === 'nyss') {
@@ -4621,6 +5582,11 @@
                 log("Lancer counterattack: heads — attack blocked, " + lancerCell.unit.name + " hits back for 1 HP.");
                 attackBlocked = true;
                 tivalFailureReason = "attack was blocked by a Lancer counter";
+                // §5: counter-attack lunge; attacker's animations defer until after Lancer's reveal
+                Anim.attack(defenderPlayer, lancerCol);
+                if (lancerWasHidden && isCpuPlayer(defenderPlayer)) {
+                  Anim.deferForReveal(attackerPlayer, attackerCol, defenderPlayer, lancerCol);
+                }
                 applyDamage(attackerPlayer, attackerCol, 1, "");
                 resolveKeeraCounterExtra(defenderPlayer, lancerCol, attackerPlayer, attackerCol);
               } else {
@@ -4637,7 +5603,10 @@
     var attackHitDefender = false;
     var attackAppliedToUnit = false;
     if (!attackBlocked) {
+      const defWasHidden = !defCell.faceUp;
       defCell.faceUp = true;
+      // §8: reveal flip before renderBoard — damageResolve will auto-defer
+      if (defWasHidden && isCpuPlayer(defenderPlayer)) Anim.cpuReveal(defenderPlayer, defenderCol);
       log("Target revealed: Player " + defenderPlayer + "'s " + defCell.unit.name + " (" + defCell.unit.class + ").");
       if (maybeCaptureUnmakerOnReveal(defenderPlayer, defenderCol, "on attack reveal")) {
         attackHitDefender = false;
@@ -4658,19 +5627,24 @@
         const defTerrain = getTerrain(defenderPlayer, defenderCol);
         if (defTerrain === 'Elevated Ground' && (effectiveClass === 'Brawler' || effectiveClass === 'Lancer')) {
           const heads = Math.random() < 0.5;
+          CoinGate.push(heads, defenderPlayer, defenderCol);
           if (heads) {
             log("Elevated Ground: heads — attack fails.");
             defenderTerrainBlocked = true;
             tivalFailureReason = "attack failed against Elevated Ground";
+            // Defer pulse until after the coin settles — not while it's spinning.
+            CoinGate.bufCapture(function () { Anim.terrainPulse(defenderPlayer, defenderCol); });
           } else {
             log("Elevated Ground: tails — attack proceeds.");
           }
         } else if (defTerrain === 'Reinforced Barricade' && (effectiveClass === 'Shooter' || effectiveClass === 'Caster')) {
           const heads = Math.random() < 0.5;
+          CoinGate.push(heads, defenderPlayer, defenderCol);
           if (heads) {
             log("Reinforced Barricade: heads — attack fails.");
             defenderTerrainBlocked = true;
             tivalFailureReason = "attack failed against Reinforced Barricade";
+            CoinGate.bufCapture(function () { Anim.terrainPulse(defenderPlayer, defenderCol); });
           } else {
             log("Reinforced Barricade: tails — attack proceeds.");
           }
@@ -4680,13 +5654,13 @@
       if (!defenderTerrainBlocked) {
         const vorpalLethal = vorpalPacket;
         const archmageMulti = effectiveClass === 'Caster' && attCell.unit.class === 'Caster' && cellHasGearName(attCell, "Archmage's Tome") && !attCell.nextAttackAsCaster;
-        maybeApplyTorraGearBreak(attCell, defenderPlayer, defenderCol);
+        maybeApplyTorraGearBreak(attCell, attackerPlayer, attackerCol, defenderPlayer, defenderCol);
         const shooterLongshot = (effectiveClass === 'Shooter' && isLongshot(attackerCol, defenderCol));
         const bestiary = getBestiaryEffectsForUnit(attCell.unit);
         let damage = shooterLongshot
           ? 2
           : 1;
-        damage += getRokkloDamageBonus(attCell);
+        damage += getRokkloDamageBonus(attCell, attackerPlayer, attackerCol);
         damage += getJorrenDamageBonus(attCell);
         damage += bestiary.primalAlpha;
         if (vorpalLethal) {
@@ -4763,7 +5737,7 @@
               log(state.board[finalPlayer][finalCol].unit.name + " is paralyzed (Magic Paralysis).");
             }
             maybeApplyHaskelSteal(attCell, attackerPlayer, defenderPlayer);
-            maybeApplyLyraEcho(attCell, attackerCol, finalPlayer, finalCol);
+            maybeApplyLyraEcho(attCell, attackerPlayer, attackerCol, finalPlayer, finalCol);
             maybeApplySolomonFrontParalyze(attCell, attackerCol, defenderPlayer);
             maybeApplyChronirAdjacentParalyze(attCell, finalPlayer, finalCol);
             maybeApplyGrolkCaptureHeal(attCell, attackerPlayer, attackerCol, captured);
@@ -4779,6 +5753,7 @@
 
     if (attackAppliedToUnit && defenderHadBarbedGauntlets && (attClassForBarbed === 'Brawler' || attClassForBarbed === 'Lancer')) {
       const heads = Math.random() < 0.5;
+      CoinGate.push(heads, defenderPlayer, defenderCol);
       if (heads) {
         const attCellRef = state.board[attackerPlayer][attackerCol];
         if (attCellRef) {
@@ -4837,11 +5812,14 @@
         ar.index++;
         continue;
       }
+      const archmageTargetWasHidden = !targetCell.faceUp;
       targetCell.faceUp = true;
+      if (archmageTargetWasHidden && isCpuPlayer(ar.defPlayer)) Anim.cpuReveal(ar.defPlayer, c);
       if (!ar.trueStrike) {
         const ter = getTerrain(ar.defPlayer, c);
         if (ter === 'Reinforced Barricade') {
           const heads = Math.random() < 0.5;
+          CoinGate.push(heads, ar.defPlayer, c);
           if (heads) {
             log("Reinforced Barricade (column " + c + "): heads — Archmage's Tome hit fails for this unit.");
             ar.index++;
@@ -4915,6 +5893,7 @@
     var playerWhoJustFinished = state.currentPlayer;
     updateJorrenFlagsAtTurnEnd(playerWhoJustFinished);
     state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
+    state.turnsCompleted = (state.turnsCompleted || 0) + 1;
     startOfTurn();
   }
 
@@ -5073,19 +6052,25 @@
       const terrainPlayable = typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1 && countEmptyTerrainSlots() > 0;
       const tectonicSpikePlayable = itemName === 'Tectonic Spike' && countTilesWithTerrain() > 0;
       if (player !== state.currentPlayer || (!singleUsePlayable && !gearPlayable && !terrainPlayable && !tectonicSpikePlayable)) return;
-      if (itemName === 'Vorpal Honing Amulet') {
-        applyVorpalHoningAmulet(handIndex);
-        return;
-      }
-      if (itemName === 'Obscuring bomb') {
-        applyObscuringBomb(handIndex);
-        return;
-      }
-      state.itemTargeting = { handIndex: handIndex, itemName: itemName };
-      renderTurnUI();
-      renderBoard();
+      // Show the summoning zoom first, then run the item's apply / target step
+      // in the onComplete callback. Reusing the inspection modal as a brief
+      // "card being played" beat — gives every item the same ceremony.
+      var actionLabel = getItemActionLabel(itemName, spec);
+      Anim.itemSummon(itemName, actionLabel, function () {
+        if (itemName === 'Vorpal Honing Amulet') { applyVorpalHoningAmulet(handIndex); return; }
+        if (itemName === 'Obscuring bomb')        { applyObscuringBomb(handIndex);     return; }
+        state.itemTargeting = { handIndex: handIndex, itemName: itemName };
+        renderTurnUI();
+        renderBoard();
+      });
       return;
     }
+  }
+
+  function getItemActionLabel(itemName, spec) {
+    if (typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1) return 'Building…';
+    if (spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion')) return 'Equipping…';
+    return 'Using…';
   }
 
   function renderItemPickList(filter) {
@@ -5434,7 +6419,6 @@
   function openItemZoom(itemName, handIndex, player) {
     if (!itemZoomModal || !itemZoomImgWrap || !itemZoomTitle) return;
     _itemZoomContext = (handIndex != null && player != null) ? { handIndex: handIndex, player: player, itemName: itemName } : null;
-    const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
     itemZoomTitle.textContent = itemName || 'Item';
     itemZoomImgWrap.innerHTML = '';
     const zImg = document.createElement('img');
@@ -5442,15 +6426,7 @@
     zImg.alt = itemName || '';
     zImg.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
     itemZoomImgWrap.appendChild(zImg);
-    if (itemZoomEffect) {
-      if (spec && spec.effect) {
-        itemZoomEffect.textContent = spec.effect;
-        itemZoomEffect.hidden = false;
-      } else {
-        itemZoomEffect.textContent = '';
-        itemZoomEffect.hidden = true;
-      }
-    }
+    if (itemZoomCaption) { itemZoomCaption.textContent = ''; itemZoomCaption.hidden = true; }
     // Show Use button only when the item is usable right now
     if (itemZoomUseBtn) {
       const usable = _itemZoomContext &&
@@ -5475,10 +6451,10 @@
   if (itemZoomUseBtn) {
     itemZoomUseBtn.addEventListener('click', function () {
       if (!_itemZoomContext || state.gameOver) return;
-      closeItemZoom();
-      // Simulate clicking Use on the hand card by synthesising the same state path
+      // Capture context before closeItemZoom() clears _itemZoomContext.
       var ctx = _itemZoomContext;
       _itemZoomContext = null;
+      closeItemZoom();
       if (state.phase !== 'playing' || state.actionStep !== 'use_items' || state.itemTargeting || state.obscuringReorder) return;
       if (ctx.player !== state.currentPlayer) return;
       var itemName = ctx.itemName;

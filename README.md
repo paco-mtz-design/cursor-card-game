@@ -4,21 +4,21 @@ Web-based prototype of the Tacticlash card game.
 
 ## Current phase of development
 
-**Phase 16 — Seer's Bestiary (wrapped)**
+**Phase 18 — CPU opponent + animation layer (wrapped)**
 
-Phase 16 ships the advanced Seer's Bestiary ruleset: optional default-on mode, milestone reveal flow, stacked faction-wide effects, debug controls, and QA-driven fixes. One UX refinement is intentionally deferred: battlefield dual-gear layered rendering for Iron-Clad Shield (unit zoom support is already shipped). See **[ROADMAP.md](ROADMAP.md)** for phase status and **[DEV_LOG.md](DEV_LOG.md)** for shipped details and deferred notes.
+Phase 18 ships an autonomous CPU opponent (`cpu.js` policy module + Continue-button announce flow) together with a full GSAP animation layer on top: BeatQueue reference-counted display gate, sequenced coin / reveal / capture / item-arc animations, a turn-start banner ("Your turn" / "Opponent's turn" with per-round counter and full pause-and-resume), an item summoning zoom that plays before every Equip / Build / Use (including the Wardstone Bracelet activation interrupt), and a clean §24 damage-resolution sequence (rattle → 150 ms buffer → capture arc, with HP-counter and slot-empty paint gated until the visuals finish). Implementation history is split across two specs in `feature specs/`: Phase 1 (CPU policy + wiring) and Phase 2 (animation layer + UX polish). See **[ROADMAP.md](ROADMAP.md)** for phase status and **[DEV_LOG.md](DEV_LOG.md)** for shipped details and deferred notes.
 
 ---
 
 ## Previously completed phases
 
-**Phases 1–16** are complete: **MVP (Phases 1–7)** through **Phase 16 — Seer's Bestiary**. Summaries and status for every phase: **[ROADMAP.md](ROADMAP.md)**.
+**Phases 1–16** plus **Phase 18** are complete: **MVP (Phases 1–7)** through **Phase 16 — Seer's Bestiary**, then **Phase 18 — CPU opponent + animation layer**. Summaries and status for every phase: **[ROADMAP.md](ROADMAP.md)**.
 
 ---
 
 ## Next on the roadmap
 
-**Phase 17** — Further UI improvements (including deferred Bestiary UX refinements) · **Phase 18** — CPU opponent (optional fog-of-war for opponent face-down units) · **Phase 19** — cross-regression QA sweep. Full plan: **[ROADMAP.md](ROADMAP.md)**.
+**Phase 17** — Further UI improvements (including deferred Bestiary UX refinements + fog-of-war for opponent face-down units) · **Phase 19** — cross-regression QA sweep. Full plan: **[ROADMAP.md](ROADMAP.md)**.
 
 ---
 
@@ -53,7 +53,7 @@ Phase 16 ships the advanced Seer's Bestiary ruleset: optional default-on mode, m
 
 ## Design notes (future)
 
-- **Opponent fog of war:** Planned alongside **Phase 18** (CPU opponent). Opponent’s face-down cards may show card back or “?”; your own face-down stay “soft” visible to you.
+- **Opponent fog of war:** Now unblocked by Phase 18 (CPU opponent shipped). Open as a Phase 17 / future polish item — opponent face-down cards may show card back or "?"; your own face-down stay "soft" visible to you.
 
 ---
 
