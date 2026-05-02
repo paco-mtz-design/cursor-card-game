@@ -667,15 +667,11 @@
       // §17 — Reorder mode: entry overlay, swap slide, exit dissolve.
       reorderEntry: function (player, col) {
         if (!g) return;
-        var card = cardEl(player, col);
-        if (!card) return;
-        var imgWrap = card.querySelector('.unit-card__img-wrap');
-        if (!imgWrap) return;
-        var overlay = document.createElement('div');
-        overlay.className = 'unit-card__face-down-overlay unit-card__reorder-overlay';
-        overlay.style.cssText = 'pointer-events:none;opacity:0;';
-        imgWrap.appendChild(overlay);
-        g.to(overlay, { opacity: 1, duration: 0.35, ease: 'power1.inOut' });
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        // Animate the slot element (not a child div) so the dimming survives
+        // renderBoard() calls that replace slot innerHTML during swaps.
+        g.to(slot, { filter: 'brightness(0.45)', duration: 0.35, ease: 'power1.inOut' });
       },
       captureReorderSwap: function (player, colA, colB) {
         var sA = slotEl(player, colA), sB = slotEl(player, colB);
@@ -702,16 +698,10 @@
       },
       reorderExit: function (player, col) {
         if (!g) return;
-        var card = cardEl(player, col);
-        if (!card) return;
-        var overlay = card.querySelector('.unit-card__reorder-overlay');
-        if (overlay) {
-          g.to(overlay, { opacity: 0, duration: 0.6, ease: 'power1.inOut',
-            onComplete: function () { removeEl(overlay); } });
-        } else {
-          // Fallback: own-reveal dissolve
-          Anim.ownReveal(player, col);
-        }
+        var slot = slotEl(player, col);
+        if (!slot) return;
+        g.to(slot, { filter: 'brightness(1)', duration: 0.5, ease: 'power1.inOut',
+          onComplete: function () { g.set(slot, { clearProps: 'filter' }); } });
       },
 
       // §19 — Mini-card (gear, terrain) arcs from a board slot to the item discard pile.
