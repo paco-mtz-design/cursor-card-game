@@ -4962,33 +4962,38 @@
     }
     if (!state.pendingWardstone) return;
     const pw = state.pendingWardstone;
-    const defCell = state.board[state.pendingWardstone.defPlayer][state.pendingWardstone.defCol];
+    const defCell = state.board[pw.defPlayer][pw.defCol];
     if (!defCell || !cellHasGearName(defCell, 'Wardstone Bracelet')) {
       state.pendingWardstone = null;
       renderTurnUI();
       renderBoard();
       return;
     }
-    if (!state.itemDiscard) state.itemDiscard = [];
-    state.itemDiscard.push(removeGearFromCell(defCell, 'Wardstone Bracelet'));
-    log("Player " + state.pendingWardstone.defPlayer + " uses Wardstone Bracelet — attack negated for this unit.");
+    // Clear pending state IMMEDIATELY so re-entry (button double-click, CPU's
+    // maybeScheduleCpuTurn timer) can't open a second summoning modal while
+    // this one is showing.
     state.pendingWardstone = null;
-    if (state.archmageMultiResolving) {
-      state.archmageMultiResolving.index++;
-      continueArchmageMulti();
-    } else {
-      if (runPendingCassaSecondAttackIfAvailable()) return;
-      if (queueTivalRetryPrompt(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol, "attack was negated by Wardstone")) {
+    Anim.itemSummon('Wardstone Bracelet', "Wardstone's protection activated…", function () {
+      if (!state.itemDiscard) state.itemDiscard = [];
+      state.itemDiscard.push(removeGearFromCell(defCell, 'Wardstone Bracelet'));
+      log("Player " + pw.defPlayer + " uses Wardstone Bracelet — attack negated for this unit.");
+      if (state.archmageMultiResolving) {
+        state.archmageMultiResolving.index++;
+        continueArchmageMulti();
+      } else {
+        if (runPendingCassaSecondAttackIfAvailable()) return;
+        if (queueTivalRetryPrompt(pw.attPlayer, pw.attCol, pw.defPlayer, pw.defCol, "attack was negated by Wardstone")) {
+          renderTurnUI();
+          renderBoard();
+          return;
+        }
+        state.selectedUnit = null;
+        state.actionStep = 'select_unit';
         renderTurnUI();
         renderBoard();
-        return;
+        endTurn();
       }
-      state.selectedUnit = null;
-      state.actionStep = 'select_unit';
-      renderTurnUI();
-      renderBoard();
-      endTurn();
-    }
+    });
   }
 
   function doWardstoneNo() {
