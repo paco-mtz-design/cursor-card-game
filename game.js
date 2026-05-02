@@ -1632,6 +1632,7 @@
       return 0;
     }
     log("Rokklo's Returning Hit: heads — +1 damage.");
+    CoinGate.bufCapture(function () { Anim.veteranPulse(attackerPlayer, attackerCol); });
     return 1;
   }
 
@@ -1673,7 +1674,7 @@
       return;
     }
     log("Lyra's Blast Echo: heads — extra 1 damage to " + betweenCell.unit.name + ".");
-    Anim.veteranPulse(defenderPlayer, betweenCol);
+    CoinGate.bufCapture(function () { Anim.veteranPulse(defenderPlayer, betweenCol); });
     applyDamage(defenderPlayer, betweenCol, 1, "");
   }
 
@@ -5466,7 +5467,8 @@
             log("Elevated Ground: heads — attack fails.");
             defenderTerrainBlocked = true;
             tivalFailureReason = "attack failed against Elevated Ground";
-            Anim.terrainPulse(defenderPlayer, defenderCol);
+            // Defer pulse until after the coin settles — not while it's spinning.
+            CoinGate.bufCapture(function () { Anim.terrainPulse(defenderPlayer, defenderCol); });
           } else {
             log("Elevated Ground: tails — attack proceeds.");
           }
@@ -5477,7 +5479,7 @@
             log("Reinforced Barricade: heads — attack fails.");
             defenderTerrainBlocked = true;
             tivalFailureReason = "attack failed against Reinforced Barricade";
-            Anim.terrainPulse(defenderPlayer, defenderCol);
+            CoinGate.bufCapture(function () { Anim.terrainPulse(defenderPlayer, defenderCol); });
           } else {
             log("Reinforced Barricade: tails — attack proceeds.");
           }
