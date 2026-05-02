@@ -91,7 +91,7 @@
   const itemZoomBackdrop = document.getElementById('item-zoom-backdrop');
   const itemZoomTitle = document.getElementById('item-zoom-title');
   const itemZoomImgWrap = document.getElementById('item-zoom-img-wrap');
-  const itemZoomEffect = document.getElementById('item-zoom-effect');
+  const itemZoomCaption = document.getElementById('item-zoom-caption');
   const scoreMarkersP1El = document.getElementById('score-markers-p1');
   const scoreMarkersP2El = document.getElementById('score-markers-p2');
 
@@ -773,6 +773,58 @@
           bannerEl.style.color       = '';
           bannerEl.style.borderColor = '';
           g.set(bannerEl, { clearProps: 'opacity,scale' });
+          BeatQueue.close();
+          if (onComplete) onComplete();
+        });
+      },
+
+      // §23 — Item summoning zoom: shown when the player commits to using a hand
+      // card (Equip / Build / Use). Reuses #item-zoom-modal in "summoning mode" —
+      // chrome (close button, title, Use button) is hidden via the
+      // .item-zoom-modal--summoning class, leaving only the card image plus a
+      // small action caption ("Equipping…" / "Building…" / "Using…").
+      // BeatQueue-gated so logs / renders / CPU scheduling all buffer until the
+      // zoom finishes; onComplete then triggers the existing target-selection or
+      // immediate-apply path. Skipped when "Use this item" is clicked from the
+      // inspection modal (the player is already looking at the zoomed card).
+      itemSummon: function (itemName, actionLabel, onComplete) {
+        if (!g) { if (onComplete) onComplete(); return; }
+        var modal   = document.getElementById('item-zoom-modal');
+        var imgWrap = document.getElementById('item-zoom-img-wrap');
+        var caption = document.getElementById('item-zoom-caption');
+        var content = modal && modal.querySelector('.modal__content');
+        if (!modal || !imgWrap || !content) { if (onComplete) onComplete(); return; }
+
+        BeatQueue.open();
+
+        modal.classList.add('item-zoom-modal--summoning');
+        imgWrap.innerHTML = '';
+        var img = document.createElement('img');
+        img.src = getItemCardImagePath(itemName);
+        img.alt = itemName || '';
+        img.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
+        imgWrap.appendChild(img);
+        if (caption) {
+          caption.textContent = actionLabel || '';
+          caption.hidden = !actionLabel;
+        }
+        modal.hidden = false;
+
+        var tl = g.timeline();
+        tl.fromTo(content, { opacity: 0, scale: 0.85 },
+          { opacity: 1, scale: 1, duration: 0.32, ease: 'back.out(1.4)' });
+        tl.to(content, { opacity: 0, scale: 0.92, duration: 0.28, ease: 'power1.in', delay: 1.0 });
+        tl.call(function () {
+          modal.hidden = true;
+          modal.classList.remove('item-zoom-modal--summoning');
+          if (caption) { caption.textContent = ''; caption.hidden = true; }
+          g.set(content, { clearProps: 'opacity,scale' });
+          // Close BeatQueue BEFORE running the continuation so the apply
+          // function's renderBoard fires synchronously. Slide-in animations
+          // (gearEquip, terrainEquip) query the DOM right after their
+          // renderBoard call — if BeatQueue were still active here, the
+          // render would be buffered and the slide would find no element,
+          // making the gear/terrain "blink" into place instead of sliding.
           BeatQueue.close();
           if (onComplete) onComplete();
         });
@@ -4779,9 +4831,28 @@
         state.cpuPendingExecute = function () {
           if (state.gameOver || !isCpuTurn()) { clearCpuHighlights(); return; }
           clearCpuHighlights();
-          const applied = applyCpuItemAction(capturedAction);
-          if (applied) state.cpuItemsUsedThisTurn++;
-          maybeScheduleCpuTurn();
+          // Skip the summoning modal when the CPU equips gear to a face-down
+          // unit — the unit's identity is hidden, so showing the gear card in
+          // a big modal reveals it without context. The existing slide-in
+          // animation alone (face-down gear sliding into the tile) reads
+          // cleanly. For face-up targets and other item types we keep the
+          // ceremony so the player sees what was used.
+          var spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[capturedAction.itemName];
+          var isGearEquip = !!(spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion'));
+          var targetCell = (isGearEquip && capturedAction.targetPlayer != null && capturedAction.targetCol != null)
+            ? (state.board[capturedAction.targetPlayer] && state.board[capturedAction.targetPlayer][capturedAction.targetCol])
+            : null;
+          var skipSummon = !!(targetCell && !targetCell.faceUp);
+
+          function runApply() {
+            const applied = applyCpuItemAction(capturedAction);
+            if (applied) state.cpuItemsUsedThisTurn++;
+            maybeScheduleCpuTurn();
+          }
+
+          if (skipSummon) { runApply(); return; }
+          var actionLabel = getItemActionLabel(capturedAction.itemName, spec);
+          Anim.itemSummon(capturedAction.itemName, actionLabel, runApply);
         };
         state.cpuAnnouncing = true;
         renderTurnUI();
@@ -5944,19 +6015,25 @@
       const terrainPlayable = typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1 && countEmptyTerrainSlots() > 0;
       const tectonicSpikePlayable = itemName === 'Tectonic Spike' && countTilesWithTerrain() > 0;
       if (player !== state.currentPlayer || (!singleUsePlayable && !gearPlayable && !terrainPlayable && !tectonicSpikePlayable)) return;
-      if (itemName === 'Vorpal Honing Amulet') {
-        applyVorpalHoningAmulet(handIndex);
-        return;
-      }
-      if (itemName === 'Obscuring bomb') {
-        applyObscuringBomb(handIndex);
-        return;
-      }
-      state.itemTargeting = { handIndex: handIndex, itemName: itemName };
-      renderTurnUI();
-      renderBoard();
+      // Show the summoning zoom first, then run the item's apply / target step
+      // in the onComplete callback. Reusing the inspection modal as a brief
+      // "card being played" beat — gives every item the same ceremony.
+      var actionLabel = getItemActionLabel(itemName, spec);
+      Anim.itemSummon(itemName, actionLabel, function () {
+        if (itemName === 'Vorpal Honing Amulet') { applyVorpalHoningAmulet(handIndex); return; }
+        if (itemName === 'Obscuring bomb')        { applyObscuringBomb(handIndex);     return; }
+        state.itemTargeting = { handIndex: handIndex, itemName: itemName };
+        renderTurnUI();
+        renderBoard();
+      });
       return;
     }
+  }
+
+  function getItemActionLabel(itemName, spec) {
+    if (typeof TERRAIN_ITEM_NAMES !== 'undefined' && TERRAIN_ITEM_NAMES.indexOf(itemName) !== -1) return 'Building…';
+    if (spec && (spec.type === 'gear_armor' || spec.type === 'gear_accessory' || spec.type === 'promotion')) return 'Equipping…';
+    return 'Using…';
   }
 
   function renderItemPickList(filter) {
@@ -6305,7 +6382,6 @@
   function openItemZoom(itemName, handIndex, player) {
     if (!itemZoomModal || !itemZoomImgWrap || !itemZoomTitle) return;
     _itemZoomContext = (handIndex != null && player != null) ? { handIndex: handIndex, player: player, itemName: itemName } : null;
-    const spec = typeof ITEM_SPECS !== 'undefined' && ITEM_SPECS[itemName];
     itemZoomTitle.textContent = itemName || 'Item';
     itemZoomImgWrap.innerHTML = '';
     const zImg = document.createElement('img');
@@ -6313,15 +6389,7 @@
     zImg.alt = itemName || '';
     zImg.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
     itemZoomImgWrap.appendChild(zImg);
-    if (itemZoomEffect) {
-      if (spec && spec.effect) {
-        itemZoomEffect.textContent = spec.effect;
-        itemZoomEffect.hidden = false;
-      } else {
-        itemZoomEffect.textContent = '';
-        itemZoomEffect.hidden = true;
-      }
-    }
+    if (itemZoomCaption) { itemZoomCaption.textContent = ''; itemZoomCaption.hidden = true; }
     // Show Use button only when the item is usable right now
     if (itemZoomUseBtn) {
       const usable = _itemZoomContext &&

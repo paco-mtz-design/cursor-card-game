@@ -1383,13 +1383,26 @@ textarea {
   display: block;
 }
 
-.item-zoom__effect {
+.item-zoom__caption {
   margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-style: italic;
+  letter-spacing: 0.02em;
   color: #4b5563;
   width: 100%;
-  text-align: left;
+  text-align: center;
+}
+
+/* Summoning mode: auto-shown modal as a "card being played" beat.
+   Hides chrome (close, title, use button) so only the card image + caption show. */
+.item-zoom-modal--summoning .modal__close,
+.item-zoom-modal--summoning .modal__title,
+.item-zoom-modal--summoning .item-zoom__use-btn {
+  display: none;
+}
+.item-zoom-modal--summoning .modal__backdrop {
+  background: rgba(15, 23, 42, 0.55);
 }
 
 .item-zoom__use-btn {
