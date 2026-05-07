@@ -8,16 +8,17 @@ You're picking up **Tacticlash**, a plain-HTML/CSS/JS card strategy game. Read `
 
 **Where we are today:**
 
-- The `animations` branch is **wrapped** and either ready for review/merge, or already merged into `main`. It shipped Phase 18 (CPU opponent + animation layer) in two passes — CPU policy on `cpu-opponent`, then the entire GSAP animation layer + UX polish (`BeatQueue` gate, turn banner, item summoning zoom, §24 damage resolution) here.
-- **Phase 18 is done.** Phases 1–16 plus 18 are now complete. **Phase 17** (further UI improvements + deferred Bestiary UX + fog-of-war for opponent face-down units) and **Phase 19** (cross-regression QA sweep) are the open phases on `ROADMAP.md`.
-- `DEV_LOG.md` has detailed entries for every recent milestone (newest first). Three known tech-debt items are flagged at the bottom of `ROADMAP.md` and explained in detail in `DEV_LOG.md`: multi-target damage sequencing, reinforcement-from-deck animation, and Harlund/Archmage multi-hit interleaving.
+- The `start-sequence` branch is **wrapped** and committed (single commit `1d7a83c`). It ships a full refactor of the start sequence (parchment start screen → in-board reorder placement → auto coin flip after placement → animated chrome entrance) prioritised outside the planned roadmap between Phase 18 and Phase 17.
+- **Phases 1–16 plus 18 are done.** **Phase 17** (further UI improvements + deferred Bestiary UX + fog-of-war for opponent face-down units) and **Phase 19** (cross-regression QA sweep) are the remaining roadmap phases on `ROADMAP.md`.
+- `DEV_LOG.md`'s top entry is this refactor with the full surface and bug-fix history; older entries cover the Phase 18 animation milestones.
 
-**Next direction is undecided.** Paco hasn't picked the next task yet. Likely candidates (do not start any of these without his go-ahead):
+**Next direction is undecided.** Likely candidates (do not start any of these without Paco's go-ahead):
 
-- One of the three documented tech-debt items above (multi-target damage sequencing is probably the most surgical follow-up to this session).
-- Phase 17 — further UI improvements / deferred Bestiary UX / fog-of-war.
+- Open a PR for `start-sequence` and merge to `main` (the branch is clean and committed; nothing else is in flight).
+- Phase 17 — further UI improvements / deferred Bestiary UX / opponent fog-of-war.
 - Phase 19 — cross-regression QA sweep.
-- Something he surfaces from live play (often the case).
+- One of the carried-over Phase 18 tech-debt items (multi-target damage sequencing, reinforcement-from-deck animation, Harlund / Archmage multi-hit interleaving — see `CONTINUATION_SPEC.md` and `ROADMAP.md`).
+- Something Paco surfaces from live play (often the case).
 
 **How to start:**
 
@@ -28,8 +29,10 @@ You're picking up **Tacticlash**, a plain-HTML/CSS/JS card strategy game. Read `
 **Critical context to keep in mind:**
 
 - No build step. Edit files and reload `http://localhost:8080` (run `python3 -m http.server 8080`).
-- All animations respect the `BeatQueue` reference-counted display gate at `game.js` ~line 126. Any new animation must call `BeatQueue.open()` / `BeatQueue.close()` for blocking visuals so logs / `renderBoard` / CPU scheduling stay sequenced.
-- `renderBoard()` has a side effect: it calls `maybeScheduleCpuTurn()` at its end. Gating it also gates CPU turn progression — intentional.
+- **The new start-sequence pipeline:** `onGoalChosen` → `dealUnitDecks` → `enterPlacementForP1` → user reorders + Lock In → `enterPlacementForP2` *or* `autoPlaceCpuP2` → `enterCoinFlipStep` (auto-fires `Anim.coinFlip`) → `transitionToPlaying` → `runBoardEntrance` (Wave A sidebar + FLIP slide of `.board__center`, Wave B bars, Wave C decks) → `startOfTurn`.
+- All animations respect the `BeatQueue` reference-counted display gate at `game.js` ~line 126. Any new animation must call `BeatQueue.open()` / `BeatQueue.close()` for blocking visuals.
+- `runBoardEntrance` uses pixel-valued GSAP offsets — `xPercent` / `yPercent` resolve to 0 on `display: none` elements, so they don't actually push the element off-screen. Don't switch back.
+- `body.in-placement` uses `display: none` (not `visibility: hidden`) for chrome so the board grid is genuinely centered during placement. The Stage 3 entrance compensates for the layout shift via a FLIP slide.
 - State is the single source of truth. Always mutate `state` and call the relevant `render*()` function — never mutate the DOM to track game logic.
 
 ---

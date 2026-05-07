@@ -14,6 +14,61 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Start sequence UI refactor — three-stage rebuild
+
+**Status:** Shipped. Branch `start-sequence`, single commit `1d7a83c`. Out-of-roadmap priority taken on between Phase 18 and Phase 17.
+
+### What shipped
+
+The legacy start flow ("New game" modal popping on top of an empty board → coin flip → click-card-then-click-slot placement → game) is replaced with a deliberate, player-grade sequence: clean parchment start screen → in-board unit reorder → auto coin flip → animated chrome entrance. Three QA-gated stages.
+
+**Stage 1 — Parchment start screen (`#start-screen`).** Fullscreen layout sourced from a Claude Design HTML/JSX bundle (`feature specs/card-duel-game-start-screen/`). Cinzel + Crimson Pro + JetBrains Mono fonts, ivory/ink/gold palette, hairline frame, "Edition I" / "v0.4 · pre-alpha" corner labels, title plate, "Match Setup" card with segmented Capture Goal + CPU Difficulty + Bestiary seal-toggle, a "Developer's Notebook" panel for `match_mode` / `choose_cpu_starting_units` / `show_debug_ui`, dark "Begin Duel" button with live summary, and a lore + stats + byline footer. Visual controls (segmented buttons, seal toggles) drive the existing hidden form inputs (`#setup-bestiary-enabled`, `#setup-mode`, `#setup-cpu-custom-placement`, `#setup-cpu-difficulty`) so `game.js` reads stay unchanged. New `#setup-debug-enabled` checkbox + `state.debugControlsEnabled` (default `true`, no localStorage persistence — resets per session). New `applyDebugVisibility()` toggles `body.no-debug` which hides `#item-draw-debug`, `#btn-placement-replace-with-pick` + `#placement-unit-pick-wrap`, and the `.bestiary__debug` selects via CSS. `#btn-save-log` and the mid-game save-log modal are never hidden. `body.start-screen-active` is set in markup so the very first paint shows parchment, not the empty board behind it.
+
+**Stage 2 — Reorder placement + coin-after-placement.** Begin Duel skips the legacy coin step entirely. New `dealUnitDecks()` extracted from the old `onAfterCoin` runs immediately so `state.p1Hand` / `state.p2Hand` are populated before placement renders. `body.in-placement` (CSS `display: none`, not `visibility: hidden` — see Stage 3) hides the header, sidebar, decks, item hands, and turn strip so only the 5×2 grid is visible. `#placement-title` and `#placement-subtitle` float above the board; `#placement-actions` (with `#btn-placement-lock-in` and the existing "Replace selected with pick…") sits below. P1's units pre-place randomly via the existing staggered `Anim.unitPlacement` (now invoked through `placeAllRandomly({ faceUp: true })` — extended with `faceUp` and `onComplete` opts). Reorder is a swap interaction: click any slot in your row to highlight it (`slot--placement-selected`, a strong blue ring + lift, distinct from the green `slot--selectable` baseline), click a second to swap. Reuses `Anim.captureReorderSwap` / `Anim.animateReorderSwap` for the slide. State lives in `state.placementReorder = { selectedCol }`. Lock In branches: CPU + `!cpuCustomPlacementEnabled` → `autoPlaceCpuP2()` (face-down stagger via `placeAllRandomly({ faceUp: false })`); else → `enterPlacementForP2()` (face-up reorder). After P2 locks in, `enterCoinFlipStep()` morphs the title to "Who goes first?" → 1 s hold → `Anim.coinFlip` auto-fires (no Flip / Continue buttons) → result holds 1 s → fades 320 ms → `transitionToPlaying()`. `transitionToPlaying` flips all cells `faceUp = false` so the original fog-of-war (own blue overlay, CPU card-back) returns at game start. `applyPlacementUnitPick` refactored to swap onto `state.placementReorder.selectedCol` rather than into a hand index. Legacy code deleted: `#setup` overlay (with `#setup-coin` and `#setup-place`), `#btn-place-randomly`, `#placement-hand`, `#placement-hand-filter`, and the functions `onFlipCoin`, `onAfterCoin`, `placeUnit`, `finishPlacementForPlayer`, `renderPlacementStep`, `handlePlacementHandClick`.
+
+**Stage 3 — Board chrome entrance choreography.** New `runBoardEntrance()` orchestrator runs three sequential waves around the placed cards. **Wave A (~0.5 s)**: `#board-right` slides in from `x: 280` to `x: 0`, while `.board__center` FLIP-slides in parallel — `runBoardEntrance` captures `board__center.getBoundingClientRect()` before removing `body.in-placement`, captures it again after the layout reflow, sets a counter-translation equal to `before.left - after.left`, then animates that delta to 0. The placed cards glide smoothly into their final left-shifted position rather than jumping when the sidebar takes its layout space. **Wave B (~0.45 s)**: `#item-hands-p2` slides down from `y: -180`, `#item-hands-p1` slides up from `y: 180`, in parallel. **Wave C (~0.45 s)**: `.board__decks` slides in from `x: 180` (where the sidebar's left margin sits) to `x: 0` — comes from the right, settling into rest. After Wave C, `BeatQueue.close()` releases the gate and the existing turn banner (`Anim.turnBanner`, §20) fires as today. Three new functions in the `Anim` namespace: `boardSidebarEntrance`, `boardBarsEntrance`, `boardDecksEntrance`. **Critical detail:** all offsets are pixel-valued (not `xPercent` / `yPercent`) — those evaluate to 0 against an element's computed size, which is 0 when the element is `display: none`, so `gsap.set(el, { yPercent: -100 })` while the chrome is hidden does nothing. Pixel offsets work regardless. Chrome hides via `display: none` (not `visibility: hidden`) during placement so the board grid is genuinely centered in the viewport rather than pushed left by reserved sidebar/deck space.
+
+### Bug fixes within Stage 2 (caught during QA)
+
+- **Reorder selection visual was invisible** — `slot--selectable` and `slot--selected` happened to share identical CSS (green ring + box-shadow), so the "you've picked this one" state looked the same as the baseline "all are pickable" state. Fixed with a new `slot--placement-selected` class (blue ring + 3 px lift).
+- **"Replace selected with pick" silently failed** — `openPlacementUnitPickList` still checked the dead `state.selectedPlacementIndex` (the old hand-pick state). Updated to read `state.placementReorder.selectedCol`.
+- **Face-down overlay regression** — P1's cards were force-faced-up during placement (so the user could see them while reordering) but never flipped back. `transitionToPlaying` now sets `faceUp = false` on every board cell before `startOfTurn`, restoring the original fog-of-war.
+- **Bars "blinking" instead of sliding** — initial Stage 3 prototype used `yPercent: -100` / `xPercent: 100` for off-screen pre-positioning, but `gsap.set` was running while the chrome was still `display: none`, so the percentages resolved against a 0-height element and produced 0 displacement. Switched to absolute pixel offsets.
+- **Grid jump when sidebar entered** — `body.in-placement` removal triggered an immediate layout reflow as the sidebar took its 248 px column. Without the FLIP slide on `.board__center`, the placed cards visibly "jumped" to their new position. Fixed with the rect-before / rect-after / invert / animate-to-0 pattern.
+- **Decks animation direction** — initial prototype slid decks from off-screen-left; user wanted them to come from the right (toward the sidebar's left margin). Flipped the offset sign.
+
+### State / function surface added
+
+- `state.debugControlsEnabled: bool` (default true, in-memory)
+- `state.placementReorder: { selectedCol: number | null }`
+- New functions in `game.js`:
+  - `dealUnitDecks()` (extracted from legacy `onAfterCoin`)
+  - `enterPlacementForP1()`, `enterPlacementForP2()`, `autoPlaceCpuP2()`, `enterCoinFlipStep()`, `transitionToPlaying()` (the new placement → coin → playing pipeline)
+  - `onLockInPlacement()` (handles the Lock-in button click; gated via `BeatQueue.afterRender` if a swap animation is mid-flight)
+  - `doPlacementSwap(player, colA, colB)` (mirrors `doObscuringSwap`)
+  - `runBoardEntrance(onComplete)` (Stage 3 orchestrator)
+  - `showStartScreen()` / `hideStartScreen()` / `applyDebugVisibility()` / `updateBeginDuelSummary()` / `getSelectedGoalFromStartScreen()` / `syncStartScreenVisuals()` / `setSealToggle()` / `showPlacementSubtitle()` / `hidePlacementSubtitle()`
+- New functions in the `Anim` namespace (`game.js` ~lines 894 area):
+  - `Anim.boardSidebarEntrance(onComplete)`
+  - `Anim.boardBarsEntrance(onComplete)`
+  - `Anim.boardDecksEntrance(onComplete)`
+
+### Files touched
+
+- **Modified:** `game.js` (~580 net insertions), `index.html` (start-screen markup, placement title/subtitle/actions inside `.board__center`, removal of `#setup` overlay), `style.css` (parchment start-screen + placement layout + entrance choreography rules + debug-disabled CSS).
+- **Added (under `feature specs/`):** `Start sequence UI refactor.md` (the spec), `card-duel-game-start-screen/` (the Claude Design source bundle: README + HTML + JSX + screenshots).
+- **Untouched:** `cpu.js`, `data.js`, all combat / item / Bestiary / veteran logic, all existing animation primitives.
+
+### Tech debt / notes for next agent
+
+- **`state.debugControlsEnabled` is per-session only.** No localStorage persistence by design; refresh resets to ON. If a future change needs cross-session persistence, it's a small wiring change in `onGoalChosen` + the DOMContentLoaded init block.
+- **Stage 3 sidebar entrance direction.** Spec said "from the left", user confirmed the conventional read (from off-screen-right, board re-centers leftward) is correct. If the literal interpretation is ever wanted, flip `x: 280` → `x: -280` in `Anim.boardSidebarEntrance` and the FLIP delta sign in `runBoardEntrance`.
+- **`#item-hands-p2` / `#item-hands-p1` Y offsets** are tuned at `±180 px`. The bar's natural height comes from `.item-hand__inner { min-height: var(--hand-card-height) /* 150 px */ }`. If hand-card-height is ever changed substantially, revisit these offsets so the bars start fully off-screen.
+- **Face-down flip in `transitionToPlaying`.** Brute-forces `faceUp = false` on every board cell. This is correct for the original fog-of-war but will need a re-think if future design wants any cards to start face-up at game start (e.g. a special starting condition).
+- **`syncSetupModeControls` extension.** When the user picks Manual mode on the start screen, the `choose_cpu_starting_units` toggle and `CPU Difficulty` segmented are dimmed (`opacity: 0.45`) and become non-interactive (`pointer-events: none`). These visual hints live inline; if the start screen ever moves to a different control framework, port that dim/disable logic.
+
+---
+
 ## Phase 2 — UX polish: turn banner, item summoning zoom, Wardstone activation summon
 
 **Status:** Shipped. Three player-facing animation moments added; project conventions checked into the repo.

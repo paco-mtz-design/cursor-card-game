@@ -7,9 +7,191 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="start-screen-active">
+  <!-- Start screen: shown on initial load and when "New game" is invoked. Replaces the legacy setup-goal modal.
+       Visible by default so the very first paint after refresh shows parchment, not the empty board behind it. -->
+  <div class="start-screen" id="start-screen" aria-label="Start screen">
+    <div class="start-screen__frame-outer" aria-hidden="true"></div>
+    <div class="start-screen__frame-inner" aria-hidden="true"></div>
+
+    <div class="start-screen__corner start-screen__corner--top-left" aria-hidden="true">
+      <svg class="start-screen__swords" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5 4 7l3-3 10.5 10.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/><path d="M9.5 17.5 20 7l-3-3L6.5 14.5"/><path d="m11 19-6-6"/><path d="m8 16-4 4"/><path d="m5 21-2-2"/></svg>
+      <span>Edition I</span>
+    </div>
+    <div class="start-screen__corner start-screen__corner--top-right" aria-hidden="true">
+      v0.4 · pre-alpha
+    </div>
+
+    <div class="start-screen__column">
+      <!-- Title plate -->
+      <div class="title-plate">
+        <div class="title-plate__tagline">A Tactical Card Duel</div>
+        <div class="title-plate__heading-row">
+          <span class="title-plate__rule"></span>
+          <svg class="title-plate__diamond" width="7" height="7" viewBox="0 0 10 10"><path d="M5 0 L10 5 L5 10 L0 5 Z" fill="currentColor"/></svg>
+          <h1 class="title-plate__heading">Tacticlash</h1>
+          <svg class="title-plate__diamond" width="7" height="7" viewBox="0 0 10 10"><path d="M5 0 L10 5 L5 10 L0 5 Z" fill="currentColor"/></svg>
+          <span class="title-plate__rule"></span>
+        </div>
+      </div>
+
+      <!-- Match Setup card -->
+      <div class="card-frame">
+        <div class="card-frame__ribbon card-frame__ribbon--red">Match Setup</div>
+        <span class="card-frame__tick card-frame__tick--tl" aria-hidden="true"></span>
+        <span class="card-frame__tick card-frame__tick--tr" aria-hidden="true"></span>
+        <span class="card-frame__tick card-frame__tick--bl" aria-hidden="true"></span>
+        <span class="card-frame__tick card-frame__tick--br" aria-hidden="true"></span>
+
+        <div class="setup-row">
+          <div class="setup-row__labels">
+            <div class="setup-row__label">Capture Goal</div>
+            <div class="setup-row__hint">First to reach the target wins.</div>
+          </div>
+          <div class="setup-row__control">
+            <div class="segmented segmented--red" role="radiogroup" aria-label="Capture goal" data-control="capture-goal">
+              <button type="button" class="segmented__btn" data-goal="10" data-value="10" role="radio" aria-checked="false">
+                <span class="segmented__main">10</span>
+                <span class="segmented__sub">fast match</span>
+              </button>
+              <button type="button" class="segmented__btn segmented__btn--selected" data-goal="15" data-value="15" role="radio" aria-checked="true">
+                <span class="segmented__main">15</span>
+                <span class="segmented__sub">full match</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="setup-row__hairline" aria-hidden="true"></div>
+
+        <div class="setup-row">
+          <div class="setup-row__labels">
+            <div class="setup-row__label">CPU Difficulty</div>
+            <div class="setup-row__hint">How sharply your opponent reads the board.</div>
+          </div>
+          <div class="setup-row__control">
+            <div class="segmented segmented--blue" role="radiogroup" aria-label="CPU difficulty" data-control="cpu-difficulty">
+              <button type="button" class="segmented__btn segmented__btn--selected" data-value="easy" role="radio" aria-checked="true">
+                <span class="segmented__main">Easy</span>
+              </button>
+              <button type="button" class="segmented__btn" data-value="normal" role="radio" aria-checked="false">
+                <span class="segmented__main">Normal</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="setup-row__hairline" aria-hidden="true"></div>
+
+        <div class="setup-row">
+          <div class="setup-row__labels">
+            <div class="setup-row__label">Seer's Bestiary</div>
+            <div class="setup-row__hint">Card insights mid-duel. For advanced players.</div>
+          </div>
+          <div class="setup-row__control">
+            <button type="button" class="seal-toggle seal-toggle--green seal-toggle--on" data-toggle="bestiary" aria-pressed="true" aria-label="Seer's Bestiary">
+              <span class="seal-toggle__knob">I</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Developer's notebook (always visible on start screen) -->
+      <div class="dev-notebook" id="dev-notebook" data-open="true">
+        <button type="button" class="dev-notebook__header" id="dev-notebook-toggle" aria-expanded="true" aria-controls="dev-notebook-body">
+          <span>// dev · debug options</span>
+          <span class="dev-notebook__caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="dev-notebook__body" id="dev-notebook-body">
+          <div class="dev-notebook__caption">hide before release</div>
+
+          <div class="dev-notebook__row">
+            <div class="dev-notebook__labels">
+              <div class="dev-notebook__label">match_mode</div>
+              <div class="dev-notebook__hint">vs CPU, or control both sides manually</div>
+            </div>
+            <div class="dev-notebook__control">
+              <div class="segmented segmented--ink segmented--compact" role="radiogroup" aria-label="Match mode" data-control="match-mode">
+                <button type="button" class="segmented__btn segmented__btn--selected" data-value="cpu" role="radio" aria-checked="true">vs CPU</button>
+                <button type="button" class="segmented__btn" data-value="manual" role="radio" aria-checked="false">Manual</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="dev-notebook__row dev-notebook__row--bordered">
+            <div class="dev-notebook__labels">
+              <div class="dev-notebook__label">choose_cpu_starting_units</div>
+              <div class="dev-notebook__hint">manually set the CPU's opening hand</div>
+            </div>
+            <div class="dev-notebook__control">
+              <button type="button" class="seal-toggle seal-toggle--ink seal-toggle--small" data-toggle="cpu-custom" aria-pressed="false" aria-label="Choose CPU starting units">
+                <span class="seal-toggle__knob">O</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="dev-notebook__row dev-notebook__row--bordered">
+            <div class="dev-notebook__labels">
+              <div class="dev-notebook__label">show_debug_ui</div>
+              <div class="dev-notebook__hint">enable UI controls for debugging</div>
+            </div>
+            <div class="dev-notebook__control">
+              <button type="button" class="seal-toggle seal-toggle--ink seal-toggle--small seal-toggle--on" data-toggle="show-debug" aria-pressed="true" aria-label="Show debug UI">
+                <span class="seal-toggle__knob">I</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Begin Duel button -->
+      <button type="button" class="begin-duel-btn" id="btn-begin-duel">
+        <div class="begin-duel-btn__row">
+          <svg class="begin-duel-btn__swords" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 17.5 4 7l3-3 10.5 10.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/><path d="M9.5 17.5 20 7l-3-3L6.5 14.5"/><path d="m11 19-6-6"/><path d="m8 16-4 4"/><path d="m5 21-2-2"/></svg>
+          <span class="begin-duel-btn__label">Begin Duel</span>
+          <svg class="begin-duel-btn__swords" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 17.5 4 7l3-3 10.5 10.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/><path d="M9.5 17.5 20 7l-3-3L6.5 14.5"/><path d="m11 19-6-6"/><path d="m8 16-4 4"/><path d="m5 21-2-2"/></svg>
+        </div>
+        <div class="begin-duel-btn__summary" id="begin-duel-summary">15 captures · seer's bestiary on · cpu: easy</div>
+      </button>
+
+      <!-- Lore -->
+      <div class="lore">
+        <div class="lore__divider" aria-hidden="true">
+          <span class="lore__divider-rule"></span>
+          <svg width="6" height="6" viewBox="0 0 10 10" class="lore__divider-diamond"><path d="M5 0 L10 5 L5 10 L0 5 Z" fill="currentColor"/></svg>
+          <span class="lore__divider-rule"></span>
+        </div>
+        <p class="lore__text">A lightweight dueler that cuts the setup, not the strategy. A quick fix for veterans and a painless gateway for friends who usually dodge tactical games. Simple rules, deep choices, zero fluff.</p>
+        <div class="lore__stats">
+          <span class="lore__stat"><span class="lore__stat-num">32</span><span class="lore__stat-label">playable fantasy characters</span></span>
+          <span class="lore__sep" aria-hidden="true">◆</span>
+          <span class="lore__stat"><span class="lore__stat-num">62</span><span class="lore__stat-label">items</span></span>
+          <span class="lore__sep" aria-hidden="true">◆</span>
+          <span class="lore__stat"><span class="lore__stat-num">13</span><span class="lore__stat-label">tarot cards</span></span>
+        </div>
+        <div class="lore__byline">A game by Paco Martínez</div>
+      </div>
+    </div>
+
+    <!-- Hidden form elements: kept for game.js wiring; updated by visual controls above. -->
+    <form class="start-screen__hidden-form" aria-hidden="true">
+      <input type="checkbox" id="setup-bestiary-enabled" checked>
+      <select id="setup-mode">
+        <option value="cpu" selected>Play against CPU</option>
+        <option value="manual">Manual mode (control both players)</option>
+      </select>
+      <input type="checkbox" id="setup-cpu-custom-placement">
+      <select id="setup-cpu-difficulty">
+        <option value="easy" selected>Easy (rookie)</option>
+        <option value="normal">Normal (intermediate)</option>
+      </select>
+      <input type="checkbox" id="setup-debug-enabled" checked>
+    </form>
+  </div>
+
   <div class="page-content">
   <header class="header" id="app-header">
     <div class="header__row header__row--brand">
@@ -25,68 +207,6 @@
   </header>
 
   <main class="game">
-    <!-- Setup overlay: shown during New Game flow -->
-    <div class="setup" id="setup" aria-live="polite" hidden>
-      <div class="setup__step setup__step--goal" id="setup-goal">
-        <p class="setup__title">Choose capture goal</p>
-        <div class="setup__actions">
-          <button type="button" class="btn btn--goal" data-goal="10">10 captures</button>
-          <button type="button" class="btn btn--goal" data-goal="15">15 captures</button>
-        </div>
-        <div class="setup__rules-toggle">
-          <label class="setup__rules-checkbox">
-            <input type="checkbox" id="setup-bestiary-enabled" checked>
-            <span>Play with Seer's Bestiary rules (advanced)</span>
-          </label>
-        </div>
-        <div class="setup__rules-toggle">
-          <label class="setup__placement-filter-label" for="setup-mode">Match mode</label>
-          <select id="setup-mode" class="setup__placement-filter-input" aria-label="Match mode">
-            <option value="cpu" selected>Play against CPU</option>
-            <option value="manual">Manual mode (control both players)</option>
-          </select>
-        </div>
-        <div class="setup__rules-toggle">
-          <label class="setup__rules-checkbox">
-            <input type="checkbox" id="setup-cpu-custom-placement">
-            <span>Choose CPU starting units (optional debug)</span>
-          </label>
-        </div>
-        <div class="setup__rules-toggle">
-          <label class="setup__placement-filter-label" for="setup-cpu-difficulty">CPU difficulty</label>
-          <select id="setup-cpu-difficulty" class="setup__placement-filter-input" aria-label="CPU difficulty">
-            <option value="easy" selected>Easy (rookie)</option>
-            <option value="normal">Normal (intermediate)</option>
-          </select>
-        </div>
-      </div>
-      <div class="setup__step setup__step--coin" id="setup-coin" hidden>
-        <p class="setup__title">Who goes first?</p>
-        <button type="button" class="btn" id="btn-flip-coin">Flip coin</button>
-        <p class="setup__result" id="coin-result" hidden></p>
-        <button type="button" class="btn" id="btn-after-coin" hidden>Continue</button>
-      </div>
-      <div class="setup__step setup__step--place" id="setup-place" hidden>
-        <p class="setup__title" id="place-title">Player 1: Place your units</p>
-        <p class="setup__hint" id="place-hint">Click a unit below, then click an empty slot on your row.</p>
-        <div class="setup__place-actions">
-          <button type="button" class="btn btn--secondary" id="btn-place-randomly">Place all randomly</button>
-          <button type="button" class="btn btn--secondary" id="btn-placement-replace-with-pick">Replace selected with pick…</button>
-        </div>
-        <div class="setup__placement-replace" id="placement-unit-pick-wrap" hidden>
-          <p class="setup__placement-replace-title">Pick a unit from the full roster (swaps with the rest of the unit pool).</p>
-          <input type="search" class="setup__placement-filter-input" id="placement-unit-pick-search" placeholder="Filter by name, class, veteran id…" autocomplete="off" aria-label="Filter unit pick list">
-          <div class="setup__placement-unit-pick-list" id="placement-unit-pick-list" role="list"></div>
-          <button type="button" class="btn btn--small btn--secondary" id="btn-placement-unit-pick-close">Close</button>
-        </div>
-        <div class="setup__placement-filter">
-          <label class="setup__placement-filter-label" for="placement-hand-filter">Filter hand</label>
-          <input type="search" class="setup__placement-filter-input" id="placement-hand-filter" placeholder="Name, class, or veteran id (e.g. rowka)…" autocomplete="off" aria-label="Filter placement hand">
-        </div>
-        <div class="setup__hand" id="placement-hand" role="list"></div>
-      </div>
-    </div>
-
     <!-- Board container: center column (hands + board) -->
     <div class="board-container" id="board-container">
       <aside class="board__left" id="board-tarot-slot" hidden aria-hidden="true" aria-label="Tarot cards (coming soon)">
@@ -98,6 +218,10 @@
       </aside>
 
       <div class="board__center">
+        <!-- Placement / coin title (visible during setup_place_p1, setup_place_p2, and pre/post coin flip) -->
+        <p class="placement-title" id="placement-title" aria-live="polite" hidden></p>
+        <p class="placement-subtitle" id="placement-subtitle" hidden>Select any pair of units to swap and reorder.</p>
+
         <!-- Opponent item hand (top); shown when playing -->
         <section class="item-hand item-hand--opponent" id="item-hands-p2" hidden aria-label="Player 2 item hand">
           <div class="item-hand__inner">
@@ -140,6 +264,20 @@
           <button type="button" class="btn btn--small" id="btn-move-left">Move left</button>
           <button type="button" class="btn btn--small" id="btn-move-right">Move right</button>
           <button type="button" class="btn btn--small" id="btn-skip-move">Skip move</button>
+        </div>
+
+        <!-- Placement actions (visible during setup_place_p1 / setup_place_p2 only) -->
+        <div class="placement-actions" id="placement-actions" hidden>
+          <div class="placement-actions__primary">
+            <button type="button" class="placement-actions__lock-in" id="btn-placement-lock-in">Lock in units</button>
+            <button type="button" class="btn btn--secondary" id="btn-placement-replace-with-pick">Replace selected with pick…</button>
+          </div>
+          <div class="placement-actions__pick" id="placement-unit-pick-wrap" hidden>
+            <p class="setup__placement-replace-title">Pick a unit from the full roster (swaps with the rest of the unit pool).</p>
+            <input type="search" class="setup__placement-filter-input" id="placement-unit-pick-search" placeholder="Filter by name, class, veteran id…" autocomplete="off" aria-label="Filter unit pick list">
+            <div class="setup__placement-unit-pick-list" id="placement-unit-pick-list" role="list"></div>
+            <button type="button" class="btn btn--small btn--secondary" id="btn-placement-unit-pick-close">Close</button>
+          </div>
         </div>
 
         <!-- Player item hand (bottom); shown when playing -->

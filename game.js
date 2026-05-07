@@ -3,6 +3,8 @@
  */
 
 (function () {
+  // Stage 2: #setup overlay was removed. The placement title + actions live inside .board__center.
+  // Legacy coin/place step refs may be null — every consumer below null-guards them.
   const setupEl = document.getElementById('setup');
   const setupGoal = document.getElementById('setup-goal');
   const setupCoin = document.getElementById('setup-coin');
@@ -19,10 +21,20 @@
   const placementUnitPickListEl = document.getElementById('placement-unit-pick-list');
   const btnPlacementReplaceWithPick = document.getElementById('btn-placement-replace-with-pick');
   const btnPlacementUnitPickClose = document.getElementById('btn-placement-unit-pick-close');
+  const placementTitleEl = document.getElementById('placement-title');
+  const placementSubtitleEl = document.getElementById('placement-subtitle');
+  const placementActionsEl = document.getElementById('placement-actions');
+  const btnPlacementLockIn = document.getElementById('btn-placement-lock-in');
   const setupBestiaryEnabledEl = document.getElementById('setup-bestiary-enabled');
   const setupModeEl = document.getElementById('setup-mode');
   const setupCpuCustomPlacementEl = document.getElementById('setup-cpu-custom-placement');
   const setupCpuDifficultyEl = document.getElementById('setup-cpu-difficulty');
+  const setupDebugEnabledEl = document.getElementById('setup-debug-enabled');
+  const startScreenEl = document.getElementById('start-screen');
+  const btnBeginDuel = document.getElementById('btn-begin-duel');
+  const beginDuelSummaryEl = document.getElementById('begin-duel-summary');
+  const devNotebookEl = document.getElementById('dev-notebook');
+  const devNotebookToggleEl = document.getElementById('dev-notebook-toggle');
   const btnNewGame = document.getElementById('btn-new-game');
   const btnBestiaryOpen = document.getElementById('btn-bestiary-open');
   const turnBanner = document.getElementById('turn-strip');
@@ -879,6 +891,59 @@
         });
       },
 
+      // §25 — Stage 3 board entrance: chrome materialises around the placed cards in three waves.
+      // Note: pixel-valued offsets only — `xPercent` / `yPercent` evaluate to 0 on a
+      // display:none element (computed height/width is 0), so the pre-set "off-screen"
+      // state would never actually push the element off-screen.
+
+      // Wave A: right sidebar slides in from off-screen-right.
+      boardSidebarEntrance: function (onComplete) {
+        var el = document.getElementById('board-right');
+        if (!g || !el) { if (onComplete) onComplete(); return; }
+        g.fromTo(el,
+          { x: 280, opacity: 0 },
+          { x: 0, opacity: 1, duration: 0.5, ease: 'power2.out',
+            onComplete: function () {
+              g.set(el, { clearProps: 'x,opacity' });
+              if (onComplete) onComplete();
+            } });
+      },
+      // Wave B: top + bottom item hands slide vertically toward center.
+      boardBarsEntrance: function (onComplete) {
+        var top = document.getElementById('item-hands-p2');
+        var bottom = document.getElementById('item-hands-p1');
+        if (!g || (!top && !bottom)) { if (onComplete) onComplete(); return; }
+        var pending = 0;
+        function done() { pending--; if (pending <= 0 && onComplete) onComplete(); }
+        if (top) {
+          pending++;
+          g.fromTo(top,
+            { y: -180, opacity: 0 },
+            { y: 0, opacity: 1, duration: 0.45, ease: 'power2.out',
+              onComplete: function () { g.set(top, { clearProps: 'y,opacity' }); done(); } });
+        }
+        if (bottom) {
+          pending++;
+          g.fromTo(bottom,
+            { y: 180, opacity: 0 },
+            { y: 0, opacity: 1, duration: 0.45, ease: 'power2.out',
+              onComplete: function () { g.set(bottom, { clearProps: 'y,opacity' }); done(); } });
+        }
+      },
+      // Wave C: deck column slides in from the right (where the sidebar's left margin sits)
+      // and settles into its resting position to the left of the sidebar.
+      boardDecksEntrance: function (onComplete) {
+        var decks = document.querySelector('.board__decks');
+        if (!g || !decks) { if (onComplete) onComplete(); return; }
+        g.fromTo(decks,
+          { x: 180, opacity: 0 },
+          { x: 0, opacity: 1, duration: 0.45, ease: 'power2.out',
+            onComplete: function () {
+              g.set(decks, { clearProps: 'x,opacity' });
+              if (onComplete) onComplete();
+            } });
+      },
+
     };
   }()); // end Anim
 
@@ -958,6 +1023,7 @@
       gameMode: 'cpu',
       cpuDifficulty: 'easy',
       cpuCustomPlacementEnabled: false,
+      debugControlsEnabled: true,
       humanPlayer: 1,
       captureGoal: 15,
       useBestiaryRules: true,
@@ -969,6 +1035,7 @@
       terrain: { 1: [null, null, null, null, null], 2: [null, null, null, null, null] },
       placementPlayer: null,
       selectedPlacementIndex: null,
+      placementReorder: { selectedCol: null },
       bestiary: null,
       pendingBestiaryReveal: null,
       pendingBestiaryContinue: false,
@@ -2813,8 +2880,12 @@
         if (cell) slots[i].classList.add('slot--occupied');
       });
     });
-    if (state.phase === 'playing') {
+    if (state.phase === 'playing'
+        || state.phase === 'setup_place_p1'
+        || state.phase === 'setup_place_p2') {
       highlightSlots();
+    }
+    if (state.phase === 'playing') {
       if (state.p1ItemHand != null) renderItemHands();
       if (itemDrawDebugEl) {
         const hideForTurn = state.actionStep !== 'use_items' || !!state.itemTargeting || !!state.obscuringReorder;
@@ -2943,6 +3014,25 @@
       return;
     }
 
+    if (state.phase === 'setup_place_p1' || state.phase === 'setup_place_p2') {
+      const placeP = state.placementPlayer;
+      const placeReord = state.placementReorder || { selectedCol: null };
+      // Clear any leftover placement-selected highlight first, since highlightSlots
+      // doesn't touch this class.
+      document.querySelectorAll('.slot--placement-selected').forEach(function (el) {
+        el.classList.remove('slot--placement-selected');
+      });
+      for (let c = 0; c < 5; c++) {
+        if (state.board[placeP][c] == null) continue;
+        const slot = document.querySelector('.row--player' + placeP + ' .slot[data-column="' + c + '"]');
+        if (slot) {
+          slot.classList.add('slot--selectable');
+          if (placeReord.selectedCol === c) slot.classList.add('slot--placement-selected');
+        }
+      }
+      return;
+    }
+
     if (step === 'select_unit') {
       for (let c = 0; c < 5; c++) {
         const cell = state.board[p][c];
@@ -3054,15 +3144,57 @@
     }
   }
 
+  // Stage 2: showStep is no longer used. Goal lives on the start screen, place + coin
+  // are rendered inside .board__center via #placement-title and #placement-actions.
+  // Kept as a null-safe stub in case any legacy call site still references it.
   function showStep(stepId) {
-    setupGoal.hidden = stepId !== 'goal';
-    setupCoin.hidden = stepId !== 'coin';
-    setupPlace.hidden = stepId !== 'place';
-    if (stepId === 'coin') {
-      coinResult.hidden = true;
-      btnFlipCoin.hidden = false;
-      btnAfterCoin.hidden = true;
+    if (setupGoal) setupGoal.hidden = stepId !== 'goal';
+    if (setupCoin) setupCoin.hidden = stepId !== 'coin';
+    if (setupPlace) setupPlace.hidden = stepId !== 'place';
+  }
+
+  function showStartScreen() {
+    if (!startScreenEl) return;
+    startScreenEl.hidden = false;
+    document.body.classList.add('start-screen-active');
+    updateBeginDuelSummary();
+  }
+
+  function hideStartScreen() {
+    if (!startScreenEl) return;
+    startScreenEl.hidden = true;
+    document.body.classList.remove('start-screen-active');
+  }
+
+  function applyDebugVisibility() {
+    // When debug controls are disabled, hide the in-game debug knobs but never the save log.
+    if (state.debugControlsEnabled) {
+      document.body.classList.remove('no-debug');
+    } else {
+      document.body.classList.add('no-debug');
     }
+  }
+
+  function updateBeginDuelSummary() {
+    if (!beginDuelSummaryEl) return;
+    const goalBtn = startScreenEl ? startScreenEl.querySelector('.segmented[data-control="capture-goal"] .segmented__btn--selected') : null;
+    const goal = goalBtn ? goalBtn.getAttribute('data-value') : '15';
+    const bestiary = setupBestiaryEnabledEl && setupBestiaryEnabledEl.checked;
+    const mode = setupModeEl ? setupModeEl.value : 'cpu';
+    const difficulty = setupCpuDifficultyEl ? setupCpuDifficultyEl.value : 'easy';
+    const parts = [goal + ' captures'];
+    if (bestiary) parts.push("seer's bestiary on");
+    parts.push('cpu: ' + difficulty);
+    if (mode === 'manual') parts.push('manual mode');
+    beginDuelSummaryEl.textContent = parts.join(' · ');
+  }
+
+  function getSelectedGoalFromStartScreen() {
+    if (!startScreenEl) return state.captureGoal || 15;
+    const goalBtn = startScreenEl.querySelector('.segmented[data-control="capture-goal"] .segmented__btn--selected');
+    if (!goalBtn) return 15;
+    const v = parseInt(goalBtn.getAttribute('data-value'), 10);
+    return Number.isFinite(v) ? v : 15;
   }
 
   function syncSetupModeControls() {
@@ -3074,6 +3206,21 @@
     state.gameMode = setupModeEl.value || 'cpu';
     state.cpuCustomPlacementEnabled = !!setupCpuCustomPlacementEl.checked;
     state.cpuDifficulty = setupCpuDifficultyEl.value || 'easy';
+    // Mirror disabled-state and checkbox flips into the start-screen visuals.
+    if (startScreenEl) {
+      const cpuCustomToggle = startScreenEl.querySelector('.seal-toggle[data-toggle="cpu-custom"]');
+      if (cpuCustomToggle) {
+        setSealToggle(cpuCustomToggle, !!setupCpuCustomPlacementEl.checked);
+        cpuCustomToggle.style.opacity = cpuSelected ? '' : '0.45';
+        cpuCustomToggle.style.pointerEvents = cpuSelected ? '' : 'none';
+      }
+      const diffSegmented = startScreenEl.querySelector('.segmented[data-control="cpu-difficulty"]');
+      if (diffSegmented) {
+        diffSegmented.style.opacity = cpuSelected ? '' : '0.45';
+        diffSegmented.style.pointerEvents = cpuSelected ? '' : 'none';
+      }
+      updateBeginDuelSummary();
+    }
   }
 
   function buildLogText(isInterrupted) {
@@ -3172,9 +3319,19 @@
       setupBestiaryEnabledEl.checked = true;
       state.useBestiaryRules = setupBestiaryEnabledEl.checked;
     }
+    if (setupDebugEnabledEl) {
+      // Default ON every load (per Stage 1 design — no localStorage persistence).
+      setupDebugEnabledEl.checked = true;
+      state.debugControlsEnabled = true;
+    }
+    syncStartScreenVisuals();
     state.phase = 'setup_goal';
     clearBoard();
-    setupEl.hidden = false;
+    if (setupEl) setupEl.hidden = true;
+    document.body.classList.remove('in-placement');
+    if (placementTitleEl) { placementTitleEl.hidden = true; placementTitleEl.textContent = ''; }
+    if (placementSubtitleEl) placementSubtitleEl.hidden = true;
+    if (placementActionsEl) placementActionsEl.hidden = true;
     turnBanner.hidden = true;
     if (itemHandsP1El) itemHandsP1El.hidden = true;
     if (itemHandsP2El) itemHandsP2El.hidden = true;
@@ -3182,12 +3339,12 @@
     if (unitsDiscardPileEl) unitsDiscardPileEl.hidden = true;
     if (gameLogEl) gameLogEl.hidden = true;
     if (itemPickListWrapEl) itemPickListWrapEl.setAttribute('hidden', '');
-    if (placementHandFilterEl) placementHandFilterEl.value = '';
     closePlacementUnitPickList();
     if (gameOverEl) gameOverEl.hidden = true;
     if (btnBestiaryOpen) btnBestiaryOpen.hidden = true;
     if (bestiaryMiniEl) bestiaryMiniEl.hidden = true;
-    showStep('goal');
+    applyDebugVisibility();
+    showStartScreen();
   }
 
   function onGoalChosen(goal) {
@@ -3196,37 +3353,293 @@
     state.gameMode = setupModeEl ? setupModeEl.value : 'cpu';
     state.cpuCustomPlacementEnabled = !!(setupCpuCustomPlacementEl && setupCpuCustomPlacementEl.checked);
     state.cpuDifficulty = setupCpuDifficultyEl ? (setupCpuDifficultyEl.value || 'easy') : 'easy';
-    state.phase = 'setup_coin';
-    showStep('coin');
-  }
-
-  function onFlipCoin() {
-    const heads = Math.random() < 0.5;
-    state.firstPlayer = heads ? 1 : 2;
-    btnFlipCoin.hidden = true;
-    // §6: animated coin flip — reveal result and Continue button when the coin lands
-    Anim.coinFlip(heads, null, null, function () {
-      coinResult.textContent = heads ? 'Heads — Player 1 goes first!' : 'Tails — Player 2 goes first!';
-      coinResult.hidden = false;
-      btnAfterCoin.hidden = false;
-    });
-  }
-
-  function onAfterCoin() {
-    state.unitDeck = shuffle([...CHARACTERS]);
-    state.p1Hand = state.unitDeck.splice(0, 5);
-    state.p2Hand = state.unitDeck.splice(0, 5);
-    state.placementPlayer = 1;
+    state.debugControlsEnabled = !setupDebugEnabledEl || !!setupDebugEnabledEl.checked;
+    applyDebugVisibility();
+    hideStartScreen();
+    // Stage 2 flow: skip the coin step here. Deal unit decks, then go straight into P1 placement.
+    dealUnitDecks();
     state.bestiary = state.useBestiaryRules ? makeInitialBestiaryState() : null;
     state.pendingBestiaryReveal = null;
     state.pendingBestiaryContinue = false;
-    state.phase = 'setup_place_p1';
-    showStep('place');
-    if (placementHandFilterEl) placementHandFilterEl.value = '';
-    closePlacementUnitPickList();
-    renderPlacementStep();
-    renderBoard();
+    enterPlacementForP1();
   }
+
+  // Extracted from the legacy onAfterCoin (Stage 2) so dealing happens before placement.
+  function dealUnitDecks() {
+    state.unitDeck = shuffle([...CHARACTERS]);
+    state.p1Hand = state.unitDeck.splice(0, 5);
+    state.p2Hand = state.unitDeck.splice(0, 5);
+  }
+
+  function showPlacementSubtitle() {
+    if (!placementSubtitleEl) return;
+    placementSubtitleEl.hidden = false;
+    placementSubtitleEl.classList.remove('placement-subtitle--fading');
+  }
+
+  function hidePlacementSubtitle() {
+    if (!placementSubtitleEl) return;
+    placementSubtitleEl.hidden = true;
+  }
+
+  function enterPlacementForP1() {
+    state.placementPlayer = 1;
+    state.placementReorder = { selectedCol: null };
+    state.phase = 'setup_place_p1';
+    document.body.classList.add('in-placement');
+    if (placementTitleEl) {
+      placementTitleEl.hidden = false;
+      placementTitleEl.classList.remove('placement-title--fading');
+      placementTitleEl.textContent = 'Player 1: Place your units';
+    }
+    showPlacementSubtitle();
+    if (placementActionsEl) placementActionsEl.hidden = false;
+    if (btnPlacementLockIn) btnPlacementLockIn.disabled = false;
+    closePlacementUnitPickList();
+    renderBoard();
+    // Stagger-slide all five P1 cards into random slots; they're face-up so the user can reorder.
+    placeAllRandomly({ faceUp: true });
+  }
+
+  function enterPlacementForP2() {
+    state.placementPlayer = 2;
+    state.placementReorder = { selectedCol: null };
+    state.phase = 'setup_place_p2';
+    if (placementTitleEl) placementTitleEl.textContent = 'Player 2: Place your units';
+    showPlacementSubtitle();
+    if (btnPlacementLockIn) btnPlacementLockIn.disabled = false;
+    closePlacementUnitPickList();
+    renderBoard();
+    placeAllRandomly({ faceUp: true });
+  }
+
+  function autoPlaceCpuP2() {
+    state.placementPlayer = 2;
+    state.placementReorder = { selectedCol: null };
+    state.phase = 'setup_place_p2';
+    if (placementTitleEl) placementTitleEl.textContent = 'Player 2: Place your units';
+    hidePlacementSubtitle();
+    // Hide actions while CPU's cards animate in face-down — the player isn't reordering this row.
+    if (placementActionsEl) placementActionsEl.hidden = true;
+    closePlacementUnitPickList();
+    renderBoard();
+    placeAllRandomly({
+      faceUp: false,
+      onComplete: function () {
+        enterCoinFlipStep();
+      },
+    });
+  }
+
+  function enterCoinFlipStep() {
+    state.phase = 'setup_coin';
+    state.placementReorder = { selectedCol: null };
+    if (placementActionsEl) placementActionsEl.hidden = true;
+    hidePlacementSubtitle();
+    if (placementTitleEl) {
+      placementTitleEl.classList.remove('placement-title--fading');
+      placementTitleEl.hidden = false;
+      placementTitleEl.textContent = 'Who goes first?';
+    }
+    // After 1s of "Who goes first?" hold, fire the coin.
+    window.setTimeout(function () {
+      const heads = Math.random() < 0.5;
+      state.firstPlayer = heads ? 1 : 2;
+      Anim.coinFlip(heads, null, null, function () {
+        // onLand: update title to result.
+        if (placementTitleEl) {
+          placementTitleEl.textContent = heads
+            ? 'Heads — Player 1 goes first'
+            : 'Tails — Player 2 goes first';
+        }
+      }, function () {
+        // onComplete: 1s hold on the result, then fade and snap to playing.
+        window.setTimeout(function () {
+          if (placementTitleEl) placementTitleEl.classList.add('placement-title--fading');
+          window.setTimeout(function () {
+            transitionToPlaying();
+          }, 320);
+        }, 1000);
+      });
+    }, 1000);
+  }
+
+  function transitionToPlaying() {
+    // The placement UX kept P1's (and Manual P2's) cards face-up for visibility while reordering.
+    // Restore the original fog-of-war: all board cells start face-down at gameplay onset, so
+    // your own cards show the blue overlay and (in CPU mode) the opponent shows card-backs.
+    for (let p = 1; p <= 2; p++) {
+      for (let c = 0; c < 5; c++) {
+        const cell = state.board[p][c];
+        if (cell) cell.faceUp = false;
+      }
+    }
+    state.phase = 'playing';
+    if (placementTitleEl) {
+      placementTitleEl.hidden = true;
+      placementTitleEl.classList.remove('placement-title--fading');
+      placementTitleEl.textContent = '';
+    }
+    hidePlacementSubtitle();
+    if (placementActionsEl) placementActionsEl.hidden = true;
+    if (btnBestiaryOpen) btnBestiaryOpen.hidden = false;
+    if (bestiaryMiniEl) bestiaryMiniEl.hidden = !state.useBestiaryRules;
+    state.currentPlayer = state.firstPlayer;
+    state.capturedLastTurn = { 1: 0, 2: 0 };
+    state.p1ItemHand = [];
+    state.p2ItemHand = [];
+    state.itemDeck = shuffle(buildItemDeck());
+    state.itemDiscard = [];
+    state.unitDiscard = [];
+    state.terrain = { 1: [null, null, null, null, null], 2: [null, null, null, null, null] };
+    state.p1Captures = 0;
+    state.p2Captures = 0;
+    state.actionStep = 'use_items';
+    state.selectedUnit = null;
+    state.moveDone = false;
+    state.itemTargeting = null;
+    state.vorpalNextAttack = null;
+    turnBanner.hidden = false;
+    if (itemHandsP1El) itemHandsP1El.hidden = false;
+    if (itemHandsP2El) itemHandsP2El.hidden = false;
+    if (discardPileEl) discardPileEl.hidden = false;
+    if (unitsDiscardPileEl) unitsDiscardPileEl.hidden = false;
+    if (gameLogEl) gameLogEl.hidden = false;
+    if (gameLogEntries) gameLogEntries.innerHTML = '';
+    renderScoreMarkers();
+    renderBoard();
+    // Stage 3: chrome materialises in three waves around the placed cards.
+    // BeatQueue gates the turn banner (startOfTurn) until the last wave finishes.
+    runBoardEntrance(function () {
+      startOfTurn();
+    });
+  }
+
+  // Stage 3: orchestrate the board chrome entrance choreography.
+  // Pre-set GSAP off-screen transforms BEFORE removing `body.in-placement`,
+  // so chrome elements transition directly from invisible to animating in
+  // (no single-frame flash at their resting position).
+  // Uses a FLIP slide on .board__center so the placed cards smoothly translate
+  // from "centered no chrome" to "centered with sidebar" instead of jumping.
+  function runBoardEntrance(onComplete) {
+    var g = window.gsap;
+    var sidebar = document.getElementById('board-right');
+    var top = document.getElementById('item-hands-p2');
+    var bottom = document.getElementById('item-hands-p1');
+    var decks = document.querySelector('.board__decks');
+    var boardCenter = document.querySelector('.board__center');
+    if (!g) {
+      // No GSAP — fall back to a snap reveal so the game still starts.
+      document.body.classList.remove('in-placement');
+      if (onComplete) onComplete();
+      return;
+    }
+    BeatQueue.open();
+    // FLIP step 1: capture board__center's current rect (centered, no chrome).
+    var beforeRect = boardCenter ? boardCenter.getBoundingClientRect() : null;
+    // Pre-set chrome off-screen positions (pixel offsets, see Anim §25 note).
+    if (sidebar) g.set(sidebar, { x: 280, opacity: 0 });
+    if (top) g.set(top, { y: -180, opacity: 0 });
+    if (bottom) g.set(bottom, { y: 180, opacity: 0 });
+    if (decks) g.set(decks, { x: 180, opacity: 0 });
+    // Reveal chrome in layout — sidebar/decks now reserve their space; transforms
+    // keep them visually off-screen until their respective wave kicks in.
+    document.body.classList.remove('in-placement');
+    // FLIP step 2: capture the new rect, compute the layout-shift delta, invert it
+    // with a transform so the cards STAY visually where they were for one frame.
+    var dx = 0;
+    if (boardCenter && beforeRect) {
+      var afterRect = boardCenter.getBoundingClientRect();
+      dx = beforeRect.left - afterRect.left;
+      if (Math.abs(dx) > 1) g.set(boardCenter, { x: dx });
+    }
+    // Wave A: sidebar slides in from the right + the board area glides into its
+    // final left-shifted position in parallel. Both finish around the same time.
+    if (boardCenter && Math.abs(dx) > 1) {
+      g.to(boardCenter, { x: 0, duration: 0.5, ease: 'power2.out',
+        onComplete: function () { g.set(boardCenter, { clearProps: 'x' }); } });
+    }
+    Anim.boardSidebarEntrance(function () {
+      // Wave B: top + bottom item hands slide in vertically.
+      Anim.boardBarsEntrance(function () {
+        // Wave C: deck column slides in from the right (toward the sidebar's left margin).
+        Anim.boardDecksEntrance(function () {
+          BeatQueue.close();
+          if (onComplete) onComplete();
+        });
+      });
+    });
+  }
+
+  function onLockInPlacement() {
+    if (state.phase !== 'setup_place_p1' && state.phase !== 'setup_place_p2') return;
+    // Block lock-in while a swap animation is in flight.
+    if (BeatQueue.active) {
+      BeatQueue.afterRender(onLockInPlacement);
+      return;
+    }
+    if (btnPlacementLockIn) btnPlacementLockIn.disabled = true;
+    closePlacementUnitPickList();
+    if (state.phase === 'setup_place_p1') {
+      // Move on to P2.
+      if (isCpuMode() && !state.cpuCustomPlacementEnabled) {
+        autoPlaceCpuP2();
+      } else {
+        enterPlacementForP2();
+      }
+      return;
+    }
+    // setup_place_p2 -> coin flip
+    enterCoinFlipStep();
+  }
+
+  // Sync the visual segmented controls / seal toggles on the start screen
+  // so they reflect the current values of the underlying hidden form inputs.
+  function syncStartScreenVisuals() {
+    if (!startScreenEl) return;
+    // Capture goal segmented (always read from the segmented control's existing selection,
+    // since captureGoal is the source of truth on the start screen — defaulted to 15).
+    const goalToShow = state.captureGoal || 15;
+    startScreenEl.querySelectorAll('.segmented[data-control="capture-goal"] .segmented__btn').forEach(function (btn) {
+      const sel = parseInt(btn.getAttribute('data-value'), 10) === goalToShow;
+      btn.classList.toggle('segmented__btn--selected', sel);
+      btn.setAttribute('aria-checked', sel ? 'true' : 'false');
+    });
+    // CPU difficulty
+    const diff = setupCpuDifficultyEl ? setupCpuDifficultyEl.value : 'easy';
+    startScreenEl.querySelectorAll('.segmented[data-control="cpu-difficulty"] .segmented__btn').forEach(function (btn) {
+      const sel = btn.getAttribute('data-value') === diff;
+      btn.classList.toggle('segmented__btn--selected', sel);
+      btn.setAttribute('aria-checked', sel ? 'true' : 'false');
+    });
+    // Match mode
+    const mode = setupModeEl ? setupModeEl.value : 'cpu';
+    startScreenEl.querySelectorAll('.segmented[data-control="match-mode"] .segmented__btn').forEach(function (btn) {
+      const sel = btn.getAttribute('data-value') === mode;
+      btn.classList.toggle('segmented__btn--selected', sel);
+      btn.setAttribute('aria-checked', sel ? 'true' : 'false');
+    });
+    // Seal toggles
+    setSealToggle(startScreenEl.querySelector('.seal-toggle[data-toggle="bestiary"]'),
+      setupBestiaryEnabledEl ? setupBestiaryEnabledEl.checked : true);
+    setSealToggle(startScreenEl.querySelector('.seal-toggle[data-toggle="cpu-custom"]'),
+      setupCpuCustomPlacementEl ? setupCpuCustomPlacementEl.checked : false);
+    setSealToggle(startScreenEl.querySelector('.seal-toggle[data-toggle="show-debug"]'),
+      setupDebugEnabledEl ? setupDebugEnabledEl.checked : true);
+    updateBeginDuelSummary();
+  }
+
+  function setSealToggle(el, on) {
+    if (!el) return;
+    el.classList.toggle('seal-toggle--on', !!on);
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const knob = el.querySelector('.seal-toggle__knob');
+    if (knob) knob.textContent = on ? 'I' : 'O';
+  }
+
+  // Stage 2: legacy onFlipCoin / onAfterCoin removed.
+  // Coin flip is now auto-fired from enterCoinFlipStep() after both placements lock in.
+  // Unit deck dealing moved to dealUnitDecks(), called from onGoalChosen.
 
   function findUnitObjectLocation(unitObj) {
     if (!unitObj) return null;
@@ -3338,12 +3751,14 @@
   function openPlacementUnitPickList() {
     if (!placementUnitPickWrapEl || !placementUnitPickListEl) return;
     if (state.phase !== 'setup_place_p1' && state.phase !== 'setup_place_p2') return;
-    if (state.selectedPlacementIndex == null) {
-      log('Select a unit in your hand first, then use Replace with pick.');
+    // Stage 2: pick now operates on the SELECTED BOARD SLOT, not a hand index.
+    const reord = state.placementReorder || { selectedCol: null };
+    if (reord.selectedCol == null) {
+      log('Select a unit on your row first, then use Replace with pick.');
       return;
     }
-    const hand = state.placementPlayer === 1 ? state.p1Hand : state.p2Hand;
-    if (state.selectedPlacementIndex < 0 || state.selectedPlacementIndex >= hand.length) return;
+    const cell = state.board[state.placementPlayer][reord.selectedCol];
+    if (!cell || !cell.unit) return;
     if (placementUnitPickSearchEl) {
       placementUnitPickSearchEl.value = '';
       placementUnitPickSearchEl.focus();
@@ -3361,11 +3776,42 @@
     const targetUnitObj = CHARACTERS.find(function (u) { return u.name === unitName; });
     if (!targetUnitObj) return;
     const player = state.placementPlayer;
-    const idx = state.selectedPlacementIndex;
-    if (idx == null) return;
-    replacePlacementHandSlotWithUnit(player, idx, targetUnitObj);
+    const reord = state.placementReorder || { selectedCol: null };
+    const col = reord.selectedCol;
+    if (col == null) {
+      log('Debug: placement replace — select a slot on your row first.');
+      return;
+    }
+    const cell = state.board[player][col];
+    if (!cell || !cell.unit) return;
+    if (cell.unit === targetUnitObj) {
+      closePlacementUnitPickList();
+      return;
+    }
+    const loc = findUnitObjectLocation(targetUnitObj);
+    if (!loc) {
+      log('Debug: placement replace — target unit not found in pool.');
+      return;
+    }
+    if (loc.kind === 'board') {
+      log('Debug: placement replace — ' + targetUnitObj.name + ' is already on the board.');
+      return;
+    }
+    const oldUnit = cell.unit;
+    if (loc.kind === 'unitDeck') {
+      cell.unit = targetUnitObj;
+      state.unitDeck.splice(loc.i, 1);
+      state.unitDeck.push(oldUnit);
+      log('Debug: Placement — replaced ' + oldUnit.name + ' with ' + targetUnitObj.name + ' (from unit deck).');
+    } else if (loc.kind === 'p1Hand' || loc.kind === 'p2Hand') {
+      // Target is in the OTHER player's untouched hand pool — swap.
+      const otherHand = loc.kind === 'p1Hand' ? state.p1Hand : state.p2Hand;
+      cell.unit = targetUnitObj;
+      otherHand[loc.i] = oldUnit;
+      log('Debug: Placement — replaced ' + oldUnit.name + ' with ' + targetUnitObj.name + ' (from ' + loc.kind + ').');
+    }
+    state.placementReorder = { selectedCol: null };
     closePlacementUnitPickList();
-    renderPlacementStep();
     renderBoard();
   }
 
@@ -3381,37 +3827,9 @@
     return hay.indexOf(queryLower) !== -1;
   }
 
-  function renderPlacementStep() {
-    const player = state.placementPlayer;
-    const hand = player === 1 ? state.p1Hand : state.p2Hand;
-    const label = isCpuMode() && player === 2 ? 'CPU (Player 2)' : ('Player ' + player);
-    placeTitle.textContent = label + ': Place your units';
-    placeHint.textContent = 'Filter or use Replace with pick for the full roster, select a unit, then place on your row.';
-    placementHand.innerHTML = '';
-    const q = placementHandFilterEl ? placementHandFilterEl.value.trim().toLowerCase() : '';
-    if (state.selectedPlacementIndex != null) {
-      const sel = hand[state.selectedPlacementIndex];
-      if (!sel || !unitMatchesPlacementFilter(sel, q)) state.selectedPlacementIndex = null;
-    }
-    let anyVisible = false;
-    hand.forEach(function (unit, index) {
-      if (!unitMatchesPlacementFilter(unit, q)) return;
-      anyVisible = true;
-      const div = document.createElement('div');
-      div.className = 'hand-card' + (state.selectedPlacementIndex === index ? ' hand-card--selected' : '');
-      div.setAttribute('role', 'listitem');
-      div.dataset.placementIndex = String(index);
-      div.innerHTML = createUnitCardHTML(unit, { faceUp: true, damage: 0, paralyzed: false });
-      placementHand.appendChild(div);
-    });
-    if (!anyVisible && hand.length > 0) {
-      const empty = document.createElement('p');
-      empty.className = 'setup__hand--empty-filter';
-      empty.setAttribute('role', 'status');
-      empty.textContent = 'No units match your filter.';
-      placementHand.appendChild(empty);
-    }
-  }
+  // Stage 2: renderPlacementStep removed. The placement title (#placement-title) is set
+  // directly by enterPlacementForP1/2/autoPlaceCpuP2/enterCoinFlipStep, and the hand pick
+  // UI is gone — units are pre-placed on the board for reorder swap.
 
   function createBoardCell(unit) {
     return {
@@ -3494,38 +3912,32 @@
     }
   }
 
-  function placeUnit(player, slotIndex) {
-    const hand = player === 1 ? state.p1Hand : state.p2Hand;
-    const idx = state.selectedPlacementIndex;
-    if (idx == null || idx < 0 || idx >= hand.length) return;
-    const unit = hand[idx];
-    state.board[player][slotIndex] = createBoardCell(unit);
-    if (getTerrain(player, slotIndex) === 'Divine Light') state.board[player][slotIndex].faceUp = true;
-    applyBestiaryBoardStateMaintenance();
-    hand.splice(idx, 1);
-    state.selectedPlacementIndex = null;
-    renderBoard();
-    renderPlacementStep();
-    // §16: single card slides in from below
-    Anim.unitPlacement(player, slotIndex, 0);
-    if (hand.length === 0) finishPlacementForPlayer(player);
-  }
-
-  function placeAllRandomly() {
+  function placeAllRandomly(opts) {
+    const options = opts || {};
+    const forceFaceUp = options.faceUp === true;
+    const onComplete = options.onComplete || null;
     const player = state.placementPlayer;
     const handRef = player === 1 ? state.p1Hand : state.p2Hand;
-    if (handRef.length === 0) return;
+    if (handRef.length === 0) {
+      if (onComplete) onComplete();
+      return;
+    }
     const emptySlots = [];
     for (let c = 0; c < 5; c++) {
       if (state.board[player][c] == null) emptySlots.push(c);
     }
-    if (emptySlots.length === 0) return;
+    if (emptySlots.length === 0) {
+      if (onComplete) onComplete();
+      return;
+    }
     const shuffled = shuffle(handRef.slice());
     const n = Math.min(shuffled.length, emptySlots.length);
     for (let i = 0; i < n; i++) {
       const slot = emptySlots[i];
       state.board[player][slot] = createBoardCell(shuffled[i]);
-      if (getTerrain(player, slot) === 'Divine Light') state.board[player][slot].faceUp = true;
+      if (forceFaceUp || getTerrain(player, slot) === 'Divine Light') {
+        state.board[player][slot].faceUp = true;
+      }
     }
     applyBestiaryBoardStateMaintenance();
     const placedSet = new Set(shuffled.slice(0, n));
@@ -3534,66 +3946,19 @@
     }
     state.selectedPlacementIndex = null;
     renderBoard();
-    renderPlacementStep();
     // §16: staggered slide-in for all placed cards (left to right, 70ms apart)
     for (let i = 0; i < n; i++) {
       Anim.unitPlacement(player, emptySlots[i], i * 70);
     }
-    // Delay finishPlacementForPlayer until after the last animation completes.
-    // Calling it immediately would trigger a renderBoard() that replaces the
-    // freshly-created tile elements before GSAP has animated them.
-    if (handRef.length === 0) {
-      var finishDelay = (n - 1) * 70 + 370;
-      window.setTimeout(function () { finishPlacementForPlayer(player); }, finishDelay);
+    if (onComplete) {
+      // Fire onComplete after the last card has finished its slide-in.
+      const finishDelay = (n - 1) * 70 + 370;
+      window.setTimeout(onComplete, finishDelay);
     }
   }
 
-  function finishPlacementForPlayer(player) {
-    const hand = player === 1 ? state.p1Hand : state.p2Hand;
-    if (hand.length > 0) return;
-    if (player === 1) {
-      state.placementPlayer = 2;
-      state.phase = 'setup_place_p2';
-      if (isCpuMode() && !state.cpuCustomPlacementEnabled) {
-        state.selectedPlacementIndex = null;
-        placeAllRandomly();
-        return;
-      }
-      if (placementHandFilterEl) placementHandFilterEl.value = '';
-      closePlacementUnitPickList();
-      renderPlacementStep();
-      renderBoard();
-    } else {
-      state.phase = 'playing';
-      setupEl.hidden = true;
-      if (btnBestiaryOpen) btnBestiaryOpen.hidden = false;
-      if (bestiaryMiniEl) bestiaryMiniEl.hidden = !state.useBestiaryRules;
-      state.currentPlayer = state.firstPlayer;
-      state.capturedLastTurn = { 1: 0, 2: 0 };
-      state.p1ItemHand = [];
-      state.p2ItemHand = [];
-      state.itemDeck = shuffle(buildItemDeck());
-      state.itemDiscard = [];
-      state.unitDiscard = [];
-      state.terrain = { 1: [null, null, null, null, null], 2: [null, null, null, null, null] };
-      state.p1Captures = 0;
-      state.p2Captures = 0;
-      state.actionStep = 'use_items';
-      state.selectedUnit = null;
-      state.moveDone = false;
-      state.itemTargeting = null;
-      state.vorpalNextAttack = null;
-      turnBanner.hidden = false;
-      if (itemHandsP1El) itemHandsP1El.hidden = false;
-      if (itemHandsP2El) itemHandsP2El.hidden = false;
-      if (discardPileEl) discardPileEl.hidden = false;
-      if (unitsDiscardPileEl) unitsDiscardPileEl.hidden = false;
-      if (gameLogEl) gameLogEl.hidden = false;
-      gameLogEntries.innerHTML = '';
-      renderScoreMarkers();
-      startOfTurn();
-    }
-  }
+  // Stage 2: legacy finishPlacementForPlayer split into onLockInPlacement (P1→P2 branch)
+  // and transitionToPlaying (P2→playing branch). Both live further up in the file.
 
   function startOfTurn() {
     // Wait for any in-flight animations from the previous turn (coin flips,
@@ -5211,6 +5576,21 @@
     Anim.itemConsume(handCardEl);
   }
 
+  // Stage 2: swap two units within the placement row. Uses the same Anim.* primitives
+  // as the Obscuring Bomb reorder for visual consistency.
+  function doPlacementSwap(player, colA, colB) {
+    if (colA === colB) return;
+    if (state.board[player][colA] == null || state.board[player][colB] == null) return;
+    const swapToken = Anim.captureReorderSwap(player, colA, colB);
+    const a = state.board[player][colA];
+    const b = state.board[player][colB];
+    state.board[player][colA] = b;
+    state.board[player][colB] = a;
+    state.placementReorder = { selectedCol: null };
+    renderBoard();
+    Anim.animateReorderSwap(swapToken);
+  }
+
   function doObscuringSwap(colA, colB) {
     if (!state.obscuringReorder || colA === colB) return;
     const reord = state.obscuringReorder;
@@ -5897,16 +6277,6 @@
     startOfTurn();
   }
 
-  function handlePlacementHandClick(e) {
-    const card = e.target.closest('[data-placement-index]');
-    if (!card) return;
-    const index = parseInt(card.dataset.placementIndex, 10);
-    const hand = state.placementPlayer === 1 ? state.p1Hand : state.p2Hand;
-    if (index >= hand.length) return;
-    state.selectedPlacementIndex = state.selectedPlacementIndex === index ? null : index;
-    renderPlacementStep();
-  }
-
   function handleSlotClick(e) {
     const slot = e.target.closest('.slot');
     if (!slot) return;
@@ -5914,10 +6284,22 @@
     const column = parseInt(slot.getAttribute('data-column'), 10);
 
     if (state.phase === 'setup_place_p1' || state.phase === 'setup_place_p2') {
+      // Stage 2 reorder swap: click two of your row's slots to swap them.
       if (player !== state.placementPlayer) return;
-      if (state.board[player][column] != null) return;
-      if (state.selectedPlacementIndex == null) return;
-      placeUnit(player, column);
+      if (state.board[player][column] == null) return;
+      if (BeatQueue.active) return;
+      const reord = state.placementReorder || (state.placementReorder = { selectedCol: null });
+      if (reord.selectedCol == null) {
+        reord.selectedCol = column;
+        renderBoard();
+        return;
+      }
+      if (reord.selectedCol === column) {
+        reord.selectedCol = null;
+        renderBoard();
+        return;
+      }
+      doPlacementSwap(player, reord.selectedCol, column);
       return;
     }
 
@@ -6135,6 +6517,24 @@
   document.addEventListener('DOMContentLoaded', function () {
     clearBoard();
 
+    // On initial load, the start screen is the only thing the player should see.
+    // Hide chrome and show the start screen with default settings.
+    if (state.phase === 'idle') {
+      if (setupEl) setupEl.hidden = true;
+      if (turnBanner) turnBanner.hidden = true;
+      if (itemHandsP1El) itemHandsP1El.hidden = true;
+      if (itemHandsP2El) itemHandsP2El.hidden = true;
+      if (discardPileEl) discardPileEl.hidden = true;
+      if (unitsDiscardPileEl) unitsDiscardPileEl.hidden = true;
+      if (gameLogEl) gameLogEl.hidden = true;
+      if (gameOverEl) gameOverEl.hidden = true;
+      if (btnBestiaryOpen) btnBestiaryOpen.hidden = true;
+      if (bestiaryMiniEl) bestiaryMiniEl.hidden = true;
+      syncStartScreenVisuals();
+      applyDebugVisibility();
+      showStartScreen();
+    }
+
     btnNewGame.addEventListener('click', startNewGame);
     if (btnBestiaryOpen) {
       btnBestiaryOpen.addEventListener('click', function () {
@@ -6168,16 +6568,94 @@
       });
     }
 
-    document.querySelectorAll('[data-goal]').forEach(function (btn) {
+    // Start screen: capture goal segmented control — selection only; "Begin Duel" triggers onGoalChosen.
+    document.querySelectorAll('.segmented[data-control="capture-goal"] .segmented__btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        onGoalChosen(parseInt(this.getAttribute('data-goal'), 10));
+        const groupBtns = startScreenEl.querySelectorAll('.segmented[data-control="capture-goal"] .segmented__btn');
+        groupBtns.forEach(function (b) {
+          const sel = b === btn;
+          b.classList.toggle('segmented__btn--selected', sel);
+          b.setAttribute('aria-checked', sel ? 'true' : 'false');
+        });
+        updateBeginDuelSummary();
       });
     });
 
-    btnFlipCoin.addEventListener('click', onFlipCoin);
-    btnAfterCoin.addEventListener('click', onAfterCoin);
+    // CPU difficulty segmented
+    document.querySelectorAll('.segmented[data-control="cpu-difficulty"] .segmented__btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const value = btn.getAttribute('data-value');
+        const groupBtns = startScreenEl.querySelectorAll('.segmented[data-control="cpu-difficulty"] .segmented__btn');
+        groupBtns.forEach(function (b) {
+          const sel = b === btn;
+          b.classList.toggle('segmented__btn--selected', sel);
+          b.setAttribute('aria-checked', sel ? 'true' : 'false');
+        });
+        if (setupCpuDifficultyEl) {
+          setupCpuDifficultyEl.value = value;
+          setupCpuDifficultyEl.dispatchEvent(new Event('change'));
+        }
+        updateBeginDuelSummary();
+      });
+    });
 
-    document.getElementById('btn-place-randomly').addEventListener('click', placeAllRandomly);
+    // Match mode segmented
+    document.querySelectorAll('.segmented[data-control="match-mode"] .segmented__btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const value = btn.getAttribute('data-value');
+        const groupBtns = startScreenEl.querySelectorAll('.segmented[data-control="match-mode"] .segmented__btn');
+        groupBtns.forEach(function (b) {
+          const sel = b === btn;
+          b.classList.toggle('segmented__btn--selected', sel);
+          b.setAttribute('aria-checked', sel ? 'true' : 'false');
+        });
+        if (setupModeEl) {
+          setupModeEl.value = value;
+          setupModeEl.dispatchEvent(new Event('change'));
+        }
+        updateBeginDuelSummary();
+      });
+    });
+
+    // Seal toggles (Bestiary, CPU custom placement, Show debug UI)
+    document.querySelectorAll('.seal-toggle[data-toggle]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        const kind = el.getAttribute('data-toggle');
+        const next = !el.classList.contains('seal-toggle--on');
+        setSealToggle(el, next);
+        if (kind === 'bestiary' && setupBestiaryEnabledEl) {
+          setupBestiaryEnabledEl.checked = next;
+          setupBestiaryEnabledEl.dispatchEvent(new Event('change'));
+        } else if (kind === 'cpu-custom' && setupCpuCustomPlacementEl) {
+          setupCpuCustomPlacementEl.checked = next;
+          setupCpuCustomPlacementEl.dispatchEvent(new Event('change'));
+        } else if (kind === 'show-debug' && setupDebugEnabledEl) {
+          setupDebugEnabledEl.checked = next;
+          setupDebugEnabledEl.dispatchEvent(new Event('change'));
+        }
+        updateBeginDuelSummary();
+      });
+    });
+
+    // Developer's notebook collapse/expand
+    if (devNotebookToggleEl && devNotebookEl) {
+      devNotebookToggleEl.addEventListener('click', function () {
+        const open = devNotebookEl.getAttribute('data-open') !== 'false';
+        const next = !open;
+        devNotebookEl.setAttribute('data-open', next ? 'true' : 'false');
+        devNotebookToggleEl.setAttribute('aria-expanded', next ? 'true' : 'false');
+      });
+    }
+
+    // Begin Duel
+    if (btnBeginDuel) {
+      btnBeginDuel.addEventListener('click', function () {
+        onGoalChosen(getSelectedGoalFromStartScreen());
+      });
+    }
+
+    // Stage 2: removed legacy bindings for #btn-flip-coin, #btn-after-coin, #btn-place-randomly.
+    // Coin flip auto-fires from enterCoinFlipStep(); placement is auto-randomised on entry.
 
     if (btnPlacementReplaceWithPick) {
       btnPlacementReplaceWithPick.addEventListener('click', function () {
@@ -6232,12 +6710,7 @@
       if (saveLogModal) saveLogModal.hidden = true;
     });
 
-    placementHand.addEventListener('click', handlePlacementHandClick);
-    if (placementHandFilterEl) {
-      placementHandFilterEl.addEventListener('input', function () {
-        if (state.phase === 'setup_place_p1' || state.phase === 'setup_place_p2') renderPlacementStep();
-      });
-    }
+    if (btnPlacementLockIn) btnPlacementLockIn.addEventListener('click', onLockInPlacement);
     document.querySelector('.board').addEventListener('click', handleSlotClick);
     const boardContainer = document.getElementById('board-container');
     if (boardContainer) boardContainer.addEventListener('click', handleItemHandClick);
