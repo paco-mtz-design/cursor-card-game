@@ -4,9 +4,15 @@ Web-based prototype of the Tacticlash card game.
 
 ## Current phase of development
 
-**Phase 18 — CPU opponent + animation layer (wrapped)**
+**Start sequence UI refactor (wrapped, branch `start-sequence`)**
 
-Phase 18 ships an autonomous CPU opponent (`cpu.js` policy module + Continue-button announce flow) together with a full GSAP animation layer on top: BeatQueue reference-counted display gate, sequenced coin / reveal / capture / item-arc animations, a turn-start banner ("Your turn" / "Opponent's turn" with per-round counter and full pause-and-resume), an item summoning zoom that plays before every Equip / Build / Use (including the Wardstone Bracelet activation interrupt), and a clean §24 damage-resolution sequence (rattle → 150 ms buffer → capture arc, with HP-counter and slot-empty paint gated until the visuals finish). Implementation history is split across two specs in `feature specs/`: Phase 1 (CPU policy + wiring) and Phase 2 (animation layer + UX polish). See **[ROADMAP.md](ROADMAP.md)** for phase status and **[DEV_LOG.md](DEV_LOG.md)** for shipped details and deferred notes.
+A polished, player-grade replacement for the prototype "New game" modal + interleaved coin/place flow, prioritised outside the planned roadmap. Shipped in three stages:
+
+- **Stage 1 — Parchment start screen.** A fullscreen Claude-Design-styled landing page with all match settings (capture goal, CPU difficulty, Bestiary, match mode, choose-CPU-units, show-debug-ui). A new "Disable debug controls" toggle hides the in-game debug knobs (item-draw replace, placement pick, Bestiary modify selects) via `body.no-debug`. Save log is never hidden.
+- **Stage 2 — Reorder placement + coin-after-placement.** "Begin Duel" lands directly in P1 placement (chrome hidden via `body.in-placement`); cards pre-place randomly with the existing staggered slide-in and the player reorders by clicking pairs of slots (reuses `Anim.captureReorderSwap` / `animateReorderSwap`, the Obscuring Bomb pattern). After Lock In, P2 face-down auto-place in CPU mode or face-up reorder in Manual / "Choose CPU starting units" ON. The coin auto-fires after both rows are set, with the title morphing through "Who goes first?" → "Heads/Tails — Player N goes first" → fade.
+- **Stage 3 — Board chrome entrance choreography.** Three sequential GSAP waves around the placed cards: right sidebar slides in from the right while `.board__center` FLIP-slides leftward in parallel (no jump); top + bottom item hands slide in vertically; decks slide in from the right. Turn banner fires last. All gated by `BeatQueue` so nothing fires under the chrome animation.
+
+See **[DEV_LOG.md](DEV_LOG.md)** for the detailed shipped entry and **[CONTINUATION_SPEC.md](CONTINUATION_SPEC.md)** for next-session handoff.
 
 ---
 

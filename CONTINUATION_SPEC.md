@@ -1,5 +1,5 @@
-# Continuation Spec — Tacticlash, end of `animations` branch
-*Handoff prepared: 2026-05-02 | Resume in a new chat using `NEXT_SESSION_PROMPT.md`*
+# Continuation Spec — Tacticlash, end of `start-sequence` branch
+*Handoff prepared: 2026-05-06 | Resume in a new chat using `NEXT_SESSION_PROMPT.md`*
 
 ---
 
@@ -7,7 +7,7 @@
 
 Tacticlash is a plain-HTML/CSS/JS two-player card strategy game (no build step, no framework, no bundler). Two players place units on a 5-slot board row and take turns attacking, moving, and using items. One player can be a CPU opponent.
 
-All code ships as plain files. `game.js` (~6 800 lines, single IIFE) holds all game logic and the animation layer. `cpu.js` is the CPU policy module. `data.js` is static data. `style.css` is the only stylesheet. `index.html` is all the markup.
+All code ships as plain files. `game.js` (~7 100 lines, single IIFE) holds all game logic, the animation layer, and the new start-sequence flow. `cpu.js` is the CPU policy module. `data.js` is static data. `style.css` is the only stylesheet. `index.html` is all the markup.
 
 Run with:
 ```bash
@@ -21,115 +21,102 @@ There is no build step, no test runner, no linter config, and no package manager
 
 ## Branch state
 
-- **Branch:** `animations` — clean, all changes committed.
-- **Status:** ready for review / merge. PR text is ready (see chat history).
-- **What's on this branch vs `main`:** Phase 18 in two passes — CPU opponent (CPU policy module + Continue-button announce flow) plus the entire GSAP animation layer and UX polish.
+- **Branch:** `start-sequence` — clean, all changes committed.
+- **Status:** ready for review / merge.
+- **What's on this branch vs `main`:** A complete refactor of the start sequence (start screen → placement → coin → board entrance), prioritised outside the planned roadmap between Phase 18 and Phase 17. **Single commit:** `1d7a83c`.
 
-### Commits unique to this branch (newest first)
+### Commit unique to this branch
 
 | Commit | What |
 |--------|------|
-| `49a14f1` | §24 damage resolution sequence — `Anim.damageResolve` (rattle → 150 ms buffer → capture arc); fixes the regressed rattle and the reinforcement-on-vacated-slot bug |
-| `d35481a` | §23 item summoning zoom for Wardstone Bracelet activation |
-| `bf3fa1c` | `CLAUDE.md` checked in (conventions + collaboration preferences) |
-| `bfe072d` | §23 item summoning zoom + drop outdated effect text |
-| `6131684` | §20 turn-start banner with BeatQueue gating |
-| `e7643e3` | §11/§12 terrain + veteran pulses fire after coin lands, not before |
-| `cc4953a` | §17 reorder overlay survives `renderBoard` via slot filter |
-| `9ae53c6` | hide hand card immediately in `itemConsume` to prevent ghost clone |
-| `a0b1f31` | §10/§19 item arc root cause + sequential two-phase discard |
-| `e003056` | §10/§19/§20 item animation bugs + modal crash |
-| `ecf95d3` | BeatQueue — generalised display gate for all animations |
-| earlier | full Phase 1 CPU opponent, full Phase 2 animation layer (CoinGate, Anim namespace, ~20 GSAP functions, all wiring) |
+| `1d7a83c` | `feat(start-sequence): player-grade start sequence in three stages` — Stage 1 parchment start screen + debug-toggle, Stage 2 reorder placement + auto coin flip, Stage 3 chrome entrance choreography. Spec + Claude Design source bundle checked in under `feature specs/`. |
 
 ### Files touched on this branch
 
 | File | What changed |
 |------|-------------|
-| `game.js` | CPU policy hooks; full `Anim` namespace (~lines 190–820); `BeatQueue` reference-counted display gate (~lines 126–160); `CoinGate` delegation; turn banner, item summoning zoom, damage resolution; all animation wiring throughout |
-| `style.css` | Theater layer (`.theater-proxy`, `.theater-coin`, `.theater-spotlight`, `.theater-banner`); `.slot--revealing`, `.item-zoom-modal--summoning`, `.item-zoom__caption`; coin z-index lifted to 210 |
-| `index.html` | `#theater-layer` markup; `#item-zoom-caption` (replaces removed `#item-zoom-effect`) |
-| `CLAUDE.md` | Conventions + collaboration preferences (added this branch) |
-| `DEV_LOG.md` | New entries for every Phase 2 milestone |
-| `README.md`, `ROADMAP.md` | Phase 18 marked done, animation tech debt documented |
-| `feature specs/` | Phase 1 + Phase 2 specs; testing guide |
-| `CONTINUATION_SPEC.md`, `NEXT_SESSION_PROMPT.md` | This file + the next-session starter |
+| `game.js` | Removed legacy `placeUnit`, `finishPlacementForPlayer`, `renderPlacementStep`, `handlePlacementHandClick`, `onFlipCoin`, `onAfterCoin`. Added `dealUnitDecks`, `enterPlacementForP1/P2`, `autoPlaceCpuP2`, `enterCoinFlipStep`, `transitionToPlaying`, `onLockInPlacement`, `doPlacementSwap`, `runBoardEntrance`, `showStartScreen`/`hideStartScreen`, `applyDebugVisibility`, `syncStartScreenVisuals`, `updateBeginDuelSummary`, `getSelectedGoalFromStartScreen`, `setSealToggle`, `showPlacementSubtitle`/`hidePlacementSubtitle`. Three new entries in the `Anim` namespace (§25): `boardSidebarEntrance`, `boardBarsEntrance`, `boardDecksEntrance`. New state fields: `debugControlsEnabled`, `placementReorder`. `placeAllRandomly` extended with `{ faceUp, onComplete }` opts. `highlightSlots` placement branch added. `applyPlacementUnitPick` refactored to swap on the board. `openPlacementUnitPickList` reads `state.placementReorder.selectedCol`. |
+| `index.html` | Added `<div id="start-screen">` (parchment markup), Cinzel/Crimson Pro/JetBrains Mono fonts in `<head>`, `body class="start-screen-active"` for first-paint correctness. Added `<p id="placement-title">` + `<p id="placement-subtitle">` above the board and `<div id="placement-actions">` below the board (with `#btn-placement-lock-in` and the existing replace-with-pick controls). Removed `#setup` overlay (with `#setup-coin` and `#setup-place`), `#btn-place-randomly`, `#placement-hand-filter`, `#placement-hand`. Hidden form inputs preserved inside `.start-screen__hidden-form` so existing `game.js` reads still work. |
+| `style.css` | New parchment start-screen rules (`.start-screen`, `.title-plate`, `.card-frame`, `.segmented`, `.seal-toggle`, `.dev-notebook`, `.begin-duel-btn`, `.lore`). `body.start-screen-active` hides `.page-content` via `visibility: hidden`. `body.no-debug` hides the in-game debug controls. `body.in-placement` hides chrome via `display: none` (so the board grid is genuinely centered). New `.placement-title`, `.placement-subtitle`, `.placement-actions`, `.slot--placement-selected` (blue ring + lift). |
+| `feature specs/Start sequence UI refactor.md` | New — the product spec. |
+| `feature specs/card-duel-game-start-screen/` | New — Claude Design source bundle (README, HTML, JSX, screenshot). |
+
+`cpu.js`, `data.js` untouched.
 
 ---
 
 ## Architecture quick reference
 
-### `BeatQueue` (game.js ~line 126)
+### State shape additions
 
-Reference-counted display gate. `BeatQueue.open()` increments the count; while count > 0, any subsequent `renderBoard()` / `renderTurnUI()` / `log()` calls are buffered. `BeatQueue.close()` decrements; when count reaches 0, `_flush()` runs in this order: logs → `_bufCapture` starters (which may call `open()` again to extend the gate) → `renderTurnUI` → `renderBoard` → `_postRender` callbacks.
+```
+state.debugControlsEnabled  — bool, default true; per-session only
+state.placementReorder      — { selectedCol: number|null }; mirrors state.obscuringReorder
+```
 
-`CoinGate` is now a thin wrapper that delegates everything to BeatQueue. Its public API (`push`, `bufLog`, `bufCapture`, `markBoard`, `markTurnUI`, `active`) is unchanged — every existing call site keeps working.
+Existing fields (`captureGoal`, `useBestiaryRules`, `gameMode`, `cpuCustomPlacementEnabled`, `cpuDifficulty`, `placementPlayer`, `phase`) are unchanged in shape — captures still flow through `onGoalChosen`.
 
-`renderBoard()` (game.js ~line 2710): `if (CoinGate.active) { CoinGate.markBoard(); return; }` — primary gate check, used by all three display functions.
+### Phase progression
 
-### The `Anim` namespace (game.js ~lines 190–820)
+```
+'idle' | 'setup_goal'  → start screen visible (body.start-screen-active)
+'setup_place_p1'        → P1 reorder UI (body.in-placement)
+'setup_place_p2'        → P2 face-up reorder OR face-down auto-place
+'setup_coin'            → "Who goes first?" → coin → result hold → fade
+'playing'               → runBoardEntrance → startOfTurn
+```
 
-| § | Symbol | Purpose |
-|---|--------|---------|
-| §1 | `unitSelected` | Pulse on a selected card |
-| §2 | `captureMoveState` / `animateMove` | Slide a unit between slots |
-| §3 | `attack` | Attack lunge (defender shake fires later via §24) |
-| §4 | `damageShake` | Rattle primitive — only invoked through §24 `damageResolve` |
-| §6 | `coinFlip` | Coin in the theater layer |
-| §7 | `ownReveal` | P1 face-down veil-lift |
-| §8 | `cpuReveal` | 3-phase flip proxy with BeatQueue gate, registers `_revealPending` for chained animations |
-| §9 | `gearEquip` | Gear mini-card slides in |
-| §11 | `terrainPulse` | Amber slot brightness flash |
-| §12 | `veteranPulse` | Slot scale pulse |
-| §13 | `spotlightStart` / `spotlightEnd` | Interrupt amber glow |
-| §14 | `bestiaryBanner` | Effect / faction banner |
-| §15 | `unitCapture` | Capture arc proxy (now invoked through §24 `damageResolve`) |
-| §16 | `unitPlacement` | Setup slide-in |
-| §17 | `reorderEntry` / `animateReorderSwap` / `reorderExit` | Reorder mode dim + slide |
-| §18 | `cardDraw` | Item card slide into hand |
-| §19 | `boardMiniCardDiscard` | Mini-card arc to discard pile |
-| §20 | `turnBanner` | Turn-start banner ("Your turn" / "Opponent's turn", per-round counter) — `BeatQueue`-gated, full pause |
-| §22 | (removed — was Lancer counter flash, abandoned during this session) |
-| §23 | `itemSummon` | Item summoning zoom — Equip / Build / Use / Wardstone activation |
-| §24 | `damageResolve` | Rattle → buffer → capture arc, the unified damage-visual sequence |
+### The new placement / coin / entrance pipeline
 
-`captureHandCard` snapshots a hand item card's rect while it's still live (used by `itemConsume`).
+| Function | Role |
+|----------|------|
+| `onGoalChosen(goal)` | Captures all settings, hides start screen, calls `dealUnitDecks()`, then `enterPlacementForP1()`. |
+| `dealUnitDecks()` | Shuffles `[...CHARACTERS]` and deals 5 each to `state.p1Hand` / `state.p2Hand`. (Used to live inside `onAfterCoin`.) |
+| `enterPlacementForP1()` | Sets phase, adds `body.in-placement`, shows title + subtitle + actions, calls `placeAllRandomly({ faceUp: true })`. |
+| `enterPlacementForP2()` | Manual / custom-CPU branch — face-up reorder UI for P2. |
+| `autoPlaceCpuP2()` | CPU-default branch — face-down stagger, then `enterCoinFlipStep()` via `placeAllRandomly`'s `onComplete`. |
+| `onLockInPlacement()` | Gated by `BeatQueue.afterRender` if a swap is in flight. Branches to P2 setup or coin step. |
+| `enterCoinFlipStep()` | Title morphs to "Who goes first?" → 1 s hold → `Anim.coinFlip` → result hold 1 s → fade 320 ms → `transitionToPlaying()`. |
+| `transitionToPlaying()` | Flips all cells `faceUp = false`, resets per-game state (item decks, captures, terrain, etc.), un-hides chrome elements, calls `runBoardEntrance` whose `onComplete` fires `startOfTurn()`. |
+| `runBoardEntrance(onComplete)` | FLIP-captures `.board__center` rect, pre-sets chrome off-screen, removes `body.in-placement`, applies invert delta to `.board__center`, runs Wave A (sidebar + board glide in parallel) → Wave B (bars vertical) → Wave C (decks from right). Bracketed by `BeatQueue.open()` / `close()`. |
+| `doPlacementSwap(player, colA, colB)` | Captures rects, swaps board cells, re-renders, runs `Anim.animateReorderSwap`. Mirrors `doObscuringSwap`. |
 
-`_revealPending[player:col]` and `_crossSlotDefer[player:col → other]` are the deferral queues that chain shakes / arcs after CPU reveal flips. `Anim.afterReveal(player, col, fn)` returns true and queues `fn` if a reveal is in flight; `Anim.deferForReveal(player, col, otherP, otherC)` registers cross-slot defers (used by Lancer counter that lands on the attacker).
+### Three new `Anim` entries (§25, `game.js` ~line 894 region)
 
-### Damage resolution (§24)
+- `Anim.boardSidebarEntrance(onComplete)` — `#board-right` from `x: 280` to `x: 0`, 0.5 s, `power2.out`.
+- `Anim.boardBarsEntrance(onComplete)` — `#item-hands-p2` from `y: -180`, `#item-hands-p1` from `y: 180`, parallel, 0.45 s.
+- `Anim.boardDecksEntrance(onComplete)` — `.board__decks` from `x: 180` to `x: 0`, 0.45 s.
 
-State mutation is synchronous inside `applyDamage`. The visual half is owned by `Anim.damageResolve(player, col, { captured })`:
+**Critical:** all offsets are pixel-valued. `xPercent` / `yPercent` resolve to 0 on a `display: none` element (computed size is 0), so the off-screen pre-position would never push the element off-screen.
 
-- **Survivor:** rattle (250 ms) → BeatQueue closes → `renderBoard` paints the new HP counter.
-- **Captured:** rattle (250 ms) → 150 ms buffer → `Anim.unitCapture` arc (450 ms) → BeatQueue closes → `renderBoard` paints the empty slot.
+### Debug-toggle (`body.no-debug`)
 
-Defers via `afterReveal` for same-slot or cross-slot reveals; falls back to `BeatQueue.bufCapture` if BeatQueue is active for any other reason (coin flip, etc.). The reinforcement-on-vacated-slot bug is structurally prevented because the entire damage sequence completes within its turn before `startOfTurn()` resumes (which itself defers via `BeatQueue.afterRender`).
+`applyDebugVisibility()` toggles `body.no-debug`, which is the single CSS gate for:
 
-### Turn-start banner (§20)
+- `#item-draw-debug` (in-game replace-draw section)
+- `#btn-placement-replace-with-pick` + `#placement-unit-pick-wrap` (placement debug pick)
+- `.bestiary__debug` (the per-column SELECTs in the Bestiary modal)
 
-Fires from `startOfTurn()`. Opens BeatQueue, plays the banner, runs `animateCardIntoHand` + `maybeScheduleCpuTurn` only in its `onComplete`. `state.turnsCompleted` is incremented in `endTurn` and surfaces as `Math.floor(turnsCompleted / 2) + 1` (per-round) under the banner.
+`#btn-save-log` and the mid-game save-log modal are never hidden.
 
-### Item summoning zoom (§23)
+### First-paint correctness
 
-Reuses `#item-zoom-modal` in summoning mode (`.item-zoom-modal--summoning` hides the title, close button, and "Use this item" button). Closes its BeatQueue gate **before** running the `onComplete` continuation so the apply function's `renderBoard` fires synchronously and slide-in animations can query the freshly rendered DOM. Wired into:
-
-- `handleItemHandClick` — P1 Equip / Build / Use buttons
-- `cpuPendingExecute` (via `runCpuTurnStep`) — CPU's item action, except gear-on-face-down-unit (skipped)
-- `doWardstoneUse` — caption "Wardstone's protection activated…"
-
-The "Use this item" button inside the inspection modal still skips the summoning (the player just looked at the zoomed card).
+`<body class="start-screen-active">` is set in HTML, and `<div id="start-screen">` ships *without* the `hidden` attribute. So the very first paint after a refresh shows the parchment screen — no flash of the empty board behind it. JS only flips both off when the user clicks "Begin Duel".
 
 ---
 
 ## Known tech debt (deferred)
 
-All documented in detail in `DEV_LOG.md`. Top entries:
+Carried over from Phase 18 (none of these were touched on this branch):
 
-1. **Multi-target damage sequencing** (Phase 18 animation tech debt) — Archmage's Tome AOE, Iron Maiden retaliation, Pack Shield bounceback, Magic Grenade currently rattle their targets in parallel. Agreed direction: sequential resolution. Implementation idea logged with the §24 entry.
-2. **Reinforcement-from-deck animation** (UX debt) — vacated slot fills face-down with no draw animation; best handled inside a broader "card draw from deck" pass.
+1. **Multi-target damage sequencing** — Archmage's Tome AOE, Iron Maiden retaliation, Pack Shield bounceback, Magic Grenade rattle their targets in parallel. Agreed direction: sequential resolution. Implementation idea logged in the §24 entry of `DEV_LOG.md`.
+2. **Reinforcement-from-deck animation** — vacated slot fills face-down with no draw animation; best handled inside a broader "card draw from deck" pass.
 3. **Harlund / Archmage multi-hit visual interleaving** — multi-target combat resolution is synchronous, producing a burst of overlapping animations BeatQueue can't fully interleave. Needs an async step loop.
-4. **Lancer counter flash** (abandoned this session) — the user prototyped a red flash on the Lancer's slot when a counter lands; visual didn't match what they imagined. Reverted. Not a debt — just a path not taken.
+
+New (from this branch):
+
+4. **`state.debugControlsEnabled` does not persist across reloads.** By design (per the user's call), but trivial to add a `localStorage` read/write in `onGoalChosen` + DOMContentLoaded if cross-session memory is wanted later.
+5. **Stage 3 entrance offsets are tuned for current bar heights.** Y offsets of ±180 px assume `--hand-card-height: 150 px`. Revisit if that changes substantially.
 
 ---
 
@@ -138,15 +125,18 @@ All documented in detail in `DEV_LOG.md`. Top entries:
 Paco is a Product Designer, not a developer. Conventions captured in `CLAUDE.md`:
 
 - Lead with product / design framing, technical detail second.
-- For new ideas, **converse first, ask clarifying questions**, only draft a detailed plan once shared understanding is confirmed. This rule was added to `CLAUDE.md` after a 3-feature mega-plan was drafted off a one-line description and Paco called it out as a token-burning anti-pattern.
-- Commit style: `type(scope): short subject` with a detailed body. Animation work uses scope `phase2`.
+- For new ideas, **converse first, ask clarifying questions**, only draft a detailed plan once shared understanding is confirmed.
+- Commit style: `type(scope): short subject` with a detailed body. This branch used scope `start-sequence`.
+- QA stages incrementally — for this work the user explicitly asked to ship Stages 1, 2, 3 in separate QA passes. They confirmed each stage before the next.
 
 ---
 
 ## Where to look first as the next agent
 
 1. `CLAUDE.md` — project conventions and how to communicate with Paco.
-2. `ROADMAP.md` — phase status. Phase 18 is done, **Phase 17** and **Phase 19** are next.
-3. `DEV_LOG.md` — top three entries for this session's work (newest first).
-4. `game.js` lines ~126–820 — `BeatQueue`, `CoinGate`, the entire `Anim` namespace.
-5. `feature specs/Phase2-Testing-Guide.md` — the QA framework that drove the bulk of the animation work; useful for regression after any new animation work.
+2. `ROADMAP.md` — phase status. Phase 18 done, **Phase 17** and **Phase 19** still planned.
+3. `DEV_LOG.md` — top entry is this start-sequence refactor with the full surface.
+4. `feature specs/Start sequence UI refactor.md` — the spec for what just shipped.
+5. `feature specs/card-duel-game-start-screen/` — Claude Design source for the start-screen visual style.
+6. `game.js` lines ~126–900 — `BeatQueue`, `CoinGate`, the entire `Anim` namespace including the new §25 entrance functions.
+7. `game.js` ~lines 3140–3460 — `doStartNewGame`, `onGoalChosen`, the new placement / coin / entrance pipeline.
