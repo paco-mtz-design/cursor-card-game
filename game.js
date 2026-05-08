@@ -855,7 +855,7 @@
       // zoom finishes; onComplete then triggers the existing target-selection or
       // immediate-apply path. Skipped when "Use this item" is clicked from the
       // inspection modal (the player is already looking at the zoomed card).
-      itemSummon: function (itemName, actionLabel, onComplete) {
+      itemSummon: function (itemName, actionLabel, onComplete, variation) {
         if (!g) { if (onComplete) onComplete(); return; }
         var modal   = document.getElementById('item-zoom-modal');
         var imgWrap = document.getElementById('item-zoom-img-wrap');
@@ -868,7 +868,7 @@
         modal.classList.add('item-zoom-modal--summoning');
         imgWrap.innerHTML = '';
         var img = document.createElement('img');
-        img.src = getItemCardImagePath(itemName);
+        img.src = getItemCardImagePath(itemName, variation);
         img.alt = itemName || '';
         img.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
         imgWrap.appendChild(img);
@@ -1600,8 +1600,16 @@
       if (f.itemCategory.size > 0 && !f.itemCategory.has(cat)) return;
       const qty = counts[name] || 0;
       if (qty <= 0) return;
-      const reps = f.showDuplicates ? qty : 1;
-      for (let i = 0; i < reps; i++) out.push({ name: name, category: cat });
+      const variations = (typeof ITEM_VARIATIONS !== 'undefined') ? ITEM_VARIATIONS[name] : null;
+      if (f.showDuplicates) {
+        for (let i = 0; i < qty; i++) {
+          const v = variations ? variations[i] : null;
+          out.push({ name: name, category: cat, variation: v });
+        }
+      } else {
+        // Collapsed mode: one entry per name. For items with variations, show variation A.
+        out.push({ name: name, category: cat, variation: variations ? 'A' : null });
+      }
     });
     return out;
   }
@@ -1720,7 +1728,7 @@
     }
     if (items.length > 0) {
       const html = items.map(function (entry) {
-        return buildCardIndexThumbHTML(getItemCardImagePath(entry.name), entry.name, 'assets/items/item-placeholder-for-dev.png');
+        return buildCardIndexThumbHTML(getItemCardImagePath(entry.name, entry.variation), entry.name, 'assets/items/item-placeholder-for-dev.png');
       }).join('');
       appendSection('Items', items.length, html);
     }
@@ -3051,10 +3059,8 @@
 
   /** Item card image path; falls back to placeholder. */
   const ITEM_IMAGE_FILENAME_MAP = {
-    'Light Armor': 'Armor - Light Armor.png',
     'Premium Light Armor': 'Armor - Premium Light Armor.png',
     'Heavy Armor': 'Armor - Heavy Armor.png',
-    'Healing Potion': 'Single Use - Potion.png',
     'Corrosive Phial': 'Single Use - Corrosive Phial.png',
     'Tectonic Spike': 'Single Use - Tectonic Spike.png',
     'All revealing lantern-jar': 'Single Use - All revealing lantern-jar.png',
@@ -3062,9 +3068,7 @@
     'Obscuring bomb': 'Single Use - Obscuring Bomb.png',
     'Vorpal Honing Amulet': 'Single Use - Vorpal Honing Amulet.png',
     'True-Strike Lens': 'Single Use - True-Strike Lens.png',
-    'Magic Grenade': 'Single Use - Magic Grenade.png',
     'Barbed Gauntlets': 'Single Use - Barbed Gauntlets.png',
-    'Wardstone Bracelet': 'Single Use - Wardstone Bracelet.png',
     'Teleport Boots': 'Single Use - Teleport Boots.png',
     'Elevated Ground': 'Terrain - Elevated Ground.png',
     'Reinforced Barricade': 'Terrain - Reinforced Barricade.png',
@@ -3077,7 +3081,25 @@
     "Archmage's Tome": 'Promotion - Archmages Tome.png',
   };
 
-  function getItemCardImagePath(itemName) {
+  // Items with artwork variations. {VAR} is replaced with the variation letter
+  // (A, B, C, …). Falls back to 'A' if a variation isn't supplied.
+  const ITEM_VARIATION_FILENAME_PATTERNS = {
+    'Light Armor':        'Armor - Light Armor – {VAR}.png',
+    'Healing Potion':     'Single Use - Potion – {VAR}.png',
+    'Magic Grenade':      'Single Use - Magic Grenade – {VAR}.png',
+    'Wardstone Bracelet': 'Single Use - Wardstone Bracelet – {VAR}.png',
+  };
+
+  function itemHasVariations(itemName) {
+    return Object.prototype.hasOwnProperty.call(ITEM_VARIATION_FILENAME_PATTERNS, itemName);
+  }
+
+  function getItemCardImagePath(itemName, variation) {
+    const pattern = ITEM_VARIATION_FILENAME_PATTERNS[itemName];
+    if (pattern) {
+      const v = variation || 'A';
+      return 'assets/items/' + pattern.replace('{VAR}', v);
+    }
     const mappedFilename = ITEM_IMAGE_FILENAME_MAP[itemName];
     if (mappedFilename) return 'assets/items/' + mappedFilename;
     const slug = nameToSlug(itemName);
@@ -3122,11 +3144,11 @@
     const badgePart = markersHTML ? '<div class="unit-card__markers">' + markersHTML + '</div>' : '';
     const faceDownOverlayPart = (!faceUp && !maskedForViewer) ? '<div class="unit-card__face-down-overlay" aria-hidden="true"></div>' : '';
 
-    const gearImagePath = maskedForViewer ? 'assets/items/item-card-back.png' : (gear ? getItemCardImagePath(gear.name) : '');
-    const bonusGearImagePath = maskedForViewer ? 'assets/items/item-card-back.png' : (bonusGear ? getItemCardImagePath(bonusGear.name) : '');
+    const gearImagePath = maskedForViewer ? 'assets/items/item-card-back.png' : (gear ? getItemCardImagePath(gear.name, gear.variation) : '');
+    const bonusGearImagePath = maskedForViewer ? 'assets/items/item-card-back.png' : (bonusGear ? getItemCardImagePath(bonusGear.name, bonusGear.variation) : '');
     const gearPart = gear ? '<div class="unit-mini-card unit-mini-card--gear"><img class="unit-mini-card__img" src="' + escapeHtml(gearImagePath) + '" alt="" role="presentation"></div>' : '';
     const bonusGearPart = bonusGear ? '<div class="unit-mini-card unit-mini-card--bonus-gear"><img class="unit-mini-card__img" src="' + escapeHtml(bonusGearImagePath) + '" alt="" role="presentation"></div>' : '';
-    const terrainPart = terrain ? '<div class="unit-mini-card unit-mini-card--terrain"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(terrain.name)) + '" alt="" role="presentation"></div>' : '';
+    const terrainPart = terrain ? '<div class="unit-mini-card unit-mini-card--terrain"><img class="unit-mini-card__img" src="' + escapeHtml(getItemCardImagePath(terrain.name, terrain.variation)) + '" alt="" role="presentation"></div>' : '';
 
     return '<div class="unit-tile">' +
       terrainPart +
@@ -3251,7 +3273,7 @@
       itemDiscardStackEl,
       itemList,
       function (entry) {
-        return getItemCardImagePath(entry.name);
+        return getItemCardImagePath(entry.name, entry.variation);
       },
       'assets/items/item-placeholder-for-dev.png',
       maxMiniStackLayers
@@ -4371,21 +4393,26 @@
   /** Draw one item. If optionalName is provided (debug), draw that card from the deck if present. */
   function drawItem(player, optionalName) {
     const hand = player === 1 ? state.p1ItemHand : state.p2ItemHand;
-    let name = 'Item';
+    let drawn = null;
     if (state.itemDeck && state.itemDeck.length > 0) {
       if (optionalName) {
-        const idx = state.itemDeck.indexOf(optionalName);
+        const idx = state.itemDeck.findIndex(function (e) { return e && e.name === optionalName; });
         if (idx !== -1) {
-          state.itemDeck.splice(idx, 1);
-          name = optionalName;
+          drawn = state.itemDeck.splice(idx, 1)[0];
         } else {
-          name = state.itemDeck.shift();
+          drawn = state.itemDeck.shift();
         }
       } else {
-        name = state.itemDeck.shift();
+        drawn = state.itemDeck.shift();
       }
     }
-    hand.push({ name: name, id: 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) });
+    const name = drawn ? drawn.name : 'Item';
+    const variation = drawn ? (drawn.variation || null) : null;
+    hand.push({
+      name: name,
+      variation: variation,
+      id: 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    });
   }
 
   function clearParalyzedForPlayer(player) {
@@ -4553,7 +4580,7 @@
 
       const img = document.createElement('img');
       img.className = 'item-card-img';
-      img.src = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(item.name);
+      img.src = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(item.name, item.variation);
       img.alt = '';
       img.setAttribute('role', 'presentation');
       img.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
@@ -5571,7 +5598,10 @@
 
           if (skipSummon) { runApply(); return; }
           var actionLabel = getItemActionLabel(capturedAction.itemName, spec);
-          Anim.itemSummon(capturedAction.itemName, actionLabel, runApply);
+          var cpuHand = state.p2ItemHand;
+          var cpuHandItem = (cpuHand && capturedAction.handIndex != null) ? cpuHand[capturedAction.handIndex] : null;
+          var cpuVariation = cpuHandItem ? cpuHandItem.variation : null;
+          Anim.itemSummon(capturedAction.itemName, actionLabel, runApply, cpuVariation);
         };
         state.cpuAnnouncing = true;
         renderTurnUI();
@@ -5692,6 +5722,9 @@
     // maybeScheduleCpuTurn timer) can't open a second summoning modal while
     // this one is showing.
     state.pendingWardstone = null;
+    var wardstoneVariation = null;
+    if (defCell.gear && defCell.gear.name === 'Wardstone Bracelet') wardstoneVariation = defCell.gear.variation || null;
+    else if (defCell.bonusGear && defCell.bonusGear.name === 'Wardstone Bracelet') wardstoneVariation = defCell.bonusGear.variation || null;
     Anim.itemSummon('Wardstone Bracelet', "Wardstone's protection activated…", function () {
       if (!state.itemDiscard) state.itemDiscard = [];
       state.itemDiscard.push(removeGearFromCell(defCell, 'Wardstone Bracelet'));
@@ -5712,7 +5745,7 @@
         renderBoard();
         endTurn();
       }
-    });
+    }, wardstoneVariation);
   }
 
   function doWardstoneNo() {
@@ -5989,7 +6022,7 @@
     const item = hand[t.handIndex];
     if (!item || TERRAIN_ITEM_NAMES.indexOf(item.name) === -1) return;
 
-    state.terrain[targetPlayer][targetCol] = { name: item.name, id: item.id };
+    state.terrain[targetPlayer][targetCol] = { name: item.name, variation: item.variation || null, id: item.id };
     hand.splice(t.handIndex, 1);
     state.itemTargeting = null;
     if (item.name === 'Divine Light') {
@@ -6051,9 +6084,9 @@
 
     const hadPrimary = !!cell.gear;
     if (!cell.gear) {
-      cell.gear = { name: item.name, id: item.id };
+      cell.gear = { name: item.name, variation: item.variation || null, id: item.id };
     } else if (!cell.bonusGear) {
-      cell.bonusGear = { name: item.name, id: item.id };
+      cell.bonusGear = { name: item.name, variation: item.variation || null, id: item.id };
     } else {
       return;
     }
@@ -6743,13 +6776,16 @@
       // in the onComplete callback. Reusing the inspection modal as a brief
       // "card being played" beat — gives every item the same ceremony.
       var actionLabel = getItemActionLabel(itemName, spec);
+      var summonHand = player === 1 ? state.p1ItemHand : state.p2ItemHand;
+      var summonItem = summonHand && summonHand[handIndex];
+      var summonVariation = summonItem ? summonItem.variation : null;
       Anim.itemSummon(itemName, actionLabel, function () {
         if (itemName === 'Vorpal Honing Amulet') { applyVorpalHoningAmulet(handIndex); return; }
         if (itemName === 'Obscuring bomb')        { applyObscuringBomb(handIndex);     return; }
         state.itemTargeting = { handIndex: handIndex, itemName: itemName };
         renderTurnUI();
         renderBoard();
-      });
+      }, summonVariation);
       return;
     }
   }
@@ -6765,21 +6801,23 @@
     itemPickListEl.innerHTML = '';
     const deck = state.itemDeck || [];
     const q = (filter || '').trim().toLowerCase();
-    const names = q ? deck.filter(function (name) { return name.toLowerCase().indexOf(q) !== -1; }) : deck.slice();
+    const entries = q
+      ? deck.filter(function (e) { return e && e.name && e.name.toLowerCase().indexOf(q) !== -1; })
+      : deck.slice();
     if (deck.length === 0) {
       itemPickListEl.textContent = 'No cards left in deck.';
       return;
     }
-    if (names.length === 0) {
+    if (entries.length === 0) {
       itemPickListEl.textContent = 'No items match "' + (filter || '').trim() + '".';
       return;
     }
-    names.forEach(function (name) {
+    entries.forEach(function (entry) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn--small item-pick-list__btn';
-      btn.textContent = name;
-      btn.dataset.itemName = name;
+      btn.textContent = entry.name;
+      btn.dataset.itemName = entry.name;
       itemPickListEl.appendChild(btn);
     });
   }
@@ -6808,12 +6846,17 @@
     if (isCpuMode() && state.currentPlayer !== 1) return;
     const hand = state.currentPlayer === 1 ? state.p1ItemHand : state.p2ItemHand;
     if (hand.length === 0) return;
-    const idx = state.itemDeck.indexOf(chosenName);
+    const idx = state.itemDeck.findIndex(function (e) { return e && e.name === chosenName; });
     if (idx === -1) return;
     const lastItem = hand.pop();
-    state.itemDeck.push(lastItem.name);
-    state.itemDeck.splice(idx, 1);
-    hand.push({ name: chosenName, id: 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) });
+    // Return the previously-drawn copy back to the deck so its variation isn't lost.
+    state.itemDeck.push({ name: lastItem.name, variation: lastItem.variation || null });
+    const drawnEntry = state.itemDeck.splice(idx, 1)[0];
+    hand.push({
+      name: drawnEntry.name,
+      variation: drawnEntry.variation || null,
+      id: 'item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    });
     closePickList();
     log("Debug: Player " + state.currentPlayer + " replaces draw with " + chosenName + ".");
     renderBoard();
@@ -7155,7 +7198,7 @@
       }
     }
     if (cell.gear && gearImgWrap) {
-      const gsrc = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(cell.gear.name || '');
+      const gsrc = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(cell.gear.name || '', cell.gear.variation);
       const gearAlt = maskedForViewer ? 'Hidden enemy gear' : (cell.gear.name || '');
       gearImgWrap.innerHTML = '<img src="' + gsrc + '" alt="' + gearAlt + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gearImgWrap) gearImgWrap.innerHTML = '';
@@ -7163,7 +7206,7 @@
     const showExtraGearSlot = bestiaryEffects.ironCladShield > 0;
     if (gear2Slot) gear2Slot.hidden = !showExtraGearSlot;
     if (showExtraGearSlot && cell.bonusGear && gear2ImgWrap) {
-      const g2src = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(cell.bonusGear.name || '');
+      const g2src = maskedForViewer ? 'assets/items/item-card-back.png' : getItemCardImagePath(cell.bonusGear.name || '', cell.bonusGear.variation);
       const gear2Alt = maskedForViewer ? 'Hidden enemy gear' : (cell.bonusGear.name || '');
       gear2ImgWrap.innerHTML = '<img src="' + g2src + '" alt="' + gear2Alt + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (gear2ImgWrap) {
@@ -7171,7 +7214,7 @@
     }
     const terr = state.terrain && state.terrain[player] && state.terrain[player][col];
     if (terr && terrainImgWrap) {
-      const tsrc = getItemCardImagePath(terr.name || '');
+      const tsrc = getItemCardImagePath(terr.name || '', terr.variation);
       terrainImgWrap.innerHTML = '<img src="' + tsrc + '" alt="' + (terr.name || '') + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
     } else if (terrainImgWrap) terrainImgWrap.innerHTML = '';
     unitZoomModal.hidden = false;
@@ -7197,7 +7240,7 @@
         const name = entry.name || 'Unit';
         div.innerHTML = '<img src="' + src + '" alt="' + name + '" onerror="this.src=\'assets/units/unit-placeholder-for-dev.png\'">';
       } else {
-        const src = getItemCardImagePath(entry.name);
+        const src = getItemCardImagePath(entry.name, entry.variation);
         const name = entry.name || '';
         div.innerHTML = '<img src="' + src + '" alt="' + name + '" onerror="this.src=\'assets/items/item-placeholder-for-dev.png\'">';
       }
@@ -7220,7 +7263,10 @@
     itemZoomTitle.textContent = itemName || 'Item';
     itemZoomImgWrap.innerHTML = '';
     const zImg = document.createElement('img');
-    zImg.src = getItemCardImagePath(itemName);
+    const handForZoom = player === 1 ? state.p1ItemHand : (player === 2 ? state.p2ItemHand : null);
+    const handItem = (handForZoom && handIndex != null) ? handForZoom[handIndex] : null;
+    const zoomVariation = handItem ? handItem.variation : null;
+    zImg.src = getItemCardImagePath(itemName, zoomVariation);
     zImg.alt = itemName || '';
     zImg.onerror = function () { this.src = 'assets/items/item-placeholder-for-dev.png'; };
     itemZoomImgWrap.appendChild(zImg);
