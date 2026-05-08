@@ -197,6 +197,7 @@
     <div class="header__row header__row--brand">
       <h1 class="header__title">Tacticlash</h1>
       <div class="header__toolbar">
+        <button type="button" class="btn btn-card-index" id="btn-card-index-open">Card Index</button>
         <button type="button" class="btn btn-bestiary" id="btn-bestiary-open" hidden>Seer's Bestiary</button>
         <button type="button" class="btn btn-new-game" id="btn-new-game">New game</button>
       </div>
@@ -362,6 +363,54 @@
         <button type="button" class="modal__close" id="discard-zoom-close" aria-label="Close">×</button>
         <h2 class="modal__title" id="discard-zoom-title">Discard pile</h2>
         <div class="discard-zoom__grid" id="discard-zoom-grid"></div>
+      </div>
+    </div>
+
+    <!-- Card Index modal -->
+    <div class="modal" id="card-index-modal" role="dialog" aria-modal="true" aria-labelledby="card-index-title" hidden>
+      <div class="modal__backdrop" id="card-index-backdrop"></div>
+      <div class="modal__content modal__content--card-index">
+        <button type="button" class="modal__close" id="card-index-close" aria-label="Close">×</button>
+        <h2 class="modal__title" id="card-index-title">Card Index</h2>
+        <div class="card-index">
+          <div class="card-index__filters" id="card-index-filters">
+            <div class="card-index__filter-row card-index__filter-row--top">
+              <div class="card-index__filter-group" data-group="type">
+                <span class="card-index__filter-label">Type</span>
+                <div class="card-index__chips" id="card-index-chips-type"></div>
+              </div>
+              <div class="card-index__filter-controls">
+                <label class="card-index__toggle">
+                  <input type="checkbox" id="card-index-show-duplicates" checked>
+                  <span>Show duplicates</span>
+                </label>
+                <button type="button" class="card-index__clear" id="card-index-clear">Clear filters</button>
+              </div>
+            </div>
+            <div class="card-index__filter-group" data-group="unitClass" id="card-index-group-unitClass">
+              <span class="card-index__filter-label">Class</span>
+              <div class="card-index__chips" id="card-index-chips-unitClass"></div>
+            </div>
+            <div class="card-index__filter-group" data-group="faction" id="card-index-group-faction">
+              <span class="card-index__filter-label">Faction</span>
+              <div class="card-index__chips" id="card-index-chips-faction"></div>
+            </div>
+            <div class="card-index__filter-group" data-group="experience" id="card-index-group-experience">
+              <span class="card-index__filter-label">Experience</span>
+              <div class="card-index__chips" id="card-index-chips-experience"></div>
+            </div>
+            <div class="card-index__filter-group" data-group="itemCategory" id="card-index-group-itemCategory">
+              <span class="card-index__filter-label">Item category</span>
+              <div class="card-index__chips" id="card-index-chips-itemCategory"></div>
+            </div>
+            <div class="card-index__filter-group" data-group="bestiaryTag" id="card-index-group-bestiaryTag">
+              <span class="card-index__filter-label">Bestiary effect</span>
+              <div class="card-index__chips" id="card-index-chips-bestiaryTag"></div>
+            </div>
+          </div>
+          <div class="card-index__sections" id="card-index-sections"></div>
+          <p class="card-index__empty" id="card-index-empty" hidden>No cards match the current filters.</p>
+        </div>
       </div>
     </div>
 

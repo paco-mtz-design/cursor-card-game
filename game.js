@@ -98,6 +98,13 @@
   const bestiaryPromptText = document.getElementById('bestiary-prompt-text');
   const btnBestiaryReveal = document.getElementById('btn-bestiary-reveal');
   const btnBestiaryContinue = document.getElementById('btn-bestiary-continue');
+  const btnCardIndexOpen = document.getElementById('btn-card-index-open');
+  const cardIndexModal = document.getElementById('card-index-modal');
+  const cardIndexBackdrop = document.getElementById('card-index-backdrop');
+  const cardIndexCloseBtn = document.getElementById('card-index-close');
+  const cardIndexFiltersEl = document.getElementById('card-index-filters');
+  const cardIndexClearBtn = document.getElementById('card-index-clear');
+  const cardIndexShowDupCb = document.getElementById('card-index-show-duplicates');
   const itemZoomModal = document.getElementById('item-zoom-modal');
   const itemZoomCloseBtn = document.getElementById('item-zoom-close');
   const itemZoomBackdrop = document.getElementById('item-zoom-backdrop');
@@ -1036,6 +1043,7 @@
       placementPlayer: null,
       selectedPlacementIndex: null,
       placementReorder: { selectedCol: null },
+      cardIndexFilters: getDefaultCardIndexFilters(),
       bestiary: null,
       pendingBestiaryReveal: null,
       pendingBestiaryContinue: false,
@@ -1458,6 +1466,303 @@
     if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) return;
     bestiaryModal.hidden = true;
     bestiaryModal.classList.remove('bestiary-modal--locked');
+  }
+
+  // ============================================================
+  // Card Index modal — browse-only catalogue of every card in the game.
+  // Filters live on state (state.cardIndexFilters) so they persist across
+  // open/close within a match and reset on a new game via getInitialState().
+  // ============================================================
+  const BESTIARY_TAG_MAP = {
+    primal_alpha: 'buff',
+    royal_caravan: 'buff',
+    hoarder_of_glimmer: 'buff',
+    iron_clad_shield: 'buff',
+    eternal_carapace: 'buff',
+    berserker: 'buff',
+    iron_maiden: 'buff',
+    rooted_colossus: 'debuff',
+    high_aerie: 'debuff',
+    muzzled_beast: 'debuff',
+    fractured_hulk: 'debuff',
+    ever_watching_eye: 'debuff',
+    unmaker: 'debuff',
+  };
+
+  const ITEM_CATEGORY_BY_TYPE = {
+    gear_armor: 'armor',
+    gear_accessory: 'accessory',
+    promotion: 'legendary',
+    single_use: 'single_use',
+    terrain: 'terrain',
+  };
+
+  // Display order for items in the Card Index. Matches the spec's grouping
+  // (Armor → Accessory → Legendary Weapon → Single-use → Terrain).
+  const CARD_INDEX_ITEM_ORDER = [
+    'Light Armor', 'Premium Light Armor', 'Heavy Armor',
+    'True-Strike Lens', 'Barbed Gauntlets', 'Wardstone Bracelet', 'Teleport Boots',
+    "Champion's Crest", 'Vanguard Lance', "Sharpshooter's Scope", "Archmage's Tome",
+    'Healing Potion', 'Corrosive Phial', 'Tectonic Spike', 'All revealing lantern-jar',
+    'Tangle-Vine Bola', 'Obscuring bomb', 'Vorpal Honing Amulet', 'Magic Grenade',
+    'Elevated Ground', 'Reinforced Barricade', 'Paralyzing Vines', 'Divine Light', 'Unstable Ground',
+  ];
+
+  const CARD_INDEX_FILTER_DEFS = {
+    type: [
+      { value: 'units', label: 'Units' },
+      { value: 'items', label: 'Items' },
+      { value: 'bestiary', label: 'Bestiary' },
+    ],
+    unitClass: [
+      { value: 'Brawler', label: 'Brawler' },
+      { value: 'Lancer', label: 'Lancer' },
+      { value: 'Shooter', label: 'Shooter' },
+      { value: 'Caster', label: 'Caster' },
+    ],
+    faction: [
+      { value: 'Howlsworn Creed', label: 'Howlsworn Creed' },
+      { value: 'Skyward Kin', label: 'Skyward Kin' },
+      { value: 'Whisperfang Watch', label: 'Whisperfang Watch' },
+      { value: 'Scalebound Brood', label: 'Scalebound Brood' },
+    ],
+    experience: [
+      { value: 'Rookie', label: 'Rookie' },
+      { value: 'Veteran', label: 'Veteran' },
+    ],
+    itemCategory: [
+      { value: 'armor', label: 'Armor' },
+      { value: 'accessory', label: 'Accessory' },
+      { value: 'legendary', label: 'Legendary Weapon' },
+      { value: 'single_use', label: 'Single-use' },
+      { value: 'terrain', label: 'Terrain' },
+    ],
+    bestiaryTag: [
+      { value: 'buff', label: 'Buff' },
+      { value: 'debuff', label: 'Debuff' },
+    ],
+  };
+
+  function getDefaultCardIndexFilters() {
+    return {
+      type: new Set(),
+      unitClass: new Set(),
+      faction: new Set(),
+      experience: new Set(),
+      itemCategory: new Set(),
+      bestiaryTag: new Set(),
+      showDuplicates: true,
+    };
+  }
+
+  function getCardIndexFilters() {
+    if (!state.cardIndexFilters) state.cardIndexFilters = getDefaultCardIndexFilters();
+    const f = state.cardIndexFilters;
+    ['type', 'unitClass', 'faction', 'experience', 'itemCategory', 'bestiaryTag'].forEach(function (k) {
+      if (!(f[k] instanceof Set)) f[k] = new Set(f[k] || []);
+    });
+    if (typeof f.showDuplicates !== 'boolean') f.showDuplicates = true;
+    return f;
+  }
+
+  function isCardIndexTypeActive(typeValue) {
+    const f = getCardIndexFilters();
+    return f.type.size === 0 || f.type.has(typeValue);
+  }
+
+  function getItemCategoryForFilter(itemName) {
+    const spec = ITEM_SPECS[itemName];
+    if (!spec) return null;
+    return ITEM_CATEGORY_BY_TYPE[spec.type] || null;
+  }
+
+  function getCardIndexUnits() {
+    const f = getCardIndexFilters();
+    if (!isCardIndexTypeActive('units')) return [];
+    return CHARACTERS.filter(function (u) {
+      if (f.unitClass.size > 0 && !f.unitClass.has(u.class)) return false;
+      const fac = UNIT_FACTION_BY_NAME[u.name];
+      if (f.faction.size > 0 && !f.faction.has(fac)) return false;
+      if (f.experience.size > 0 && !f.experience.has(u.level)) return false;
+      return true;
+    });
+  }
+
+  function getCardIndexItems() {
+    const f = getCardIndexFilters();
+    if (!isCardIndexTypeActive('items')) return [];
+    const counts = {};
+    ITEM_DECK_SPEC.forEach(function (e) { counts[e.name] = e.quantity; });
+    const out = [];
+    CARD_INDEX_ITEM_ORDER.forEach(function (name) {
+      if (!ITEM_SPECS[name]) return;
+      const cat = getItemCategoryForFilter(name);
+      if (f.itemCategory.size > 0 && !f.itemCategory.has(cat)) return;
+      const qty = counts[name] || 0;
+      if (qty <= 0) return;
+      const reps = f.showDuplicates ? qty : 1;
+      for (let i = 0; i < reps; i++) out.push({ name: name, category: cat });
+    });
+    return out;
+  }
+
+  function getCardIndexBestiary() {
+    const f = getCardIndexFilters();
+    if (!isCardIndexTypeActive('bestiary')) return [];
+    return BESTIARY_CARD_DEFS.filter(function (card) {
+      if (f.bestiaryTag.size === 0) return true;
+      const tag = BESTIARY_TAG_MAP[card.id];
+      return tag && f.bestiaryTag.has(tag);
+    });
+  }
+
+  function buildCardIndexThumbHTML(src, alt, fallbackSrc) {
+    const safeAlt = escapeHtml(alt || '');
+    const fallback = fallbackSrc
+      ? ' onerror="this.onerror=null;this.src=\'' + fallbackSrc + '\'"'
+      : '';
+    return '<div class="card-thumb"><img src="' + escapeHtml(src) + '" alt="' + safeAlt + '"' + fallback + '></div>';
+  }
+
+  function renderCardIndexChips() {
+    const f = getCardIndexFilters();
+    Object.keys(CARD_INDEX_FILTER_DEFS).forEach(function (group) {
+      const container = document.getElementById('card-index-chips-' + group);
+      if (!container) return;
+      container.innerHTML = '';
+      CARD_INDEX_FILTER_DEFS[group].forEach(function (chip) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'card-index__chip';
+        btn.dataset.group = group;
+        btn.dataset.value = chip.value;
+        btn.setAttribute('aria-pressed', f[group].has(chip.value) ? 'true' : 'false');
+        btn.textContent = chip.label;
+        container.appendChild(btn);
+      });
+    });
+    if (cardIndexShowDupCb) cardIndexShowDupCb.checked = !!f.showDuplicates;
+  }
+
+  function toggleCardIndexFilterGroup(el, shouldShow, animated) {
+    if (!el) return;
+    if (typeof gsap === 'undefined') {
+      el.style.display = shouldShow ? 'flex' : 'none';
+      return;
+    }
+    gsap.killTweensOf(el);
+    if (shouldShow) {
+      if (!animated) {
+        gsap.set(el, { display: 'flex', height: 'auto', opacity: 1, overflow: 'visible' });
+        return;
+      }
+      gsap.set(el, { display: 'flex', height: 'auto', opacity: 0, overflow: 'hidden' });
+      const h = el.offsetHeight;
+      gsap.fromTo(el,
+        { height: 0, opacity: 0 },
+        { height: h, opacity: 1, duration: 0.25, ease: 'power2.out',
+          onComplete: function () { gsap.set(el, { height: 'auto', overflow: 'visible' }); }
+        }
+      );
+    } else {
+      if (!animated) {
+        gsap.set(el, { display: 'none', height: 'auto', opacity: 1, overflow: 'hidden' });
+        return;
+      }
+      const startH = el.offsetHeight;
+      gsap.set(el, { height: startH, overflow: 'hidden' });
+      gsap.to(el, {
+        height: 0, opacity: 0, duration: 0.2, ease: 'power2.in',
+        onComplete: function () { gsap.set(el, { display: 'none', height: 'auto', opacity: 1 }); }
+      });
+    }
+  }
+
+  function applyCardIndexGroupVisibility(animated) {
+    const groups = {
+      unitClass: isCardIndexTypeActive('units'),
+      faction: isCardIndexTypeActive('units'),
+      experience: isCardIndexTypeActive('units'),
+      itemCategory: isCardIndexTypeActive('items'),
+      bestiaryTag: isCardIndexTypeActive('bestiary'),
+    };
+    Object.keys(groups).forEach(function (g) {
+      const el = document.getElementById('card-index-group-' + g);
+      toggleCardIndexFilterGroup(el, groups[g], animated);
+    });
+  }
+
+  function renderCardIndexGrid() {
+    const sectionsEl = document.getElementById('card-index-sections');
+    const emptyEl = document.getElementById('card-index-empty');
+    if (!sectionsEl) return;
+    sectionsEl.innerHTML = '';
+
+    const units = getCardIndexUnits();
+    const items = getCardIndexItems();
+    const bestiary = getCardIndexBestiary();
+
+    function appendSection(title, count, gridHTML) {
+      const sec = document.createElement('section');
+      sec.className = 'card-index__section';
+      sec.innerHTML =
+        '<h3 class="card-index__section-title">' + title +
+        ' <small>(' + count + ')</small></h3>' +
+        '<div class="card-index__grid">' + gridHTML + '</div>';
+      sectionsEl.appendChild(sec);
+    }
+
+    if (units.length > 0) {
+      const html = units.map(function (u) {
+        return buildCardIndexThumbHTML(getUnitCardImagePath(u), u.name, 'assets/units/unit-placeholder-for-dev.png');
+      }).join('');
+      appendSection('Units', units.length, html);
+    }
+    if (items.length > 0) {
+      const html = items.map(function (entry) {
+        return buildCardIndexThumbHTML(getItemCardImagePath(entry.name), entry.name, 'assets/items/item-placeholder-for-dev.png');
+      }).join('');
+      appendSection('Items', items.length, html);
+    }
+    if (bestiary.length > 0) {
+      const html = bestiary.map(function (card) {
+        return buildCardIndexThumbHTML(card.imagePath, card.name, '');
+      }).join('');
+      appendSection('Bestiary', bestiary.length, html);
+    }
+
+    const total = units.length + items.length + bestiary.length;
+    if (emptyEl) emptyEl.hidden = total > 0;
+  }
+
+  function renderCardIndex(animatedGroups) {
+    renderCardIndexChips();
+    applyCardIndexGroupVisibility(!!animatedGroups);
+    renderCardIndexGrid();
+  }
+
+  function openCardIndexModal() {
+    if (!cardIndexModal) return;
+    cardIndexModal.hidden = false;
+    renderCardIndex(false);
+  }
+
+  function closeCardIndexModal() {
+    if (!cardIndexModal) return;
+    cardIndexModal.hidden = true;
+  }
+
+  function applyCardIndexFilterChange(group, value) {
+    const f = getCardIndexFilters();
+    if (!f[group]) return;
+    if (f[group].has(value)) f[group].delete(value);
+    else f[group].add(value);
+    renderCardIndex(group === 'type');
+  }
+
+  function clearCardIndexFilters() {
+    state.cardIndexFilters = getDefaultCardIndexFilters();
+    renderCardIndex(true);
   }
 
   function applyBestiaryRevealNow() {
@@ -6793,6 +7098,26 @@
     }
     if (itemZoomBackdrop && itemZoomModal) {
       itemZoomBackdrop.addEventListener('click', closeItemZoom);
+    }
+    if (btnCardIndexOpen) {
+      btnCardIndexOpen.addEventListener('click', openCardIndexModal);
+    }
+    if (cardIndexCloseBtn) cardIndexCloseBtn.addEventListener('click', closeCardIndexModal);
+    if (cardIndexBackdrop) cardIndexBackdrop.addEventListener('click', closeCardIndexModal);
+    if (cardIndexFiltersEl) {
+      cardIndexFiltersEl.addEventListener('click', function (e) {
+        const chip = e.target.closest('.card-index__chip');
+        if (!chip) return;
+        applyCardIndexFilterChange(chip.dataset.group, chip.dataset.value);
+      });
+    }
+    if (cardIndexClearBtn) cardIndexClearBtn.addEventListener('click', clearCardIndexFilters);
+    if (cardIndexShowDupCb) {
+      cardIndexShowDupCb.addEventListener('change', function () {
+        const f = getCardIndexFilters();
+        f.showDuplicates = !!cardIndexShowDupCb.checked;
+        renderCardIndexGrid();
+      });
     }
     syncSetupModeControls();
   });
