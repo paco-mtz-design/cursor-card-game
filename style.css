@@ -1666,13 +1666,17 @@ textarea {
 }
 
 .card-index__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .card-index__grid .card-thumb {
-  width: 100%;
+  width: 260px;
+  max-width: 100%;
+  flex-shrink: 0;
   aspect-ratio: 107 / 150;
   border-radius: 8px;
   overflow: hidden;
