@@ -4,13 +4,12 @@ Web-based prototype of the Tacticlash card game.
 
 ## Current phase of development
 
-**Start sequence UI refactor (wrapped, branch `start-sequence`)**
+**Card Index + item artwork variations (wrapped, branch `card-index`)**
 
-A polished, player-grade replacement for the prototype "New game" modal + interleaved coin/place flow, prioritised outside the planned roadmap. Shipped in three stages:
+Out-of-roadmap polish prioritised between the `start-sequence` merge and Phase 17. Two related improvements landed on the same branch:
 
-- **Stage 1 — Parchment start screen.** A fullscreen Claude-Design-styled landing page with all match settings (capture goal, CPU difficulty, Bestiary, match mode, choose-CPU-units, show-debug-ui). A new "Disable debug controls" toggle hides the in-game debug knobs (item-draw replace, placement pick, Bestiary modify selects) via `body.no-debug`. Save log is never hidden.
-- **Stage 2 — Reorder placement + coin-after-placement.** "Begin Duel" lands directly in P1 placement (chrome hidden via `body.in-placement`); cards pre-place randomly with the existing staggered slide-in and the player reorders by clicking pairs of slots (reuses `Anim.captureReorderSwap` / `animateReorderSwap`, the Obscuring Bomb pattern). After Lock In, P2 face-down auto-place in CPU mode or face-up reorder in Manual / "Choose CPU starting units" ON. The coin auto-fires after both rows are set, with the title morphing through "Who goes first?" → "Heads/Tails — Player N goes first" → fade.
-- **Stage 3 — Board chrome entrance choreography.** Three sequential GSAP waves around the placed cards: right sidebar slides in from the right while `.board__center` FLIP-slides leftward in parallel (no jump); top + bottom item hands slide in vertically; decks slide in from the right. Turn banner fires last. All gated by `BeatQueue` so nothing fires under the chrome animation.
+- **Card Index modal.** A new "Card Index" button in the top bar (left of Seer's Bestiary) opens a large browse-only modal listing every card in the game — Units, Items, Bestiary — at a fixed 260 px width matching the discard pile. A chip-style filter rail at the top supports multi-select Type / Class / Faction / Experience / Item Category / Bestiary Tag (Buff / Debuff). Sub-filter groups appear and disappear via GSAP height+opacity transitions based on which Types are active. A "Show duplicates" toggle (on by default) renders every deck copy of items so players can gauge draw probabilities; off collapses to one entry per unique name. Filters live on `state.cardIndexFilters` and persist across modal open/close within a match (reset on a new game).
+- **Item artwork variations.** Light Armor (4 variants across 7 copies, A,A,B,B,C,C,D), Healing Potion (4, one per copy), Magic Grenade and Wardstone Bracelet (2 each, one per copy) now ship with multiple illustrations. Same name, same effect, different art for flavor. Variation is fixed at deck-build time (`data.js`: `ITEM_VARIATIONS`) and travels with the card through draw → hand → equipped gear / terrain → discard. Every render site — hand, board mini-cards, unit zoom, item zoom, summoning modal, discard pile, Card Index — picks up the correct variation. `getItemCardImagePath(name, variation)` resolves through a new `ITEM_VARIATION_FILENAME_PATTERNS` map; non-varied items behave exactly as before.
 
 See **[DEV_LOG.md](DEV_LOG.md)** for the detailed shipped entry and **[CONTINUATION_SPEC.md](CONTINUATION_SPEC.md)** for next-session handoff.
 
