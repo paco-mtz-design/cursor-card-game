@@ -14,6 +14,71 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Card Index + item artwork variations
+
+**Status:** Shipped. Branch `card-index`, three commits (`b949006`, `b2c0b35`, `77322b5`). Out-of-roadmap polish prioritised between the `start-sequence` merge and Phase 17.
+
+### What shipped
+
+**Card Index modal.** A new "Card Index" button in the top bar (immediately left of Seer's Bestiary) opens a large modal — ~96 vw × 92 vh — listing every card in the game, organised in three sections: Units (32) → Items (62 with duplicates on / 24 with duplicates off) → Bestiary (13). Cards render as plain card art (no captions, no game-state badges) at a fixed 260 px width matching the discard pile, so the in-card copy stays comfortably readable. The modal is purely browse-only — no game-state interaction, no logging, no turn impact.
+
+A filter rail at the top has chip-style toggles. **Type** (Units / Items / Bestiary) is always visible; sub-filter groups appear/disappear based on which Types are active, with a smooth GSAP height+opacity transition so the rail grows and shrinks rather than jumping. **Show duplicates** toggle (on by default; off collapses items to their 24 unique entries). **Clear filters** link. Each chip group is multi-select; an empty set means "no filter on this dimension" (the standard chip-filter mental model). Filters live on `state.cardIndexFilters` so they persist across close/reopen within a match and reset on a new game via `getInitialState()`.
+
+Sub-filters per Type:
+- **Units** → Class (Brawler / Lancer / Shooter / Caster), Faction (the 4 factions), Experience (Rookie / Veteran).
+- **Items** → Category (Armor / Accessory / Legendary Weapon / Single-use / Terrain).
+- **Bestiary** → Buff / Debuff. Per Paco's call, Iron Maiden = Buff (defensive but proactively benefits the holder), Ever-Watching Eye = Debuff (always face-up is a restriction in this game's threat model). Mapping in `BESTIARY_TAG_MAP`.
+
+Card rendering reuses the discard modal's `.card-thumb` pattern verbatim — `<div class="card-thumb"><img src="…"/></div>`. Image paths come from the existing `getUnitCardImagePath` / `getItemCardImagePath` helpers and the `imagePath` baked into `BESTIARY_CARD_DEFS`. Items render in the spec's order (Armor → Accessory → Legendary → Single-use → Terrain) via a hardcoded `CARD_INDEX_ITEM_ORDER` array. Section titles include the live count.
+
+The 260 px fixed width (second commit, `b2c0b35`) replaces the initial responsive grid (`auto-fill, minmax(160px, 1fr)`), which packed up to 7 cards per row and made the in-card copy too small to read.
+
+**Item artwork variations.** Some items now ship with multiple illustrations — same name, same effect, different art for flavor:
+
+| Item | Variations | Distribution across deck |
+|------|------------|--------------------------|
+| Light Armor | 4 (A, B, C, D) | A, A, B, B, C, C, D — 7 copies |
+| Healing Potion | 4 (A, B, C, D) | one per copy — 4 copies |
+| Magic Grenade | 2 (A, B) | one per copy — 2 copies |
+| Wardstone Bracelet | 2 (A, B) | one per copy — 2 copies |
+
+Variation is fixed at deck-build time (data.js: `ITEM_VARIATIONS` table) and travels with the card through draw → hand → equipped gear / terrain → discard. A drawn Healing Potion keeps the same illustration through use and into the discard pile; two Healing Potions in the same hand show different art. The `ITEM_VARIATIONS` array length must equal the item's `ITEM_DECK_SPEC` quantity — index-by-index zip.
+
+The deck's shape changed from a flat `string[]` of names to `{ name, variation }[]` objects. `buildItemDeck()` zips variations to copies. `drawItem` and `replaceLastDrawWith` now find by name via `findIndex`. Hand items, gear, bonusGear, and terrain objects all carry `.variation`. `getItemCardImagePath(name, variation)` resolves through a new `ITEM_VARIATION_FILENAME_PATTERNS` map (with `{VAR}` placeholder) before falling back to the existing `ITEM_IMAGE_FILENAME_MAP`. Every render call site — hand, gear/terrain mini-cards, unit zoom, item zoom, summoning modal, discard pile, Card Index — passes variation through. `Anim.itemSummon` accepts a 4th variation arg; player click handler reads from `hand[handIndex]`, CPU action reads from `state.p2ItemHand[capturedAction.handIndex]`, Wardstone activation scans `defCell.gear` / `defCell.bonusGear` before `removeGearFromCell`. `openItemZoom` looks up variation from the hand using its existing `handIndex` / `player` args.
+
+In the Card Index, "Show duplicates" ON renders varied items in their actual deck distribution (Light Armor → 7 thumbs in A,A,B,B,C,C,D order). OFF collapses to one entry per unique name; varied items show variation A.
+
+### Asset changes
+
+- **Renamed** (Wardstone variation files normalised from hyphen to en-dash like the others): `Single Use - Wardstone Bracelet - A.png` → `… – A.png`, same for `– B`.
+- **Renamed via git** (single-art files become variation A): `Armor - Light Armor.png`, `Single Use - Magic Grenade.png`, `Single Use - Potion.png`, `Single Use - Wardstone Bracelet.png` → `… – A.png` siblings.
+- **New variation files:** B/C/D for Light Armor and Healing Potion, B for Magic Grenade and Wardstone Bracelet — 8 net additions plus the renames-to-A. All filenames use the en-dash separator (`–`, U+2013).
+
+### State / function surface added
+
+- `state.cardIndexFilters: { type, unitClass, faction, experience, itemCategory, bestiaryTag, showDuplicates }` — sets (not arrays) for chip groups, plus the boolean toggle. Initialised by `getDefaultCardIndexFilters()` in `getInitialState()`.
+- `data.js` constants: `ITEM_VARIATIONS` table.
+- `game.js` constants: `BESTIARY_TAG_MAP`, `ITEM_CATEGORY_BY_TYPE`, `CARD_INDEX_ITEM_ORDER`, `CARD_INDEX_FILTER_DEFS`, `ITEM_VARIATION_FILENAME_PATTERNS`.
+- `game.js` functions: `getCardIndexFilters`, `getDefaultCardIndexFilters`, `isCardIndexTypeActive`, `getItemCategoryForFilter`, `getCardIndexUnits`, `getCardIndexItems`, `getCardIndexBestiary`, `buildCardIndexThumbHTML`, `renderCardIndexChips`, `toggleCardIndexFilterGroup`, `applyCardIndexGroupVisibility`, `renderCardIndexGrid`, `renderCardIndex`, `openCardIndexModal`, `closeCardIndexModal`, `applyCardIndexFilterChange`, `clearCardIndexFilters`, `itemHasVariations`. Updated signatures: `getItemCardImagePath(name, variation)`, `Anim.itemSummon(name, label, onComplete, variation)`.
+- New CSS: `.modal__content--card-index` + the `.card-index` BEM block (`__filters`, `__filter-group`, `__chip` with `aria-pressed`-driven state, `__sections`, `__grid`, `__empty`).
+
+### Files touched
+
+- **Modified:** `index.html` (top-bar button + new modal block), `style.css` (~200 net inserts), `game.js` (~370 net inserts), `data.js` (`ITEM_VARIATIONS` + updated `buildItemDeck`).
+- **Added (under `feature specs/`):** `Card index.md` (the product spec).
+- **Renamed/added under `assets/items/`:** the 12 variation files described above.
+- **Untouched:** `cpu.js`, all combat / Bestiary / veteran logic, the start-sequence pipeline.
+
+### Tech debt / notes for next agent
+
+- **Variation A is a fragile default.** `getItemCardImagePath` falls back to variation `'A'` for varied items called without a variation arg. Correct for current callsites, but if any new item-creation path ever stores a varied item without setting `.variation`, it'll silently render A instead of crashing. A `console.warn` in the helper would catch it cheaply.
+- **`ITEM_VARIATIONS` array length must match `ITEM_DECK_SPEC` quantity.** No runtime check. If quantities ever change in `data.js`, the variations array must be updated by hand. Cheap to add a validation in `buildItemDeck` if it ever bites.
+- **CPU pick-list duplicates.** `renderItemPickList` iterates the deck (which has duplicates), so identical-name varieties show up multiple times. Same as before; flagged in case Paco wants to dedupe later.
+- **No tap-to-zoom on Card Index thumbs.** Deliberate first-cut omission. Easy to add via `openItemZoom` / a unit-zoom variant if needed.
+- **Filter persistence is in-match only.** No `localStorage`. Refresh / new game resets. By design.
+
+---
+
 ## Start sequence UI refactor — three-stage rebuild
 
 **Status:** Shipped. Branch `start-sequence`, single commit `1d7a83c`. Out-of-roadmap priority taken on between Phase 18 and Phase 17.

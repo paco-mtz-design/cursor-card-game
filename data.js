@@ -75,11 +75,32 @@ const ITEM_DECK_SPEC = [
   { name: "Archmage's Tome", quantity: 1 },
 ];
 
-/** Build a flat array of item names (each repeated by quantity) for shuffling. */
+/**
+ * Items with multiple artwork variations. The array length must equal that
+ * item's quantity in ITEM_DECK_SPEC; each deck copy gets the variation at the
+ * same index. Variations are purely visual — same name, same effect.
+ */
+const ITEM_VARIATIONS = {
+  'Light Armor':        ['A', 'A', 'B', 'B', 'C', 'C', 'D'],
+  'Healing Potion':     ['A', 'B', 'C', 'D'],
+  'Magic Grenade':      ['A', 'B'],
+  'Wardstone Bracelet': ['A', 'B'],
+};
+
+/**
+ * Build the full item deck as { name, variation } objects (one per copy).
+ * Items without declared variations get variation = null.
+ */
 function buildItemDeck() {
   const flat = [];
   ITEM_DECK_SPEC.forEach(function (entry) {
-    for (let i = 0; i < entry.quantity; i++) flat.push(entry.name);
+    const variations = ITEM_VARIATIONS[entry.name];
+    for (let i = 0; i < entry.quantity; i++) {
+      flat.push({
+        name: entry.name,
+        variation: variations ? variations[i] : null,
+      });
+    }
   });
   return flat;
 }

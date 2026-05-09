@@ -1,5 +1,5 @@
-# Continuation Spec — Tacticlash, end of `start-sequence` branch
-*Handoff prepared: 2026-05-06 | Resume in a new chat using `NEXT_SESSION_PROMPT.md`*
+# Continuation Spec — Tacticlash, end of `card-index` branch
+*Handoff prepared: 2026-05-09 | Resume in a new chat using `NEXT_SESSION_PROMPT.md`*
 
 ---
 
@@ -7,7 +7,7 @@
 
 Tacticlash is a plain-HTML/CSS/JS two-player card strategy game (no build step, no framework, no bundler). Two players place units on a 5-slot board row and take turns attacking, moving, and using items. One player can be a CPU opponent.
 
-All code ships as plain files. `game.js` (~7 100 lines, single IIFE) holds all game logic, the animation layer, and the new start-sequence flow. `cpu.js` is the CPU policy module. `data.js` is static data. `style.css` is the only stylesheet. `index.html` is all the markup.
+All code ships as plain files: `game.js` (~7 400 lines, single IIFE) holds all game logic, animation layer, start sequence, and now the Card Index modal + item variations system. `cpu.js` is the CPU policy module. `data.js` is static data plus the new `ITEM_VARIATIONS` table. `style.css` is the only stylesheet. `index.html` is all the markup.
 
 Run with:
 ```bash
@@ -15,33 +15,38 @@ python3 -m http.server 8080
 # then open http://localhost:8080
 ```
 
-There is no build step, no test runner, no linter config, and no package manager.
+No build step, no test runner, no linter, no package manager.
 
 ---
 
 ## Branch state
 
-- **Branch:** `start-sequence` — clean, all changes committed.
-- **Status:** ready for review / merge.
-- **What's on this branch vs `main`:** A complete refactor of the start sequence (start screen → placement → coin → board entrance), prioritised outside the planned roadmap between Phase 18 and Phase 17. **Single commit:** `1d7a83c`.
-
-### Commit unique to this branch
+- **Branch:** `card-index` — clean, all changes committed.
+- **Status:** ready for review / merge. Prioritised outside the planned roadmap (between `start-sequence` and the next planned roadmap phase).
+- **Three commits unique to this branch.**
 
 | Commit | What |
 |--------|------|
-| `1d7a83c` | `feat(start-sequence): player-grade start sequence in three stages` — Stage 1 parchment start screen + debug-toggle, Stage 2 reorder placement + auto coin flip, Stage 3 chrome entrance choreography. Spec + Claude Design source bundle checked in under `feature specs/`. |
+| `b949006` | `feat(card-index): browse-only modal listing every card in the game` — new top-bar button, new modal with filter rail (Type → conditional sub-filters), Units / Items / Bestiary sections rendered as plain card art. Filters live on `state.cardIndexFilters` so they persist across modal open/close within a match and reset on a new game. Bestiary buff/debuff classifications baked in (Eye → debuff, Maiden → buff per Paco's call). |
+| `b2c0b35` | `style(card-index): fixed 260px card thumbs to match discard modal` — replaced the responsive grid with a flex layout + 260px fixed-width thumbs so the in-card copy is comfortably readable. Caps row to ~5 cards across, matching the discard pile pattern. |
+| `77322b5` | `feat(card-index): artwork variations for select items` — Light Armor (4 variations across 7 copies, A,A,B,B,C,C,D), Healing Potion (4 variations, one per copy), Magic Grenade and Wardstone Bracelet (2 each, one per copy). Variation is fixed at deck-build time and travels with each card through draw → hand → equipped gear / terrain → discard. Card Index renders all variations when "Show duplicates" is on; collapses to A when off. |
 
-### Files touched on this branch
+Branch off `main` (post-merge of `start-sequence`) at `4f057e6`.
+
+---
+
+## Files touched this branch
 
 | File | What changed |
 |------|-------------|
-| `game.js` | Removed legacy `placeUnit`, `finishPlacementForPlayer`, `renderPlacementStep`, `handlePlacementHandClick`, `onFlipCoin`, `onAfterCoin`. Added `dealUnitDecks`, `enterPlacementForP1/P2`, `autoPlaceCpuP2`, `enterCoinFlipStep`, `transitionToPlaying`, `onLockInPlacement`, `doPlacementSwap`, `runBoardEntrance`, `showStartScreen`/`hideStartScreen`, `applyDebugVisibility`, `syncStartScreenVisuals`, `updateBeginDuelSummary`, `getSelectedGoalFromStartScreen`, `setSealToggle`, `showPlacementSubtitle`/`hidePlacementSubtitle`. Three new entries in the `Anim` namespace (§25): `boardSidebarEntrance`, `boardBarsEntrance`, `boardDecksEntrance`. New state fields: `debugControlsEnabled`, `placementReorder`. `placeAllRandomly` extended with `{ faceUp, onComplete }` opts. `highlightSlots` placement branch added. `applyPlacementUnitPick` refactored to swap on the board. `openPlacementUnitPickList` reads `state.placementReorder.selectedCol`. |
-| `index.html` | Added `<div id="start-screen">` (parchment markup), Cinzel/Crimson Pro/JetBrains Mono fonts in `<head>`, `body class="start-screen-active"` for first-paint correctness. Added `<p id="placement-title">` + `<p id="placement-subtitle">` above the board and `<div id="placement-actions">` below the board (with `#btn-placement-lock-in` and the existing replace-with-pick controls). Removed `#setup` overlay (with `#setup-coin` and `#setup-place`), `#btn-place-randomly`, `#placement-hand-filter`, `#placement-hand`. Hidden form inputs preserved inside `.start-screen__hidden-form` so existing `game.js` reads still work. |
-| `style.css` | New parchment start-screen rules (`.start-screen`, `.title-plate`, `.card-frame`, `.segmented`, `.seal-toggle`, `.dev-notebook`, `.begin-duel-btn`, `.lore`). `body.start-screen-active` hides `.page-content` via `visibility: hidden`. `body.no-debug` hides the in-game debug controls. `body.in-placement` hides chrome via `display: none` (so the board grid is genuinely centered). New `.placement-title`, `.placement-subtitle`, `.placement-actions`, `.slot--placement-selected` (blue ring + lift). |
-| `feature specs/Start sequence UI refactor.md` | New — the product spec. |
-| `feature specs/card-duel-game-start-screen/` | New — Claude Design source bundle (README, HTML, JSX, screenshot). |
+| `index.html` | Added `<button id="btn-card-index-open">` in `header__toolbar` (immediately left of `#btn-bestiary-open`). Added `<div id="card-index-modal">` block after the discard-zoom modal — backdrop / × / title / `.card-index__filters` (Type group + Show-duplicates toggle + Clear filters link) / 5 sub-filter groups (Class, Faction, Experience, Item Category, Bestiary Tag) / `.card-index__sections` (Units → Items → Bestiary, populated by JS) / empty-state paragraph. |
+| `style.css` | New `.modal__content--card-index` (~96vw × 92vh, flex column). New `.card-index` BEM block: `__filters`, `__filter-row--top`, `__filter-group`, `__filter-label`, `__chips`, `__chip` (chip-style toggle, `aria-pressed`-driven), `__filter-controls`, `__toggle`, `__clear`, `__sections`, `__section-title`, `__grid` (flex-wrap with `260px` fixed-width thumbs), `__empty`. Reuses `.card-thumb` from the discard modal. Single mobile breakpoint at 720 px. |
+| `data.js` | Added `ITEM_VARIATIONS` constant (per-item variation distribution arrays). Modified `buildItemDeck()` to return `{ name, variation }[]` objects (variation `null` for items without variations). |
+| `game.js` | DOM refs for the new button, modal, backdrop, close button, filters region, clear link, show-duplicates checkbox. New `state.cardIndexFilters` field via `getDefaultCardIndexFilters()` in `getInitialState()`. New ~250-line section after `closeBestiaryModal`: `BESTIARY_TAG_MAP`, `ITEM_CATEGORY_BY_TYPE`, `CARD_INDEX_ITEM_ORDER`, `CARD_INDEX_FILTER_DEFS`, helpers (`getCardIndexFilters`, `getDefaultCardIndexFilters`, `isCardIndexTypeActive`, `getItemCategoryForFilter`, `getCardIndexUnits`, `getCardIndexItems`, `getCardIndexBestiary`, `buildCardIndexThumbHTML`), renderers (`renderCardIndexChips`, `renderCardIndexGrid`, `renderCardIndex`), `toggleCardIndexFilterGroup` (GSAP height+opacity transition), `applyCardIndexGroupVisibility`, `openCardIndexModal` / `closeCardIndexModal`, `applyCardIndexFilterChange`, `clearCardIndexFilters`. Event wiring at the bottom of the IIFE: button click, close, backdrop, delegated chip click, clear link, show-duplicates toggle. **Item variations refactor:** `ITEM_VARIATION_FILENAME_PATTERNS` map, `itemHasVariations`, updated `getItemCardImagePath(name, variation)` signature with fallback to 'A' if pattern exists. `drawItem` and `replaceLastDrawWith` now operate on deck objects (`findIndex` by name). `renderItemPickList` iterates objects. Hand items, gear, bonusGear, terrain all carry `.variation`. All ~13 callsites of `getItemCardImagePath` updated to pass variation. `Anim.itemSummon` accepts a 4th `variation` arg; player click handler, CPU action handler, and Wardstone activation all thread variation through. `openItemZoom` looks up variation from the hand using `handIndex`/`player`. |
+| `feature specs/Card index.md` | The product spec checked into the branch (committed in the first card-index commit). |
+| `assets/items/` | Renamed: `Armor - Light Armor.png` → `Armor - Light Armor – A.png`; `Single Use - Magic Grenade.png` → `Single Use - Magic Grenade – A.png`; `Single Use - Potion.png` → … `– A.png`; `Single Use - Wardstone Bracelet.png` → … `– A.png`. **New:** `– B / – C / – D` files for each varied item (12 new variation files total; Wardstone files use the en-dash separator like the others, normalised during this branch). |
 
-`cpu.js`, `data.js` untouched.
+`cpu.js` untouched.
 
 ---
 
@@ -50,93 +55,134 @@ There is no build step, no test runner, no linter config, and no package manager
 ### State shape additions
 
 ```
-state.debugControlsEnabled  — bool, default true; per-session only
-state.placementReorder      — { selectedCol: number|null }; mirrors state.obscuringReorder
+state.cardIndexFilters = {
+  type:        Set<'units'|'items'|'bestiary'>,    // empty = no filter on this dim
+  unitClass:   Set<'Brawler'|'Lancer'|'Shooter'|'Caster'>,
+  faction:     Set<'Howlsworn Creed'|'Skyward Kin'|'Whisperfang Watch'|'Scalebound Brood'>,
+  experience:  Set<'Rookie'|'Veteran'>,
+  itemCategory:Set<'armor'|'accessory'|'legendary'|'single_use'|'terrain'>,
+  bestiaryTag: Set<'buff'|'debuff'>,
+  showDuplicates: true
+}
 ```
 
-Existing fields (`captureGoal`, `useBestiaryRules`, `gameMode`, `cpuCustomPlacementEnabled`, `cpuDifficulty`, `placementPlayer`, `phase`) are unchanged in shape — captures still flow through `onGoalChosen`.
+Convention: an empty set means "no filter on this dimension" → show everything for it. Mirrors how chip-filter UIs behave in the wild.
 
-### Phase progression
+### Item object shape (now uniformly carries variation)
+
+The deck, hand, gear/bonusGear, terrain, and discard pile all use this shape:
 
 ```
-'idle' | 'setup_goal'  → start screen visible (body.start-screen-active)
-'setup_place_p1'        → P1 reorder UI (body.in-placement)
-'setup_place_p2'        → P2 face-up reorder OR face-down auto-place
-'setup_coin'            → "Who goes first?" → coin → result hold → fade
-'playing'               → runBoardEntrance → startOfTurn
+{ name: string, variation: 'A'|'B'|'C'|'D'|null, id?: string }
 ```
 
-### The new placement / coin / entrance pipeline
+`variation: null` for items without variations (most of the deck). Resolved via `getItemCardImagePath(name, variation)`:
 
-| Function | Role |
-|----------|------|
-| `onGoalChosen(goal)` | Captures all settings, hides start screen, calls `dealUnitDecks()`, then `enterPlacementForP1()`. |
-| `dealUnitDecks()` | Shuffles `[...CHARACTERS]` and deals 5 each to `state.p1Hand` / `state.p2Hand`. (Used to live inside `onAfterCoin`.) |
-| `enterPlacementForP1()` | Sets phase, adds `body.in-placement`, shows title + subtitle + actions, calls `placeAllRandomly({ faceUp: true })`. |
-| `enterPlacementForP2()` | Manual / custom-CPU branch — face-up reorder UI for P2. |
-| `autoPlaceCpuP2()` | CPU-default branch — face-down stagger, then `enterCoinFlipStep()` via `placeAllRandomly`'s `onComplete`. |
-| `onLockInPlacement()` | Gated by `BeatQueue.afterRender` if a swap is in flight. Branches to P2 setup or coin step. |
-| `enterCoinFlipStep()` | Title morphs to "Who goes first?" → 1 s hold → `Anim.coinFlip` → result hold 1 s → fade 320 ms → `transitionToPlaying()`. |
-| `transitionToPlaying()` | Flips all cells `faceUp = false`, resets per-game state (item decks, captures, terrain, etc.), un-hides chrome elements, calls `runBoardEntrance` whose `onComplete` fires `startOfTurn()`. |
-| `runBoardEntrance(onComplete)` | FLIP-captures `.board__center` rect, pre-sets chrome off-screen, removes `body.in-placement`, applies invert delta to `.board__center`, runs Wave A (sidebar + board glide in parallel) → Wave B (bars vertical) → Wave C (decks from right). Bracketed by `BeatQueue.open()` / `close()`. |
-| `doPlacementSwap(player, colA, colB)` | Captures rects, swaps board cells, re-renders, runs `Anim.animateReorderSwap`. Mirrors `doObscuringSwap`. |
+- If `name` is in `ITEM_VARIATION_FILENAME_PATTERNS` → uses the variation pattern (defaults to 'A' when variation is null/undefined).
+- Else → `ITEM_IMAGE_FILENAME_MAP[name]` → 'assets/items/{filename}.png'.
+- Else → slug fallback / placeholder.
 
-### Three new `Anim` entries (§25, `game.js` ~line 894 region)
+### `ITEM_VARIATIONS` (data.js)
 
-- `Anim.boardSidebarEntrance(onComplete)` — `#board-right` from `x: 280` to `x: 0`, 0.5 s, `power2.out`.
-- `Anim.boardBarsEntrance(onComplete)` — `#item-hands-p2` from `y: -180`, `#item-hands-p1` from `y: 180`, parallel, 0.45 s.
-- `Anim.boardDecksEntrance(onComplete)` — `.board__decks` from `x: 180` to `x: 0`, 0.45 s.
+```js
+'Light Armor':        ['A','A','B','B','C','C','D'],   // 7 copies
+'Healing Potion':     ['A','B','C','D'],               // 4 copies
+'Magic Grenade':      ['A','B'],                       // 2 copies
+'Wardstone Bracelet': ['A','B'],                       // 2 copies
+```
 
-**Critical:** all offsets are pixel-valued. `xPercent` / `yPercent` resolve to 0 on a `display: none` element (computed size is 0), so the off-screen pre-position would never push the element off-screen.
+Array length must equal `ITEM_DECK_SPEC` quantity. `buildItemDeck()` zips index-by-index.
 
-### Debug-toggle (`body.no-debug`)
+### `ITEM_VARIATION_FILENAME_PATTERNS` (game.js)
 
-`applyDebugVisibility()` toggles `body.no-debug`, which is the single CSS gate for:
+```js
+'Light Armor':        'Armor - Light Armor – {VAR}.png'
+'Healing Potion':     'Single Use - Potion – {VAR}.png'        // file uses 'Potion', not 'Healing Potion'
+'Magic Grenade':      'Single Use - Magic Grenade – {VAR}.png'
+'Wardstone Bracelet': 'Single Use - Wardstone Bracelet – {VAR}.png'
+```
 
-- `#item-draw-debug` (in-game replace-draw section)
-- `#btn-placement-replace-with-pick` + `#placement-unit-pick-wrap` (placement debug pick)
-- `.bestiary__debug` (the per-column SELECTs in the Bestiary modal)
+All filenames use the **en-dash** (`–`, U+2013), not a hyphen. The Wardstone files were renamed from hyphen → en-dash on this branch for consistency.
 
-`#btn-save-log` and the mid-game save-log modal are never hidden.
+### Bestiary buff/debuff map (game.js, `BESTIARY_TAG_MAP`)
 
-### First-paint correctness
+Used only by the Card Index Bestiary filter. Per Paco's call:
 
-`<body class="start-screen-active">` is set in HTML, and `<div id="start-screen">` ships *without* the `hidden` attribute. So the very first paint after a refresh shows the parchment screen — no flash of the empty board behind it. JS only flips both off when the user clicks "Begin Duel".
+- **Buff:** Alpha, Caravan, Hoarder, Iron-Clad Shield, Eternal Carapace, Berserker, **Iron Maiden**.
+- **Debuff:** Rooted Colossus, High-Aerie, Muzzled Beast, Fractured Hulk, **Ever-Watching Eye**, Unmaker.
+
+Iron Maiden tagged Buff (defensive but proactively benefits the holder), Eye tagged Debuff (always face-up is a restriction in this game's threat model).
+
+### Card Index render flow
+
+1. `openCardIndexModal()` → unhides modal, calls `renderCardIndex(animatedGroups=false)`.
+2. `renderCardIndex(animated)` → `renderCardIndexChips()` (writes chip buttons, sets `aria-pressed`); `applyCardIndexGroupVisibility(animated)` (GSAP height+opacity in/out for sub-filter groups based on which Types are active); `renderCardIndexGrid()` (rebuilds Units → Items → Bestiary sections).
+3. Filter chip click → `applyCardIndexFilterChange(group, value)` → toggles the value in the set → `renderCardIndex(group === 'type')` (only animate the conditional groups when Type changed).
+4. "Show duplicates" toggle → only re-renders the grid (no chip / group-visibility work).
+5. "Clear filters" → resets `state.cardIndexFilters` to defaults, full re-render with animation.
+
+Items grid:
+- `showDuplicates: true` → for varied items, iterates the variation array directly (so e.g. Light Armor renders 7 thumbs in A,A,B,B,C,C,D order). Non-varied items render `qty` plain copies.
+- `showDuplicates: false` → one thumb per unique name. Varied items show variation A.
+
+### Card sizing
+
+`.card-index__grid .card-thumb` is `width: 260px; aspect-ratio: 107/150` — same as the discard zoom modal. Chosen after the initial responsive grid (auto-fill, `minmax(160px, 1fr)`) packed up to 7 cards per row and made the in-card copy too small to read. Flex-wrap layout, `justify-content: flex-start`, so cards left-align under their section titles.
 
 ---
 
-## Known tech debt (deferred)
+## Known tech debt (this branch)
 
-Carried over from Phase 18 (none of these were touched on this branch):
+1. **Variation A is a fragile default.** `getItemCardImagePath` defaults to variation `'A'` when called for a varied item without a variation arg. That's correct for current callsites, but if any future code path ever stores a varied item without setting `.variation` (e.g. a new item-creation site), it'll silently render A instead of crashing. Worth a `console.warn` if the assumption ever breaks.
+2. **`ITEM_VARIATIONS` array length must match `ITEM_DECK_SPEC` quantity.** No runtime check. If quantities ever change in `data.js`, the variations array must be updated by hand. Cheap to add a validation in `buildItemDeck` if it ever bites.
+3. **CPU pick-list (replace draw with…) shows duplicate names.** `renderItemPickList` iterates the deck (which has duplicates), so identical-name varieties show up multiple times. Not a regression — same as before — but worth flagging if you ever change that behaviour.
+4. **No tap-to-zoom on Card Index thumbs.** Deliberate first-cut omission. Easy to add later by reusing `openItemZoom` / a unit-zoom variant if Paco wants it.
+5. **Filter persistence is in-match only.** No `localStorage`. Refresh / new game resets. By design.
 
-1. **Multi-target damage sequencing** — Archmage's Tome AOE, Iron Maiden retaliation, Pack Shield bounceback, Magic Grenade rattle their targets in parallel. Agreed direction: sequential resolution. Implementation idea logged in the §24 entry of `DEV_LOG.md`.
-2. **Reinforcement-from-deck animation** — vacated slot fills face-down with no draw animation; best handled inside a broader "card draw from deck" pass.
-3. **Harlund / Archmage multi-hit visual interleaving** — multi-target combat resolution is synchronous, producing a burst of overlapping animations BeatQueue can't fully interleave. Needs an async step loop.
+Carried over from earlier branches (untouched on this one):
 
-New (from this branch):
-
-4. **`state.debugControlsEnabled` does not persist across reloads.** By design (per the user's call), but trivial to add a `localStorage` read/write in `onGoalChosen` + DOMContentLoaded if cross-session memory is wanted later.
-5. **Stage 3 entrance offsets are tuned for current bar heights.** Y offsets of ±180 px assume `--hand-card-height: 150 px`. Revisit if that changes substantially.
+- Multi-target damage sequencing (Phase 18 tech debt, see DEV_LOG §24 entry).
+- Reinforcement-from-deck animation.
+- Harlund / Archmage multi-hit visual interleaving.
 
 ---
 
-## Communication / collaboration
+## Product / design decisions made this session
 
-Paco is a Product Designer, not a developer. Conventions captured in `CLAUDE.md`:
+- **Filter persistence within a match** rather than reset-each-open. Cheap to implement (single field on state), low surprise risk (filters reset on new game via `getInitialState()`).
+- **Layout grows naturally with smooth animation** for the conditional sub-filter groups, rather than reserved-space-with-dim or hard-jump. GSAP height+opacity transition reads as deliberate UI motion.
+- **Card art only**, no captions. Filters carry the labelling burden — the user learns class/faction by what filter is currently set. Keeps cards visually consistent with how they appear in the game.
+- **Fixed 260 px card width** matching the discard pile, after the initial responsive grid felt too cramped for reading the in-card copy. Adopted on the second commit after a quick visual review.
+- **Variation fixed at deck-build time** rather than randomised per render. A drawn card keeps its identity; two Healing Potions in hand should look different and both be reliably the same illustration through draw → use → discard.
+- **Ever-Watching Eye → Debuff, Iron Maiden → Buff** for the Card Index filter. Iron Maiden is defensive but reads as a buff to its owner; Eye's always-face-up read is a restriction in the prototype's fog-of-war model.
 
-- Lead with product / design framing, technical detail second.
-- For new ideas, **converse first, ask clarifying questions**, only draft a detailed plan once shared understanding is confirmed.
-- Commit style: `type(scope): short subject` with a detailed body. This branch used scope `start-sequence`.
-- QA stages incrementally — for this work the user explicitly asked to ship Stages 1, 2, 3 in separate QA passes. They confirmed each stage before the next.
+---
+
+## Open questions / blockers
+
+None active. Branch is mergeable.
+
+The user (Paco) tested all variations end-to-end (hand, board, discard, summoning modal, Card Index with duplicates on/off) and confirmed everything works.
+
+---
+
+## Next steps
+
+In rough priority order:
+
+1. **Open a PR for `card-index` and merge to `main`** (`/pr-ready` was run alongside this handoff to draft the PR title and body).
+2. **Phase 17** — further UI improvements + deferred Bestiary UX + fog-of-war for opponent face-down units.
+3. **Phase 19** — cross-regression QA sweep.
+4. Any of the carried-over Phase 18 tech-debt items (multi-target damage sequencing is the biggest one).
+5. Whatever Paco surfaces from live play — out-of-roadmap polish like the Card Index has been the dominant pattern recently.
 
 ---
 
 ## Where to look first as the next agent
 
 1. `CLAUDE.md` — project conventions and how to communicate with Paco.
-2. `ROADMAP.md` — phase status. Phase 18 done, **Phase 17** and **Phase 19** still planned.
-3. `DEV_LOG.md` — top entry is this start-sequence refactor with the full surface.
-4. `feature specs/Start sequence UI refactor.md` — the spec for what just shipped.
-5. `feature specs/card-duel-game-start-screen/` — Claude Design source for the start-screen visual style.
-6. `game.js` lines ~126–900 — `BeatQueue`, `CoinGate`, the entire `Anim` namespace including the new §25 entrance functions.
-7. `game.js` ~lines 3140–3460 — `doStartNewGame`, `onGoalChosen`, the new placement / coin / entrance pipeline.
+2. `ROADMAP.md` — phase status. Phases 1–16 + 18 done. Card Index is an out-of-roadmap shipped polish, like the start-sequence work before it.
+3. `DEV_LOG.md` — top entry will be this Card Index session.
+4. `feature specs/Card index.md` — the product spec for what just shipped.
+5. `game.js` ~lines 1465–1740 (Card Index module) and ~lines 3050–3110 (`getItemCardImagePath` + variation patterns) and ~lines 4380–4420 (`drawItem`).
+6. `data.js` lines 78–110 (`ITEM_VARIATIONS` + updated `buildItemDeck`).
