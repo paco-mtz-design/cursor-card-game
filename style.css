@@ -367,6 +367,14 @@ textarea {
   cursor: not-allowed;
 }
 
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+.btn-manual {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.btn-manual__icon { display: block; flex: 0 0 auto; }
+
 /* Game area: 3-column layout when playing */
 .game {
   flex: 1;
@@ -2441,6 +2449,26 @@ textarea {
   letter-spacing: 0.18em;
   color: #6b6354;
 }
+.start-screen__corner--bottom-right {
+  top: auto;
+  bottom: 28px;
+  right: 32px;
+  color: #6b6354;
+}
+.start-screen__corner--link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+.start-screen__corner--link:hover,
+.start-screen__corner--link:focus-visible {
+  color: #1d1a14;
+}
+.start-screen__corner--link:focus-visible {
+  outline: 1px solid #1d1a14;
+  outline-offset: 6px;
+}
+.start-screen__manual-icon { display: block; color: currentColor; }
 .start-screen__swords { display: block; color: currentColor; }
 
 .start-screen__column {
