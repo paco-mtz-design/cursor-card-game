@@ -4692,6 +4692,13 @@
       return;
     }
 
+    // Defensive auto-heal: if reveal flags lingered past their actionable
+    // window (e.g. column already revealed and no Continue genuinely pending),
+    // sanitize before deciding to show the "in progress" lock. Prevents the
+    // turn strip from getting stuck on stale state if any future code path
+    // mutates state without re-rendering. See DEV_LOG "Seer's Bestiary —
+    // deferred known issue (reveal-flow lock)".
+    sanitizeBestiaryRevealState();
     if (state.pendingBestiaryReveal || state.pendingBestiaryContinue) {
       turnStep.textContent = "Seer's Bestiary reveal in progress.";
       if (bestiaryModal && bestiaryModal.hidden) openBestiaryModal(true);
