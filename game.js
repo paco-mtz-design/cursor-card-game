@@ -1812,6 +1812,8 @@
     }
     renderBestiaryMiniGrid();
     beginQueuedBestiaryRevealIfNeeded();
+    renderTurnUI();
+    renderBoard();
   }
 
   function applyBestiaryDebugControlChange(columnIndex, kind, value) {
