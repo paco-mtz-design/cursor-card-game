@@ -1,98 +1,61 @@
-# PR Title
-
-`feat(card-index): browseable Card Index modal + item artwork variations`
-
----
-
-# PR Body
+# feat(manual): interactive manual page + start screen and header entry points
 
 ## What this PR does
 
-Adds a **Card Index** — a browse-only modal opened from the top bar (left of *Seer's Bestiary*) that lists every card in the game (32 units, 62 item copies, 13 bestiary cards) with chip-style filters and a "Show duplicates" toggle. While auditing the full deck through the new index, four items got upgraded to ship multiple artwork variations (Light Armor, Healing Potion, Magic Grenade, Wardstone Bracelet) — same name, same effect, different illustrations for flavor — so the second half of this branch is a small refactor that threads a `variation` field through the entire item lifecycle (deck → hand → equipped gear / terrain → discard → rendering).
-
-Out-of-roadmap polish, prioritised between the previous `start-sequence` merge and Phase 17.
+Ships a standalone Interactive Manual page (cream-themed React + Tailwind walkthrough of classes, items, terrain, bestiary, and gameplay flow) and wires two entry points into the existing game: a discreet bottom-right corner badge on the start screen, and a "Learn how to play" button at the front of the in-game header toolbar. Both open the manual in a new browser tab, so the live game state is never disturbed.
 
 ## Why
 
-Like any card duel game, becoming familiar with the cards and their effects gives players an edge. Tacticlash deliberately *cuts* the setup ceremony to stay fast-paced — but that means there's no in-game encyclopedia for new players. The Card Index fills that gap: a single button that surfaces every card, filterable by type / class / faction / tag, with a toggle to render duplicates so players can gauge draw probabilities.
+Players currently have no in-app way to read the rules. New players opening the start screen see only the *Begin Duel* CTA and the setup card — there's no graceful on-ramp before the duel, and no reference once they're mid-match. The interactive manual already existed as a polished React prototype in `feature specs/Tacticlash Game Interactive Manual/`; this PR promotes it to a shippable surface and makes it reachable from the two natural moments players would want it: deciding whether to play, and forgetting a rule mid-game.
 
-The variations work was a natural piggyback. Once the full deck was visible at a glance, Paco wanted to use the artwork variations he'd designed for some items — they'd been sitting unused, and the index was the moment to wire them up.
+This is out-of-roadmap polish (sits alongside the recent Card Index work between merges), not a phase milestone.
 
 ## Changes
 
-### Card Index (commit `b949006`)
-
-- **`index.html`**: new `<button id="btn-card-index-open">` in `header__toolbar` (immediately left of the bestiary button); new `#card-index-modal` block after the discard-zoom modal, with backdrop / × / title / `.card-index__filters` / `.card-index__sections` / empty-state paragraph.
-- **`style.css`**: new `.modal__content--card-index` (~96 vw × 92 vh, flex column) + the `.card-index` BEM block — `__filters`, `__filter-row--top`, `__filter-group`, `__chip` (chip-style toggle, `aria-pressed`-driven), `__filter-controls`, `__toggle`, `__clear`, `__sections`, `__section-title`, `__grid`, `__empty`. Reuses the discard modal's `.card-thumb` pattern.
-- **`game.js`** (~250-line section after `closeBestiaryModal`): `BESTIARY_TAG_MAP` (the buff/debuff classification — see Decisions below), `ITEM_CATEGORY_BY_TYPE`, `CARD_INDEX_ITEM_ORDER`, `CARD_INDEX_FILTER_DEFS`, plus filter/render functions (`getCardIndexUnits` / `getCardIndexItems` / `getCardIndexBestiary` / `renderCardIndexChips` / `renderCardIndexGrid`), GSAP-driven sub-filter visibility toggle (`toggleCardIndexFilterGroup`), open/close, filter mutation handlers, and event wiring (close button, backdrop, delegated chip click, clear link, show-duplicates toggle).
-- **State:** new `state.cardIndexFilters` field (Sets for chip groups + boolean toggle), seeded by `getDefaultCardIndexFilters()` in `getInitialState()`.
-- **`feature specs/Card index.md`**: the product spec checked into the branch.
-
-### Card sizing follow-up (commit `b2c0b35`)
-
-- Replaced the initial responsive grid (`grid-template-columns: repeat(auto-fill, minmax(160px, 1fr))`) with a flex-wrap layout and a fixed 260 px card width — same as the discard zoom modal. Caps the row to ~5 cards across so the in-card copy stays comfortably readable.
-
-### Item artwork variations (commit `77322b5`)
-
-- **`data.js`**: new `ITEM_VARIATIONS` table; `buildItemDeck()` now returns `{ name, variation }[]` objects (variation is `null` for items without variations).
-- **`game.js`**:
-  - `ITEM_VARIATION_FILENAME_PATTERNS` map (uses `{VAR}` placeholder); updated `getItemCardImagePath(name, variation)` resolves through the pattern map first, then the existing `ITEM_IMAGE_FILENAME_MAP`. Defaults to variation `'A'` when called for a varied item without an explicit variation.
-  - `drawItem` and `replaceLastDrawWith` now operate on deck objects (find by name via `findIndex`); hand items, gear, bonusGear, and terrain objects all carry `.variation`.
-  - All ~13 callsites of `getItemCardImagePath` updated to pass variation through (hand cards, gear/terrain mini-cards on units, unit zoom modal, item zoom modal, summoning modal, discard pile thumbnails, discard zoom, Card Index thumbs).
-  - `Anim.itemSummon` accepts a 4th `variation` arg. Player click handler reads from `hand[handIndex]`, CPU action handler reads from `state.p2ItemHand[capturedAction.handIndex]`, Wardstone activation scans `defCell.gear` / `defCell.bonusGear` *before* `removeGearFromCell`.
-  - `openItemZoom` looks up variation from the hand using its existing `handIndex` / `player` arguments (no signature change).
-- **`assets/items/`**: 12 variation files. The four single-art files (`Armor - Light Armor.png`, `Single Use - Magic Grenade.png`, `Single Use - Potion.png`, `Single Use - Wardstone Bracelet.png`) became their `– A` siblings (git tracked these as renames). New `– B / – C / – D` files added where applicable. Wardstone files normalised to use the en-dash separator (`–`) like the others.
-
-### Variation distribution
-
-| Item | Variations | Distribution across deck |
-|------|------------|--------------------------|
-| Light Armor | 4 (A, B, C, D) | A, A, B, B, C, C, D — 7 copies |
-| Healing Potion | 4 (A, B, C, D) | one per copy — 4 copies |
-| Magic Grenade | 2 (A, B) | one per copy — 2 copies |
-| Wardstone Bracelet | 2 (A, B) | one per copy — 2 copies |
+- **`manual/` (new top-level directory)**: A self-contained shippable copy of the manual app — `index.html` (renamed from the spec's `Tacticlash Manual.html`), the three JSX files (`tacticlash-card.jsx`, `manual-nav.jsx`, `manual-app.jsx`), and an `assets/` tree (units / items / bestiary / heralds). The page loads React 18, Babel-Standalone, and Tailwind via CDN — no build step, matching the project's "edit and reload" convention. All image paths inside the JSX are relative (`assets/units/...`) so the folder is fully portable.
+- **`index.html` start screen**: Added a third corner anchor (`.start-screen__corner--bottom-right .start-screen__corner--link`) with a small book icon + "Learn how to play" label. Sits in the previously-empty bottom-right corner, mirroring the existing `Edition I` / `v0.4 · pre-alpha` corner marks in tone and ink color so it doesn't compete with the *Begin Duel* CTA.
+- **`index.html` in-game header**: Prepended a new `.btn.btn-manual` anchor to `.header__toolbar` (icon + label), so the toolbar now reads `Learn how to play | Card Index | Seer's Bestiary | New game`. The button uses the same `.btn` base as its neighbours, with a small book glyph distinguishing it as a reference link.
+- **`style.css`**: Added `.start-screen__corner--bottom-right` (positioning), `.start-screen__corner--link` (hover/focus affordance), `.start-screen__manual-icon` (icon color), `a.btn` (treat anchors as buttons visually), `.btn-manual` / `.btn-manual__icon` (flex layout for icon + label). ~28 lines total. No changes to existing rules.
+- **`feature specs/Tacticlash Game Interactive Manual/`**: The original spec directory is preserved in-place (HTML, JSX, design brief, draft v2.2 manual markdown, original `uploads/`) as a permanent design record.
+- **No changes** to `game.js`, `cpu.js`, or `data.js`. Zero game-logic risk.
 
 ## Product & design decisions
 
-- **Filters persist within a match** rather than resetting on every modal open. Mirrors how chip filters typically behave; cheap to implement (single field on state) and resets naturally on a new game via `getInitialState()`.
-- **Layout grows naturally with smooth GSAP animation** for the conditional sub-filter groups (Class / Faction / Experience / etc.). Considered "reserve space, gray out" and "let it grow with no animation" — the smooth grow read as the most deliberate of the three.
-- **Card art only**, no captions. Filters carry the labelling burden — the player learns class/faction by what filter is set. Keeps cards visually consistent with how they appear in the game.
-- **Fixed 260 px card width**, not responsive. Adopted in the second commit after the initial grid (auto-fill at 160 px) packed up to 7 cards per row and made the in-card copy too small to read. Matches the discard pile pattern, which Paco confirmed is the right reference for "comfortably readable".
-- **Bestiary filter has just two tags (Buff / Debuff)**, not three. Two cards are mechanically ambiguous; per Paco's call, **Iron Maiden = Buff** (defensive but proactively benefits the holder) and **Ever-Watching Eye = Debuff** (always face-up is a restriction in this game's threat model). Encoded in `BESTIARY_TAG_MAP` (game.js).
-- **Variation fixed at deck-build time**, not randomised per render. A drawn card keeps its identity through draw → use → discard. Two Healing Potions in hand show different art and stay different through their lifecycle.
-- **"Show duplicates OFF" collapses to one card per name, variation A.** Considered "one entry per variation" (so Light Armor would show 4 cards) — rejected as it muddles the unique-vs-duplicate semantic. Variation A is the canonical representative.
-- **Wardstone variation files renamed to en-dash (`–`)** during this branch instead of handling the punctuation difference in code. The pattern map is uniform now.
-- **Spec ↔ data naming reconciliation.** The Card Index spec used some names that differ slightly from `data.js` (Thival/Thyra vs Tival/Thira; "All Revealing Lantern Jar" vs "All revealing lantern-jar"; "Sharpshooters Scope" vs "Sharpshooter's Scope"; etc.). The index uses the canonical names from `data.js` so labels match the in-game cards exactly. Renaming source data is a separate housekeeping pass if Paco ever wants it.
+- **Opens in a new tab, never replaces the screen.** Both entry points use plain `<a target="_blank" rel="noopener noreferrer">` rather than buttons + JS. This gives native middle-click support, "open in new window" context menus, and keyboard-Enter behaviour for free. It also guarantees the player's in-progress game state (selected unit, dev drawer, CPU "Continue →" prompt) is never disturbed.
+- **Start-screen placement: corner badge, not a CTA.** Considered four placements (text link under *Begin Duel*, pill button above the lore section, corner badge, row inside the Match Setup card). Settled on the bottom-right corner so it stays a *quiet, persistent* "help" affordance rather than competing with *Begin Duel*. The top corners were already taken by `Edition I` and `v0.4 · pre-alpha`, so bottom-right gave visual balance.
+- **Header placement: leftmost in the toolbar.** Reference links go first; data-browsing buttons (Card Index, Bestiary) and the destructive *New game* trail. The icon + label treatment visually distinguishes the manual from the data buttons without breaking the toolbar's row rhythm.
+- **Header visibility: always on, same lifecycle as Card Index.** Because clicking opens a new tab, mid-turn access is non-destructive — no need to hide during CPU "Continue →" announcements or bestiary reveals.
+- **No shared CSS with the main game.** The manual's cream + Space Grotesk + Tailwind aesthetic is deliberately distinct from the game's ink-and-paper style. Trying to reconcile them would have ballooned scope; instead the manual owns its own stylesheet world inside `manual/index.html`.
+- **CDN-driven, no build step.** Kept React + Babel-Standalone + Tailwind via `<script>` tags. Matches the no-bundler project convention and keeps the manual approachable for designer-led iteration. The "Babel-Standalone in production" console warning is accepted as a known cost for the workflow.
+- **Self-contained `manual/assets/` instead of reusing main `assets/`.** Considered pointing the manual at the existing game's image folders to avoid duplication, but the manual uses different framing/crops and may diverge stylistically over time. Keeping assets self-contained means the manual can evolve without coupling to game-side image-name conventions.
+- **Spec folder retained.** The original `feature specs/Tacticlash Game Interactive Manual/` directory stays as the design source of truth (includes the design brief and the draft v2.2 manual markdown the prototype was built from). The shipped `manual/` folder is the runtime; the spec is the archive.
 
 ## Testing
 
-Manual playtest, run from `python3 -m http.server 8080`. Paco verified each scenario end-to-end and confirmed everything works:
+Manual verification with a local HTTP server (`python3 -m http.server 8088`):
 
-- **Card Index — open / close / no game impact:** button click opens modal; × and backdrop both close. Opening mid-CPU-turn does not advance the turn, write a log entry, or change `state.phase`.
-- **Default render:** Units (32), Items (62 with duplicates on), Bestiary (13). Order matches the spec: 32 units in faction-block order; items in spec order; bestiary 1–13.
-- **Filter combinations:** Type → Units only collapses Items + Bestiary sections out and animates Class / Faction / Experience in. Type → Bestiary only animates Buff/Debuff in. Combined filters (Units + Class:Brawler + Faction:Howlsworn) render only matching cards. "Clear filters" resets all groups.
-- **Show duplicates toggle:** OFF collapses items to 24 unique entries (all varied items show variation A). ON renders 62 entries with varied items in their actual deck distribution (Light Armor → A,A,B,B,C,C,D in order).
-- **Filter persistence:** filters set, modal closed and reopened — state preserved. New game → filters back to defaults.
-- **Variations end-to-end:** drew multiple varied items in the same hand, confirmed each copy shows a distinct illustration. Equipped Wardstone and Light Armor — gear mini-card on the unit, unit-zoom modal, and the summoning modal all show the same variation that was in hand. Used Healing Potion / Magic Grenade — discard pile (mini stack and zoom modal) shows the variation that was used.
-- **Wardstone activation:** equipped Wardstone, was attacked, accepted protection — activation modal shows the equipped variation.
-- **No regressions:** start sequence (parchment → placement → coin → entrance) still works. Discard zoom and Bestiary modal still open and close correctly. CPU turn flow uninterrupted.
+- `GET /manual/index.html` → 200, content-length 2668.
+- `GET /manual/assets/units/Harlund.png` → 200.
+- `GET /manual/manual-app.jsx` → 200 (Babel transpiles in browser).
+- Confirmed the served `index.html` includes both new anchors (`.start-screen__corner--bottom-right` and `.btn.btn-manual`).
 
-No automated tests — the project ships no test runner. Syntax-checked `game.js` and `data.js` via `node --check`. All variation files verified to load over HTTP.
+Manual checks still recommended before merge:
+
+- Open the start screen → click the bottom-right corner badge → new tab loads the manual; the start screen retains its setup-card selections.
+- Click *Begin Duel*, complete setup, reach the playing phase → click *Learn how to play* in the header → new tab opens; the main tab still shows the active turn, selected unit, and dev drawer in their pre-click state.
+- Middle-click on each entry point opens in a background tab.
+- Keyboard: Tab to either link, press Enter → new tab opens.
+- Bottom-right corner badge shows a visible focus ring (`outline: 1px solid #1d1a14`, offset 6px) when keyboard-focused.
+
+No unit tests — the project has no test infrastructure, and the change is HTML/CSS only with no game-logic impact.
 
 ## Screenshots / recordings
 
-N/A in this PR description — Paco verified visually in the browser. The Card Index button, modal, filter rail, and three card-grid sections are visible at http://localhost:8080 once a duel begins.
+N/A in this PR body — visual changes are small (one corner badge, one header button) and can be inspected directly on the branch.
 
 ## Follow-up work
 
-Intentionally deferred:
-
-- **Tap-to-zoom on Card Index thumbs.** First-cut omission; easy to add later by reusing `openItemZoom` / a unit-zoom variant if needed.
-- **Filter persistence across page reloads** (`localStorage`). Not in spec; in-match-only persistence is intentional.
-- **Renaming canonical card names to match the spec** (Tival → Thival, "All revealing lantern-jar" → "All Revealing Lantern Jar", etc.). Separate housekeeping pass.
-
-Known fragilities flagged for the next agent:
-
-- **Variation A is a fragile default.** `getItemCardImagePath` falls back to `'A'` for varied items called without a variation arg. If any new item-creation path forgets to set `.variation`, it'll silently render A. A `console.warn` in the helper would catch this cheaply.
-- **`ITEM_VARIATIONS` array length must match `ITEM_DECK_SPEC` quantity.** No runtime check. If quantities change in `data.js`, the variations array must be updated by hand.
-- **CPU pick-list (replace draw with…) shows duplicate names.** `renderItemPickList` iterates the deck (which has duplicates), so identical-name varieties show up multiple times. Same as before this PR; flagged in case it ever needs deduping.
+- Update `DEV_LOG.md` with a "Interactive Manual" entry (parallel to the existing Card Index entry) once this merges — keeping the granular trace alive.
+- Consider whether the manual should eventually be linked from the game-over screen too (a natural "want to learn more?" moment after a first match). Deferred — not in this PR's scope.
+- The manual's draft v2.2 gameplay text (in the spec's `uploads/`) hasn't been reconciled against current implementation behaviour. If the game evolves (e.g. new items, rule changes), the manual will need a refresh pass; not a blocker for shipping the entry-point wiring.
+- The "you're using Babel-Standalone in production" console warning could be replaced with a pre-built JS bundle if the project ever adopts a build step; until then, it's accepted.

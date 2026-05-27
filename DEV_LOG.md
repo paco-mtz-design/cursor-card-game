@@ -14,6 +14,40 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## Interactive Manual + start-screen and header entry points
+
+**Status:** Shipped. Branch `game-manual` (now deleted), merged via PR #11, single commit `d88228b`. Out-of-roadmap polish prioritised after the `card-index` merge and before Phase 17.
+
+### What shipped
+
+**Standalone manual page (`manual/index.html`).** A self-contained React + Tailwind interactive manual that walks players through classes, items, terrain, bestiary, and gameplay flow. Cream `#F7F5F0` background, Space Grotesk display type, Inter body, distinct from the game's ink-and-paper aesthetic. Loads React 18 + Babel-Standalone + Tailwind via CDN — no build step, matching the project's "edit and reload" convention. Three JSX files live alongside the HTML: `tacticlash-card.jsx` (UnitCard / ItemCard with real-art lookups), `manual-nav.jsx`, `manual-app.jsx` (sections + section data). All image paths inside the JSX are relative (`assets/units/...`), so the folder is fully portable.
+
+The manual ships with its own asset tree under `manual/assets/{units,items,bestiary,heralds}/` — 28 PNGs total. Deliberately self-contained rather than reusing the main game's `assets/` folder: the manual uses different framing/crops and may diverge stylistically over time; coupling to game-side image-name conventions would create drift risk.
+
+**Start-screen entry point.** A new third corner anchor (`.start-screen__corner--bottom-right.start-screen__corner--link`) sits in the previously-empty bottom-right corner of the parchment frame. Renders a small book icon + "Learn how to play" label in the same muted ink tone as the existing `Edition I` (top-left) and `v0.4 · pre-alpha` (top-right) corner marks, so it reads as a quiet help affordance rather than competing with the *Begin Duel* CTA. Visible focus state (`outline: 1px solid #1d1a14`, offset 6px) for keyboard users.
+
+**In-game header entry point.** A new `.btn.btn-manual` anchor is prepended to `.header__toolbar`, so the toolbar now reads `Learn how to play | Card Index | Seer's Bestiary | New game`. Icon + label flex layout (small book glyph distinguishes it from the data-browsing buttons). Always visible while the header is rendered — same lifecycle as Card Index. No conditional hiding during CPU "Continue →" announcements or bestiary reveals; mid-turn access is non-destructive because clicking opens a new tab.
+
+### Implementation pattern
+
+Both entry points are plain `<a target="_blank" rel="noopener noreferrer">` anchors rather than `<button>` + JS. This buys native middle-click support, "open in new window" context menus, and keyboard-Enter behaviour for free, with **zero** JS wiring. The player's in-progress game state (selected unit, dev drawer, CPU "Continue →" prompt, etc.) is guaranteed untouched on the original tab.
+
+### Files touched
+
+- **Added:** `manual/` directory (HTML, 3 JSX files, 28 assets across `units/`, `items/`, `bestiary/`, `heralds/`).
+- **Added (under `feature specs/`):** `Tacticlash Game Interactive Manual/` retained as the design archive — includes the HTML/JSX prototype, the `Tacticlash Interactive Manual - Claude Design Brief.md`, the draft `Tacticlash Gameplay Manual 2.2 DRAFT.md`, and original `uploads/`.
+- **Modified:** `index.html` (start-screen corner anchor, header toolbar anchor — ~10 net inserts). `style.css` (~28 net inserts: `.start-screen__corner--bottom-right`, `.start-screen__corner--link` hover/focus, `.start-screen__manual-icon`, `a.btn` baseline, `.btn-manual` + `.btn-manual__icon`).
+- **Untouched:** `game.js`, `cpu.js`, `data.js`. Zero game-logic risk.
+
+### Tech debt / notes for next agent
+
+- **Manual content is a v2.2 draft snapshot.** The JSX hard-codes class profiles, item descriptions, and gameplay walkthrough text that haven't been reconciled against current implementation behaviour. If rules change (new items, veteran adjustments, terrain rebalances), the manual will drift silently. No tests catch this. Refresh pass needed when rules evolve.
+- **"Babel-Standalone in production" console warning.** Accepted as a known cost for the no-build workflow. Replacing with a pre-built bundle would silence it but introduces a build step.
+- **Asset duplication.** The manual carries its own copy of unit/item card art under `manual/assets/`, separate from the main game's `assets/`. Intentional (see "What shipped"), but means visual updates to character cards need to be made in both places to stay in sync.
+- **No game-over hook.** The manual is reachable from the start screen and from the in-game header, but not from the game-over modal — a natural "want to learn more?" moment after a first match. Easy to add later; deferred from this branch's scope.
+
+---
+
 ## Card Index + item artwork variations
 
 **Status:** Shipped. Branch `card-index`, three commits (`b949006`, `b2c0b35`, `77322b5`). Out-of-roadmap polish prioritised between the `start-sequence` merge and Phase 17.

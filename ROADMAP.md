@@ -57,6 +57,16 @@ Phases **8–14** delivered: use-items flow, discard piles, gear/terrain/single-
 
 ---
 
+## Out-of-roadmap polish shipped
+
+Player-facing improvements that fell outside the numbered phase plan but landed on `main`. Detail in **[DEV_LOG.md](DEV_LOG.md)**.
+
+- **Start sequence UI refactor** (branch `start-sequence`) — parchment start screen, in-board reorder placement, auto coin flip, board chrome entrance choreography.
+- **Card Index + item artwork variations** (branch `card-index`) — browse-only modal listing every card in the game with chip-style filters; item deck now carries variation metadata so some items ship with multiple illustrations.
+- **Interactive Manual + entry points** (branch `game-manual`) — standalone React + Tailwind manual page (`manual/index.html`) reachable from a bottom-right corner badge on the start screen and a "Learn how to play" button in the in-game header. Both open in a new tab; no game-logic changes.
+
+---
+
 ## Implementation order (reference)
 
 **Done:** Phases **1–16** (MVP through Seer's Bestiary) plus **Phase 18** (CPU opponent + animation layer). **Next:** **17** (further UI improvements + deferred Bestiary UX), then **Phase 19** cross-regression sweep as dedicated QA hardening.
