@@ -1502,7 +1502,7 @@
   const CARD_INDEX_ITEM_ORDER = [
     'Light Armor', 'Premium Light Armor', 'Heavy Armor',
     'True-Strike Lens', 'Barbed Gauntlets', 'Wardstone Bracelet', 'Teleport Boots',
-    "Champion's Crest", 'Vanguard Lance', "Sharpshooter's Scope", "Archmage's Tome",
+    "Champion's Gauntlets", 'Vanguard Glaive', "Recurve Master Bow", "Archmage's Tome",
     'Healing Potion', 'Corrosive Phial', 'Tectonic Spike', 'All revealing lantern-jar',
     'Tangle-Vine Bola', 'Obscuring bomb', 'Vorpal Honing Amulet', 'Magic Grenade',
     'Elevated Ground', 'Reinforced Barricade', 'Paralyzing Vines', 'Divine Light', 'Unstable Ground',
@@ -1923,7 +1923,7 @@
   }
 
   var ACCESSORY_ITEM_NAMES = ['Barbed Gauntlets', 'Wardstone Bracelet', 'Teleport Boots', 'True-Strike Lens'];
-  var PROMOTION_ITEM_NAMES = ["Champion's Crest", 'Vanguard Lance', "Sharpshooter's Scope", "Archmage's Tome"];
+  var PROMOTION_ITEM_NAMES = ["Champion's Gauntlets", 'Vanguard Glaive', "Recurve Master Bow", "Archmage's Tome"];
   var GEAR_EQUIP_ITEM_NAMES = ['Light Armor', 'Premium Light Armor', 'Heavy Armor'].concat(ACCESSORY_ITEM_NAMES).concat(PROMOTION_ITEM_NAMES);
 
   function getTerrain(player, col) {
@@ -1962,13 +1962,13 @@
     return false;
   }
 
-  /** Range check using attCell so promotions (Champion's Crest, Vanguard Lance) and Magic Grenade apply. */
+  /** Range check using attCell so promotions (Champion's Gauntlets, Vanguard Glaive) and Magic Grenade apply. */
   function isInRangeWithCell(attackerCol, defenderCol, attCell) {
     if (!attCell) return false;
     if (attCell.nextAttackAsCaster) return true;
     const d = Math.abs(defenderCol - attackerCol);
-    if (attCell.unit.class === 'Brawler' && cellHasGearName(attCell, "Champion's Crest")) return d <= 1;
-    if (attCell.unit.class === 'Lancer' && cellHasGearName(attCell, 'Vanguard Lance')) return d >= 1 && d <= 2;
+    if (attCell.unit.class === 'Brawler' && cellHasGearName(attCell, "Champion's Gauntlets")) return d <= 1;
+    if (attCell.unit.class === 'Lancer' && cellHasGearName(attCell, 'Vanguard Glaive')) return d >= 1 && d <= 2;
     return isInRange(attackerCol, defenderCol, attCell.unit.class);
   }
 
@@ -2003,7 +2003,7 @@
   function isCounterRangeForLancerCell(attackerCol, lancerCol, lancerCell) {
     if (!lancerCell) return false;
     const dist = Math.abs(attackerCol - lancerCol);
-    return cellHasGearName(lancerCell, 'Vanguard Lance') ? (dist >= 1 && dist <= 2) : (dist === 1);
+    return cellHasGearName(lancerCell, 'Vanguard Glaive') ? (dist >= 1 && dist <= 2) : (dist === 1);
   }
 
   function findAdjacentAllyLancerCols(player, col) {
@@ -2257,7 +2257,7 @@
     const isScopePacket  = !!opts.scopeIgnoresDefenderVeterancy;
     const hasDefenderPassive = hasVeteranBuff(defCell, 'senya') || hasVeteranBuff(defCell, 'iktha') || hasVeteranBuff(defCell, 'mivara');
     if ((isVorpalPacket || isScopePacket) && hasDefenderPassive) {
-      log((isVorpalPacket ? "Vorpal Honing Amulet" : "Sharpshooter's Scope") + " — ignores " + defCell.unit.name + "'s veteran effect.");
+      log((isVorpalPacket ? "Vorpal Honing Amulet" : "Recurve Master Bow") + " — ignores " + defCell.unit.name + "'s veteran effect.");
       return result;
     }
 
@@ -3077,9 +3077,9 @@
     'Paralyzing Vines': 'Terrain - Paralyzing Vines.png',
     'Divine Light': 'Terrain - Divine Light.png',
     'Unstable Ground': 'Terrain - Unstable Ground.png',
-    "Champion's Crest": 'Promotion - Champions Crest.png',
-    'Vanguard Lance': 'Promotion - Vanguard Lance.png',
-    "Sharpshooter's Scope": 'Promotion - Sharpshooters Scope.png',
+    "Champion's Gauntlets": 'Promotion - Champions Gauntlets.png',
+    'Vanguard Glaive': 'Promotion - Vanguard Glaive.png',
+    "Recurve Master Bow": 'Promotion - Recurve Master Bow.png',
     "Archmage's Tome": 'Promotion - Archmages Tome.png',
   };
 
@@ -6178,7 +6178,7 @@
     const attackContext = { harlundUsed: false, harlundDeclineLogged: false, harlundPromptResolved: false, harlundDecision: 'no' };
     const vorpalPacket = (state.vorpalNextAttack === attackerPlayer);
     const isLensStrike  = !vorpalPacket && cellHasGearName(attCell, 'True-Strike Lens') && (attCell.unit.class === 'Shooter' || attCell.unit.class === 'Caster');
-    const isScopeStrike = !vorpalPacket && cellHasGearName(attCell, "Sharpshooter's Scope") && attCell.unit.class === 'Shooter';
+    const isScopeStrike = !vorpalPacket && cellHasGearName(attCell, "Recurve Master Bow") && attCell.unit.class === 'Shooter';
     const trueStrike          = vorpalPacket || isLensStrike || isScopeStrike;
     const bypassAllCounters   = vorpalPacket || isScopeStrike;
     const bypassVeteranEffects = vorpalPacket || isScopeStrike;
