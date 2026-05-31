@@ -14,6 +14,109 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## CPU fog-of-war fix — face-down enemy units
+
+**Status:** Shipped on `bug-fixes` branch. Behaviour fix for the CPU opponent. No new player-visible features; the player experience change is purely "the CPU stops cheating."
+
+### Problem
+
+During a match against the CPU, Paco noticed the CPU repeatedly picking high-value face-down enemy units as attack targets — preferentially hunting hidden Veteran Casters and gear-equipped units even before they had been revealed. The suspicion was that the CPU was reading through the fog of war.
+
+The game manual (`game documentation/Tacticlash Gameplay Manual 2.1.md`) states the canonical rule explicitly, twice (under Armor and under Weapons & Accessories):
+
+> "If the unit equipped is face-down, so is their gear."
+
+So both the unit's identity *and* its equipped gear should be hidden until the unit flips face-up.
+
+### Diagnosis
+
+Two leaks confirmed in `game.js`, both inside the CPU scoring path:
+
+1. **Unit identity leak.** `getUnitThreatScore(cell, col)` (previously at ~line 5102) read `cell.unit.class`, `cell.unit.level`, and `cell.unit.veteranBuff` unconditionally. A face-down Veteran Caster scored ~3.9 while a face-down rookie Brawler scored ~2.6, so the CPU's attack-target picker consistently chose the higher-value hidden unit.
+2. **Gear identity leak.** The same function added `+1.2 × getCellGearCards(cell).length` regardless of `faceUp`, so the CPU could "see" any equipped gear (Heavy Armor, Promotions, accessories) and add its full threat weight to its target evaluation.
+
+That score then fed **eight** CPU decision sites:
+
+| Call site | Purpose | Targets |
+|---|---|---|
+| ~5249 | Attack target picker | Enemy |
+| ~5341 | Vorpal Honing Amulet "use yes/no" threshold | Enemy |
+| ~5369 | Tangle-Vine Bola targeting | Enemy |
+| ~5382 | All revealing lantern-jar targeting | Enemy (face-down only) |
+| ~5390 | Corrosive Phial targeting | Both (already gated on `faceUp`) |
+| ~5412 | Magic Grenade ally selection | Ally |
+| ~5536 | Cassa Twin Arc second-target picker | Enemy |
+| ~5549 | Chronir paralyze-target picker | Enemy |
+
+Notably, the codebase already enforced the correct pattern in two places — `getCounterRiskScore` (`game.js:5118`) and the Corrosive Phial CPU path (`game.js:5389`) both gate on `!cell.faceUp`. The fog-of-war pattern was a known idiom; it just wasn't applied consistently to the threat scorer. `redactHiddenCpuInfo()` (`game.js:982–999`) only redacted the on-screen game log; it never gated the CPU's actual decision input.
+
+### Design decision
+
+After discussion (see `~/.claude/plans/i-have-a-question-merry-snowflake.md`), the chosen model is a **fog-aware baseline** with a small gear-presence premium:
+
+| Face-down enemy state | New threat score |
+|---|---|
+| no gear | 3.0 |
+| 1 gear card visible | 3.4 |
+| 2 gear cards visible | 3.8 |
+
+For context against current face-up baselines: rookie Brawler ≈ 2.6, rookie Lancer ≈ 3.0, rookie Caster ≈ 3.5, Veteran Caster + Tome + Armor ≈ 6.3.
+
+**Why this shape:**
+
+- **Baseline of 3.0** sits at "rookie Lancer equivalence." The CPU treats face-down enemies as a typical mid-tier threat. It will poke them when face-up options are weak rookies (mirroring how a human plays the matchup: "their face-up Brawler is unimpressive — I'd rather force a reveal"). It defers to face-up Veterans or geared face-up targets that score higher.
+- **+0.4 per gear card** (about one-third of the face-up gear weight of +1.2) captures "this unit is invested in" without overcommitting to the value of an unknown gear effect. A face-down + 2 gear at 3.8 reads as "worth exposing for board control."
+- **Shielding-by-flipping-down doesn't work.** A bare face-down unit (3.0) still scores above a bare rookie Brawler (2.6). The player can't hide weak units behind fog and assume the CPU will leave them alone forever.
+- **No paranoid hunting.** A high-value face-up target (Veteran Caster at 6.3) still outranks any face-down unit, so the CPU doesn't artificially favour the unknown.
+
+**Deliberate departure from the strict manual rule.** The strictest reading of "face-down hides gear" is that the CPU shouldn't even know whether gear is equipped. We made an explicit call to allow the CPU to *count* face-down gear (presence: 0 / 1 / 2) but not *read* its identity. Justification: in tabletop play, gear-presence is naturally observable — the equip is a public action the opponent witnesses, and the physical card occupies a board slot even after the unit flips face-down. Human players use this signal; allowing the CPU the same signal preserves parity without leaking identity. This is documented in a code comment at the function head so a future contributor doesn't "fix" the gate away.
+
+**Rendering deliberately unchanged.** The board still renders face-down units' identity and gear visually (with the dark overlay convention). This is a solo-vs-CPU UX affordance — the human player needs to read their own board to play. The fog of war is enforced as a *data-read* rule against the CPU, not a DOM rule. If hot-seat or 2-human local play is later added, the visual layer would need a separate "pass-the-device" mode where face-down units actually mask their identity on screen. Out of scope for this fix.
+
+### Code changes
+
+All edits in `game.js`. No changes to `cpu.js`, `data.js`, the DOM, or `style.css`.
+
+1. **`getUnitThreatScore` signature change:** added a third parameter, `isEnemy`. When `isEnemy === true && !cell.faceUp`, the function returns `3.0 + 0.4 × getCellGearCards(cell).length` and short-circuits — no reads of `unit.class`, `unit.level`, or `unit.veteranBuff`. Allied face-down cells (`isEnemy === false`) continue to score with full data, so the CPU's reasoning about its own units is unchanged.
+2. **All 8 call sites updated** to pass the correct `isEnemy` value:
+   - 7 enemy call sites pass `true`.
+   - Magic Grenade ally scoring (`~5412`) passes `false`.
+   - Corrosive Phial (`~5390`) passes `pl === 1` because it iterates both sides of the board (the function exits early on face-up cells, so fog branch never fires here — but the parameter is set correctly for future-proofing if the gate is ever loosened).
+3. **Documentation comment** at the function head explicitly cites the manual rule, the gear-presence-but-not-identity nuance, and a "do not undo this" warning pointing to this log entry.
+
+### What this doesn't touch (intentional)
+
+- `getCounterRiskScore` (`game.js:5118`) — already gates on `faceUp`. Left alone.
+- Corrosive Phial CPU targeting (`game.js:5389`) — already filters out face-down units. Left alone.
+- All of `cpu.js`. Easy and Normal both benefit automatically because both feed through the same scoring path.
+- `redactHiddenCpuInfo()` — already correctly scoped to log display.
+- Board rendering, `style.css`, the DOM unit-tile stack.
+
+### Verification approach
+
+Manual play test using the existing debug placement tools (Filter hand + Replace selected with pick) to set deterministic positions, then watching CPU action announcements:
+
+1. **Shielding doesn't work.** P1 places a face-down rookie Caster (no gear) + a face-up rookie Brawler (no gear). On CPU's turn, confirm CPU pokes the face-down Caster (3.0 > 2.6). Pre-fix, the CPU would have picked it for the wrong reason (knowing the class).
+2. **High-value face-up still wins.** P1 places a face-up Veteran Lancer + Vanguard Glaive (~5.4) next to a face-down Veteran Caster (3.0). Confirm CPU prefers the face-up Veteran Lancer.
+3. **Gear-presence bump works.** P1 places two face-down rookie Brawlers — one with Heavy Armor, one bare. Confirm CPU prefers the geared one (3.4 vs 3.0).
+4. **CPU's own face-down units unaffected.** Set up CPU-side with a face-down high-value ally and a Magic Grenade in hand; confirm CPU still values its own ally correctly (no friendly-side blindness regression).
+5. **Log spot-check.** Confirm the CPU announcement text and exported game log don't leak the face-down unit's class, level, veteran buff, or gear identity.
+
+### Files touched
+
+- **Modified:** `game.js` (function signature + 8 call sites + a documentation comment).
+- **Modified:** `DEV_LOG.md` (this entry).
+- **Untouched:** `cpu.js`, `data.js`, `index.html`, `style.css`, `RULES.md`, `ROADMAP.md`, all of `assets/`.
+
+### Notes for future work
+
+- **Difficulty differentiation.** The fix benefits both Easy and Normal equally. If a future "Hard" tier is added, it could trade some of the strict fog for *inference from visible signals* (column position, terrain investment near the face-down unit, time-on-board, items the player has spent recently). That's a different feature, not a regression of this fix.
+- **Explicit reveal-value dimension.** The current baseline of 3.0 passively encourages the CPU to poke face-down enemies when face-up options are weak, but there's no explicit "value of revealing" weight in `cpu.js`. If playtesting shows the CPU is still too passive about revealing hidden threats, add a `revealValue` dimension to the candidate scoring rather than re-tuning the baseline upward.
+- **Documentation drift.** `RULES.md`, `ROADMAP.md`, `EFFECTS_TECHNICAL_REFERENCE.md`, and other long-form docs don't currently state the CPU fog-of-war rule. They were intentionally left alone for this fix. If a future doc pass formalises CPU behaviour expectations, cite this entry as the canonical source for the gear-presence-but-not-identity design call.
+- **The eight call sites are a frozen list as of this commit.** If new CPU scoring paths are added later (new items, new veteran abilities, new chooser flows), they must explicitly pass `isEnemy`. The parameter has no default — passing nothing yields `undefined` which is falsy, so unmodified call sites fail *open* (no fog, full data leak). This was a conscious trade-off: defaulting to `true` (fog on) would risk blinding the CPU to its own units if an ally call site was missed. Adding a new enemy call site without `isEnemy = true` is the failure mode that matters; reviewers should look for that pattern.
+
+---
+
 ## Interactive Manual + start-screen and header entry points
 
 **Status:** Shipped. Branch `game-manual` (now deleted), merged via PR #11, single commit `d88228b`. Out-of-roadmap polish prioritised after the `card-index` merge and before Phase 17.

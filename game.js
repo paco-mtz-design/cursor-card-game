@@ -2178,20 +2178,20 @@
     }
     const dist = Math.abs(defenderCol - attackerCol);
     if (dist < 2) {
-      log("Lyra's Blast Echo: heads — no between tile for this attack.");
+      log("Lyra's Blast Echo: heads — attacker (column " + attackerCol + ") and target (column " + defenderCol + ") are adjacent, so there is no between tile. No extra hit.");
       return;
     }
     const betweenCol = defenderCol > attackerCol ? defenderCol - 1 : defenderCol + 1;
     if (betweenCol < 0 || betweenCol > 4) {
-      log("Lyra's Blast Echo: heads — no enemy unit in the between tile.");
+      log("Lyra's Blast Echo: heads — between tile would be column " + betweenCol + " (one step from target column " + defenderCol + " toward attacker column " + attackerCol + "), which is off the board. No extra hit.");
       return;
     }
     const betweenCell = state.board[defenderPlayer][betweenCol];
     if (!betweenCell) {
-      log("Lyra's Blast Echo: heads — no enemy unit in the between tile.");
+      log("Lyra's Blast Echo: heads — between tile is column " + betweenCol + " (one step from target column " + defenderCol + " toward attacker column " + attackerCol + "), but it is empty. No extra hit.");
       return;
     }
-    log("Lyra's Blast Echo: heads — extra 1 damage to " + betweenCell.unit.name + ".");
+    log("Lyra's Blast Echo: heads — between tile is column " + betweenCol + " (one step from target column " + defenderCol + " toward attacker column " + attackerCol + "); extra 1 damage to " + betweenCell.unit.name + ".");
     CoinGate.bufCapture(function () { Anim.veteranPulse(defenderPlayer, betweenCol); });
     applyDamage(defenderPlayer, betweenCol, 1, "");
   }
@@ -3578,7 +3578,13 @@
       resultLine = 'In progress';
     }
 
-    const entries = state.rawLogEntries || [];
+    // Internal/debug lines are useful in the live on-screen log but should not
+    // appear in the player-facing exported artifact.
+    const isInternalLogLine = function (line) {
+      const s = String(line);
+      return s.indexOf('[Bestiary][Debug]') === 0 || s.indexOf('[CPU] waiting for human prompt') === 0;
+    };
+    const entries = (state.rawLogEntries || []).filter(function (line) { return !isInternalLogLine(line); });
     const eventLines = entries.length ? entries.join('\n') : '(no events recorded)';
 
     return [
@@ -4942,19 +4948,23 @@
     state.selectedUnit.column = next;
     state.moveDone = true;
     const movedCell = state.board[p][next];
+    let caravanExtraLeft = 0;
     if (movedCell && (movedCell.bestiaryExtraMovesRemaining || 0) > 0) {
       movedCell.bestiaryExtraMovesRemaining--;
+      caravanExtraLeft = movedCell.bestiaryExtraMovesRemaining;
       state.actionStep = 'move';
-      log("[Bestiary] Royal Caravan: " + movedCell.unit.name + " may move once more before attacking.");
     } else {
       state.actionStep = 'attack';
     }
     if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) state.board[p][c].faceUp = true;
     if (getTerrain(p, next) === 'Divine Light' && state.board[p][next]) state.board[p][next].faceUp = true;
     if (maybeTriggerVaelaFrontStrike(p, next)) return;
-    let moveLog = "Player " + p + "'s " + myCell.unit.name + " moves " + direction + " (swaps with " + otherCell.unit.name + ").";
+    let moveLog = "Player " + p + "'s " + myCell.unit.name + " moves " + direction + " (column " + c + " → column " + next + ", swaps with " + otherCell.unit.name + ").";
     if (getTerrain(p, c) === 'Divine Light' && state.board[p][c]) moveLog += " " + otherCell.unit.name + " is revealed (Divine Light).";
     log(moveLog, 'blue');
+    if (state.actionStep === 'move') {
+      log("[Bestiary] Royal Caravan: " + movedCell.unit.name + " may take another move before attacking (" + (caravanExtraLeft + 1) + " extra Caravan move(s) remaining), or stop here and attack.");
+    }
     renderTurnUI();
     renderBoard();
     // §2: defer through CoinGate when Paralyzing Vines coin is mid-flight so the
@@ -4978,7 +4988,11 @@
     }
     cell.faceUp = true;
     state.actionStep = 'attack';
-    log("Player " + state.selectedUnit.player + "'s " + cell.unit.name + " does not move.");
+    if (state.moveDone) {
+      log("Player " + state.selectedUnit.player + "'s " + cell.unit.name + " declines its extra Royal Caravan move and will attack.");
+    } else {
+      log("Player " + state.selectedUnit.player + "'s " + cell.unit.name + " does not move.");
+    }
     renderTurnUI();
     renderBoard();
   }
@@ -5020,14 +5034,14 @@
       state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.board[p][fromCol] = null;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
-      log("Player " + p + "'s " + myCell.unit.name + " teleports to column " + toCol + ".");
+      log("Player " + p + "'s " + myCell.unit.name + " teleports (column " + fromCol + " → column " + toCol + ").");
     } else {
       state.board[p][fromCol] = { unit: targetCell.unit, faceUp: targetCell.faceUp, damage: targetCell.damage || 0, paralyzed: targetCell.paralyzed || false, cannotAttackNextTurn: targetCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: targetCell.cannotAttackNextTurnPending || false, mustRestNextTurn: targetCell.mustRestNextTurn || false, mustRestNextTurnPending: targetCell.mustRestNextTurnPending || false, nextAttackAsCaster: targetCell.nextAttackAsCaster || false, gear: targetCell.gear || null, bonusGear: targetCell.bonusGear || null, veteranState: targetCell.veteranState || {}, berserkerUsedThisTurn: targetCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: targetCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: targetCell.bestiaryExtraMovesRemaining || 0 };
       state.board[p][toCol] = { unit: myCell.unit, faceUp: true, damage: myCell.damage || 0, paralyzed: myCell.paralyzed || false, cannotAttackNextTurn: myCell.cannotAttackNextTurn || false, cannotAttackNextTurnPending: myCell.cannotAttackNextTurnPending || false, mustRestNextTurn: myCell.mustRestNextTurn || false, mustRestNextTurnPending: myCell.mustRestNextTurnPending || false, nextAttackAsCaster: myCell.nextAttackAsCaster || false, gear: myCell.gear || null, bonusGear: myCell.bonusGear || null, veteranState: myCell.veteranState || {}, berserkerUsedThisTurn: myCell.berserkerUsedThisTurn || false, berserkerAttacksLeft: myCell.berserkerAttacksLeft || 0, bestiaryExtraMovesRemaining: myCell.bestiaryExtraMovesRemaining || 0 };
       state.selectedUnit.column = toCol;
       if (getTerrain(p, fromCol) === 'Divine Light') state.board[p][fromCol].faceUp = true;
       if (getTerrain(p, toCol) === 'Divine Light') state.board[p][toCol].faceUp = true;
-      let teleportLog = "Player " + p + "'s " + myCell.unit.name + " teleports (swaps with " + targetCell.unit.name + ").";
+      let teleportLog = "Player " + p + "'s " + myCell.unit.name + " teleports (column " + fromCol + " → column " + toCol + ", swaps with " + targetCell.unit.name + ").";
       if (getTerrain(p, fromCol) === 'Divine Light' && state.board[p][fromCol]) teleportLog += " " + targetCell.unit.name + " is revealed (Divine Light).";
       log(teleportLog);
     }
@@ -5037,7 +5051,7 @@
     if (movedCell && (movedCell.bestiaryExtraMovesRemaining || 0) > 0) {
       movedCell.bestiaryExtraMovesRemaining--;
       state.actionStep = 'move';
-      log("[Bestiary] Royal Caravan: " + movedCell.unit.name + " may move once more before attacking.");
+      log("[Bestiary] Royal Caravan: " + movedCell.unit.name + " may take another move before attacking (" + (movedCell.bestiaryExtraMovesRemaining + 1) + " extra Caravan move(s) remaining), or stop here and attack.");
     } else {
       state.actionStep = 'attack';
     }
@@ -5099,8 +5113,19 @@
     return candidates[0];
   }
 
-  function getUnitThreatScore(cell, col) {
+  // Fog of war for enemy face-down units. Per the game manual ("If the unit
+  // equipped is face-down, so is their gear"), the CPU must not read a hidden
+  // enemy unit's class / level / veteranBuff or the identity of its equipped
+  // gear. Gear PRESENCE (count) is still allowed — the equip is a public
+  // action and the card occupies a board slot. Do NOT undo this: removing the
+  // gate reintroduces a perfect-information leak. Allied face-down cells
+  // (isEnemy === false) score normally so the CPU can reason about its own
+  // units. See DEV_LOG.md ("CPU fog-of-war fix").
+  function getUnitThreatScore(cell, col, isEnemy) {
     if (!cell || !cell.unit) return 0;
+    if (isEnemy && !cell.faceUp) {
+      return 3.0 + 0.4 * getCellGearCards(cell).length;
+    }
     let score = 1;
     if (cell.unit.class === 'Brawler') score += 1.6;
     else if (cell.unit.class === 'Lancer') score += 2;
@@ -5246,7 +5271,7 @@
         type: 'attack',
         targetCol: c,
         dimensions: {
-          threatReduction: getUnitThreatScore(targetCell, c),
+          threatReduction: getUnitThreatScore(targetCell, c, true),
           counterRisk: getCounterRiskScore(attackerCol, c, targetCell),
           tempo: 1,
         },
@@ -5338,7 +5363,7 @@
 
       if (name === 'Vorpal Honing Amulet') {
         const strongestEnemy = Math.max.apply(null, state.board[1].map(function (cell, col) {
-          return getUnitThreatScore(cell, col);
+          return getUnitThreatScore(cell, col, true);
         }));
         if (strongestEnemy > 3.4) {
           addCandidate({ kind: 'instant', itemName: name, handIndex: i, dimensions: { threatReduction: 2.2, itemValue: 2.4, tempo: 1.1 } });
@@ -5366,7 +5391,7 @@
             handIndex: i,
             targetPlayer: 1,
             targetCol: c,
-            dimensions: { threatReduction: getUnitThreatScore(cell, c) + 0.6, itemValue: 1.3, tempo: 0.8 },
+            dimensions: { threatReduction: getUnitThreatScore(cell, c, true) + 0.6, itemValue: 1.3, tempo: 0.8 },
           });
         }
       } else if (name === 'All revealing lantern-jar') {
@@ -5379,7 +5404,7 @@
             handIndex: i,
             targetPlayer: 1,
             targetCol: c,
-            dimensions: { threatReduction: getUnitThreatScore(cell, c), itemValue: 1.2, boardControl: 0.8 },
+            dimensions: { threatReduction: getUnitThreatScore(cell, c, true), itemValue: 1.2, boardControl: 0.8 },
           });
         }
       } else if (name === 'Corrosive Phial') {
@@ -5387,7 +5412,7 @@
           for (let c = 0; c < 5; c++) {
             const cell = state.board[pl][c];
             if (!cell || !cell.faceUp || getCellGearCards(cell).length === 0) continue;
-            const threat = getUnitThreatScore(cell, c);
+            const threat = getUnitThreatScore(cell, c, pl === 1);
             const bonus = pl === 1 ? 0.8 : -0.8;
             addCandidate({
               kind: 'targeted',
@@ -5409,7 +5434,7 @@
             handIndex: i,
             targetPlayer: 2,
             targetCol: c,
-            dimensions: { threatReduction: 1.2 + getUnitThreatScore(cell, c) * 0.3, itemValue: 1.2, tempo: 1.1 },
+            dimensions: { threatReduction: 1.2 + getUnitThreatScore(cell, c, false) * 0.3, itemValue: 1.2, tempo: 1.1 },
           });
         }
       } else if (name === 'Tectonic Spike') {
@@ -5533,7 +5558,7 @@
       const targetCandidates = state.pendingCassaChoice.targetCols.map(function (col) {
         return {
           col: col,
-          dimensions: { threatReduction: getUnitThreatScore(state.board[1][col], col), tempo: 1 },
+          dimensions: { threatReduction: getUnitThreatScore(state.board[1][col], col, true), tempo: 1 },
         };
       });
       const chosen = chooseCpuCandidate(targetCandidates);
@@ -5546,7 +5571,7 @@
       const options = (state.pendingChronirChoice.targetCols || []).map(function (col) {
         return {
           col: col,
-          dimensions: { threatReduction: getUnitThreatScore(state.board[1][col], col), tempo: 0.8 },
+          dimensions: { threatReduction: getUnitThreatScore(state.board[1][col], col, true), tempo: 0.8 },
         };
       });
       const selected = chooseCpuCandidate(options);
