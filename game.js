@@ -1028,7 +1028,7 @@
     return {
       phase: 'idle',
       gameMode: 'cpu',
-      cpuDifficulty: 'easy',
+      cpuDifficulty: 'normal',
       cpuCustomPlacementEnabled: false,
       debugControlsEnabled: true,
       humanPlayer: 1,
@@ -3510,7 +3510,7 @@
     const goal = goalBtn ? goalBtn.getAttribute('data-value') : '15';
     const bestiary = setupBestiaryEnabledEl && setupBestiaryEnabledEl.checked;
     const mode = setupModeEl ? setupModeEl.value : 'cpu';
-    const difficulty = setupCpuDifficultyEl ? setupCpuDifficultyEl.value : 'easy';
+    const difficulty = setupCpuDifficultyEl ? setupCpuDifficultyEl.value : 'normal';
     const parts = [goal + ' captures'];
     if (bestiary) parts.push("seer's bestiary on");
     parts.push('cpu: ' + difficulty);
@@ -3534,7 +3534,7 @@
     if (!cpuSelected) setupCpuCustomPlacementEl.checked = false;
     state.gameMode = setupModeEl.value || 'cpu';
     state.cpuCustomPlacementEnabled = !!setupCpuCustomPlacementEl.checked;
-    state.cpuDifficulty = setupCpuDifficultyEl.value || 'easy';
+    state.cpuDifficulty = setupCpuDifficultyEl.value || 'normal';
     // Mirror disabled-state and checkbox flips into the start-screen visuals.
     if (startScreenEl) {
       const cpuCustomToggle = startScreenEl.querySelector('.seal-toggle[data-toggle="cpu-custom"]');
@@ -3559,7 +3559,7 @@
       + ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
 
     const modeLabel = state.gameMode === 'cpu'
-      ? 'vs CPU (' + (state.cpuDifficulty || 'easy') + ')'
+      ? 'vs CPU (' + (state.cpuDifficulty || 'normal') + ')'
       : 'Manual (2-player)';
     const bestiaryLabel = state.useBestiaryRules ? 'On' : 'Off';
     const firstLabel = state.firstPlayer ? 'Player ' + state.firstPlayer : 'Unknown';
@@ -3646,7 +3646,7 @@
       state.cpuCustomPlacementEnabled = !!setupCpuCustomPlacementEl.checked;
     }
     if (setupCpuDifficultyEl) {
-      setupCpuDifficultyEl.value = 'easy';
+      setupCpuDifficultyEl.value = 'normal';
       state.cpuDifficulty = setupCpuDifficultyEl.value;
     }
     syncSetupModeControls();
@@ -3687,7 +3687,7 @@
     state.useBestiaryRules = !setupBestiaryEnabledEl || setupBestiaryEnabledEl.checked;
     state.gameMode = setupModeEl ? setupModeEl.value : 'cpu';
     state.cpuCustomPlacementEnabled = !!(setupCpuCustomPlacementEl && setupCpuCustomPlacementEl.checked);
-    state.cpuDifficulty = setupCpuDifficultyEl ? (setupCpuDifficultyEl.value || 'easy') : 'easy';
+    state.cpuDifficulty = setupCpuDifficultyEl ? (setupCpuDifficultyEl.value || 'normal') : 'normal';
     state.debugControlsEnabled = !setupDebugEnabledEl || !!setupDebugEnabledEl.checked;
     applyDebugVisibility();
     hideStartScreen();
@@ -3941,7 +3941,7 @@
       btn.setAttribute('aria-checked', sel ? 'true' : 'false');
     });
     // CPU difficulty
-    const diff = setupCpuDifficultyEl ? setupCpuDifficultyEl.value : 'easy';
+    const diff = setupCpuDifficultyEl ? setupCpuDifficultyEl.value : 'normal';
     startScreenEl.querySelectorAll('.segmented[data-control="cpu-difficulty"] .segmented__btn').forEach(function (btn) {
       const sel = btn.getAttribute('data-value') === diff;
       btn.classList.toggle('segmented__btn--selected', sel);
@@ -5095,11 +5095,11 @@
 
   function getCpuPolicyProfile() {
     if (window.TacticlashCpu && typeof window.TacticlashCpu.getProfile === 'function') {
-      return window.TacticlashCpu.getProfile(state.cpuDifficulty || 'easy');
+      return window.TacticlashCpu.getProfile(state.cpuDifficulty || 'normal');
     }
     return {
-      key: 'easy',
-      maxItemActions: 2,
+      key: 'normal',
+      maxItemActions: 3,
       weights: {},
     };
   }
@@ -5138,11 +5138,34 @@
     return Math.max(0, score);
   }
 
-  function getCounterRiskScore(attackerCol, defenderCol, defenderCell) {
+  // CPU-safe guarantee check — only reads face-up units so fog-of-war is respected.
+  // Nyss (face-down guaranteed counter) is invisible to the CPU by design.
+  function cpuIsGuaranteedCounter(defenderPlayer, lancerCol, lancerCell) {
+    if (!lancerCell || !lancerCell.faceUp || lancerCell.unit.class !== 'Lancer') return false;
+    if (hasVeteranBuff(lancerCell, 'rowka')) {
+      if (findAdjacentAllyLancerCols(defenderPlayer, lancerCol).length > 0) return true;
+    }
+    const adjacentLancers = findAdjacentAllyLancerCols(defenderPlayer, lancerCol);
+    for (let i = 0; i < adjacentLancers.length; i++) {
+      const allyCell = state.board[defenderPlayer][adjacentLancers[i]];
+      if (allyCell && allyCell.faceUp && hasVeteranBuff(allyCell, 'rowka')) return true;
+    }
+    return false;
+  }
+
+  function getCounterRiskScore(attackerCol, defenderCol, defenderCell, attackerCell) {
     if (!defenderCell || !defenderCell.unit) return 0;
     if (!defenderCell.faceUp) return 0;
     if (defenderCell.unit.class !== 'Lancer') return 0;
-    return Math.abs(attackerCol - defenderCol) === 1 ? 1.6 : 0;
+    const dist = Math.abs(attackerCol - defenderCol);
+    const maxCounterDist = cellHasGearName(defenderCell, 'Vanguard Glaive') ? 2 : 1;
+    if (dist > maxCounterDist) return 0;
+    // Attacker is immune to counters → no risk
+    if (state.vorpalNextAttack === 2) return 0;
+    if (attackerCell && attackerCell.faceUp && cellHasGearName(attackerCell, 'True-Strike Lens')) return 0;
+    if (attackerIsProtectedByBraskin(2, attackerCol)) return 0;
+    // Guaranteed counter (Rowka visible) → very high penalty; coin-flip → moderate
+    return cpuIsGuaranteedCounter(1, defenderCol, defenderCell) ? 6.0 : 1.6;
   }
 
   function getCpuPromptOwner(prompt) {
@@ -5263,16 +5286,20 @@
 
   function buildCpuAttackCandidates(attackerCol, attackerCell) {
     const candidates = [];
+    const attackerIsBrawler = attackerCell && attackerCell.faceUp && attackerCell.unit.class === 'Brawler';
     for (let c = 0; c < 5; c++) {
       const targetCell = state.board[1][c];
       if (!targetCell) continue;
       if (!isInRangeWithCell(attackerCol, c, attackerCell)) continue;
+      // Brawler probe: Brawlers take priority when the target is face-down because
+      // they can survive an unexpected counter or reveal (2 HP).
+      const brawlerProbeBonus = (!targetCell.faceUp && attackerIsBrawler) ? 1.2 : 0;
       candidates.push({
         type: 'attack',
         targetCol: c,
         dimensions: {
-          threatReduction: getUnitThreatScore(targetCell, c, true),
-          counterRisk: getCounterRiskScore(attackerCol, c, targetCell),
+          threatReduction: getUnitThreatScore(targetCell, c, true) + brawlerProbeBonus,
+          counterRisk: getCounterRiskScore(attackerCol, c, targetCell, attackerCell),
           tempo: 1,
         },
       });
@@ -5312,6 +5339,10 @@
     const fromCol = state.selectedUnit.column;
     const cell = state.board[2][fromCol];
     if (!cell) return null;
+    const currentTerrain = state.terrain[2] && state.terrain[2][fromCol];
+    const isOnHostileTerrain = !!(currentTerrain && (
+      currentTerrain.name === 'Unstable Ground' || currentTerrain.name === 'Paralyzing Vines'
+    ));
     const options = [{ type: 'skip', col: fromCol }];
     if (fromCol > 0 && state.board[2][fromCol - 1] != null) options.push({ type: 'left', col: fromCol - 1 });
     if (fromCol < 4 && state.board[2][fromCol + 1] != null) options.push({ type: 'right', col: fromCol + 1 });
@@ -5324,6 +5355,15 @@
     const candidates = options.map(function (option) {
       const attackCandidates = buildCpuAttackCandidates(option.col, cell);
       const bestAttack = chooseCpuCandidate(attackCandidates);
+      // Terrain delta: penalise landing on hostile terrain; reward escaping it.
+      const destTerrain = state.terrain[2] && state.terrain[2][option.col];
+      let terrainDelta = 0;
+      if (destTerrain) {
+        if (destTerrain.name === 'Unstable Ground') terrainDelta -= 2.2;
+        else if (destTerrain.name === 'Paralyzing Vines') terrainDelta -= 1.5;
+        else if (destTerrain.name === 'Elevated Ground' || destTerrain.name === 'Reinforced Barricade') terrainDelta += 1.2;
+      }
+      if (isOnHostileTerrain && option.col !== fromCol) terrainDelta += 2.0;
       return {
         moveType: option.type,
         targetCol: option.col,
@@ -5331,6 +5371,7 @@
           threatReduction: bestAttack ? (bestAttack.dimensions.threatReduction || 0) : 0,
           counterRisk: bestAttack ? (bestAttack.dimensions.counterRisk || 0) : 0,
           boardControl: option.type === 'skip' ? 0 : 0.35,
+          terrainValue: terrainDelta,
           tempo: 0.5,
         },
       };
@@ -5347,11 +5388,14 @@
       candidates.push(payload);
     }
 
+    // Returns how beneficial terrain is for the CPU (player 2). Positive = good for CPU.
+    // Divine Light on own side reveals own units (bad). Enemy protective terrain is bad for CPU.
     function terrainValueFor(name, ownerPlayer) {
-      if (name === 'Unstable Ground') return ownerPlayer === 1 ? 2.2 : -1.6;
-      if (name === 'Paralyzing Vines') return ownerPlayer === 1 ? 1.6 : -1.2;
-      if (name === 'Divine Light') return ownerPlayer === 2 ? 1.2 : 0.2;
-      if (name === 'Elevated Ground' || name === 'Reinforced Barricade') return ownerPlayer === 2 ? 1.3 : 0.2;
+      if (name === 'Unstable Ground')      return ownerPlayer === 1 ? 2.2  : -1.6;
+      if (name === 'Paralyzing Vines')     return ownerPlayer === 1 ? 1.6  : -1.2;
+      if (name === 'Divine Light')         return ownerPlayer === 1 ? 1.0  : -1.5;
+      if (name === 'Elevated Ground')      return ownerPlayer === 2 ? 1.3  : -0.8;
+      if (name === 'Reinforced Barricade') return ownerPlayer === 2 ? 1.3  : -0.8;
       return 0;
     }
 
@@ -5362,10 +5406,17 @@
       const spec = ITEM_SPECS && ITEM_SPECS[name];
 
       if (name === 'Vorpal Honing Amulet') {
-        const strongestEnemy = Math.max.apply(null, state.board[1].map(function (cell, col) {
-          return getUnitThreatScore(cell, col, true);
-        }));
-        if (strongestEnemy > 3.4) {
+        // Vorpal: use only when a target needs more than 1 hit to capture (hard to kill),
+        // OR when a guaranteed Lancer counter blocks the best available attack.
+        const hardToKillTarget = state.board[1].some(function (cell) {
+          if (!cell || !cell.faceUp) return false;
+          return getMaxHP(cell) - (cell.damage || 0) > 1;
+        });
+        const guaranteedCounterBlocking = state.board[1].some(function (cell, col) {
+          if (!cell || !cell.faceUp || cell.unit.class !== 'Lancer') return false;
+          return cpuIsGuaranteedCounter(1, col, cell);
+        });
+        if (hardToKillTarget || guaranteedCounterBlocking) {
           addCandidate({ kind: 'instant', itemName: name, handIndex: i, dimensions: { threatReduction: 2.2, itemValue: 2.4, tempo: 1.1 } });
         }
       } else if (name === 'Healing Potion') {
@@ -5384,14 +5435,36 @@
       } else if (name === 'Tangle-Vine Bola') {
         for (let c = 0; c < 5; c++) {
           const cell = state.board[1][c];
-          if (!cell) continue;
+          if (!cell || !cell.faceUp) continue; // never Bola a face-down target
+          // Don't Bola a unit that one more normal hit would already capture — wasted
+          if (getMaxHP(cell) - (cell.damage || 0) <= 1) continue;
+          let bolaScore = getUnitThreatScore(cell, c, true) + 0.6;
+          // Bola-then-strike bonus: if this is a coin-flip Lancer blocking a key attack,
+          // Bola-ing it this turn lets the CPU attack safely past it right after.
+          if (cell.unit.class === 'Lancer' && !cpuIsGuaranteedCounter(1, c, cell)) {
+            let bestBlockedThreat = 0;
+            for (let tc = Math.max(0, c - 1); tc <= Math.min(4, c + 1); tc++) {
+              const coveredTarget = state.board[1][tc];
+              if (!coveredTarget) continue;
+              const targetThreat = getUnitThreatScore(coveredTarget, tc, true);
+              for (let ac = 0; ac < 5; ac++) {
+                const attCell = state.board[2][ac];
+                if (!attCell || attCell.paralyzed || attCell.cannotAttackNextTurn || attCell.cannotAttackNextTurnPending) continue;
+                if (!isInRangeWithCell(ac, tc, attCell)) continue;
+                if (Math.abs(ac - c) <= 1 && targetThreat > bestBlockedThreat) {
+                  bestBlockedThreat = targetThreat;
+                }
+              }
+            }
+            bolaScore += bestBlockedThreat * 0.7;
+          }
           addCandidate({
             kind: 'targeted',
             itemName: name,
             handIndex: i,
             targetPlayer: 1,
             targetCol: c,
-            dimensions: { threatReduction: getUnitThreatScore(cell, c, true) + 0.6, itemValue: 1.3, tempo: 0.8 },
+            dimensions: { threatReduction: bolaScore, itemValue: 1.3, tempo: 0.8 },
           });
         }
       } else if (name === 'All revealing lantern-jar') {
@@ -5425,16 +5498,33 @@
           }
         }
       } else if (name === 'Magic Grenade') {
-        for (let c = 0; c < 5; c++) {
-          const cell = state.board[2][c];
-          if (!cell) continue;
+        // Only use when no face-up own Caster is available to fill that role naturally.
+        const hasFaceUpCaster = state.board[2].some(function (c) {
+          return c && c.faceUp && c.unit.class === 'Caster';
+        });
+        if (!hasFaceUpCaster) {
+          for (let c = 0; c < 5; c++) {
+            const cell = state.board[2][c];
+            if (!cell) continue;
+            addCandidate({
+              kind: 'targeted',
+              itemName: name,
+              handIndex: i,
+              targetPlayer: 2,
+              targetCol: c,
+              dimensions: { threatReduction: 1.2 + getUnitThreatScore(cell, c, false) * 0.3, itemValue: 1.2, tempo: 1.1 },
+            });
+          }
+        }
+      } else if (name === 'Obscuring bomb') {
+        // Use when 2+ own units are already revealed — flipping them face-down is the main value.
+        const ownRevealed = state.board[2].filter(function (c) { return c && c.faceUp; }).length;
+        if (ownRevealed >= 2) {
           addCandidate({
-            kind: 'targeted',
+            kind: 'instant',
             itemName: name,
             handIndex: i,
-            targetPlayer: 2,
-            targetCol: c,
-            dimensions: { threatReduction: 1.2 + getUnitThreatScore(cell, c, false) * 0.3, itemValue: 1.2, tempo: 1.1 },
+            dimensions: { boardControl: 1.8, selfSurvivability: 0.8, tempo: 0.5 },
           });
         }
       } else if (name === 'Tectonic Spike') {
@@ -5457,6 +5547,16 @@
         for (let c = 0; c < 5; c++) {
           const cell = state.board[2][c];
           if (!cell || !canEquipGear(cell, name)) continue;
+          let itemValue = cell.unit.level === 'Veteran' ? 1.6 : 1.1;
+          // Legendary weapons: prefer units with a protective setup already in place.
+          if (spec.type === 'promotion') {
+            const onProtectiveTerrain = state.terrain[2] && state.terrain[2][c] &&
+              (state.terrain[2][c].name === 'Elevated Ground' || state.terrain[2][c].name === 'Reinforced Barricade');
+            const adjacentOwnLancer = (c > 0 && state.board[2][c - 1] && state.board[2][c - 1].unit.class === 'Lancer') ||
+              (c < 4 && state.board[2][c + 1] && state.board[2][c + 1].unit.class === 'Lancer');
+            if (onProtectiveTerrain) itemValue += 0.6;
+            if (adjacentOwnLancer) itemValue += 0.5;
+          }
           addCandidate({
             kind: 'targeted',
             itemName: name,
@@ -5465,7 +5565,7 @@
             targetCol: c,
             dimensions: {
               selfSurvivability: 1.2 + ((cell.damage || 0) > 0 ? 0.5 : 0),
-              itemValue: cell.unit.level === 'Veteran' ? 1.6 : 1.1,
+              itemValue: itemValue,
               boardControl: 0.4,
             },
           });
@@ -5500,6 +5600,10 @@
       applyVorpalHoningAmulet(action.handIndex);
       return true;
     }
+    if (action.kind === 'instant' && action.itemName === 'Obscuring bomb') {
+      applyObscuringBomb(action.handIndex);
+      return true;
+    }
     state.itemTargeting = { handIndex: action.handIndex, itemName: action.itemName };
     if (action.itemName === 'Healing Potion') applyHealingPotion(action.targetPlayer, action.targetCol);
     else if (action.itemName === 'All revealing lantern-jar') applyRevealingLight(action.targetPlayer, action.targetCol);
@@ -5521,14 +5625,14 @@
     const hpLeft = getMaxHP(defCell) - (defCell.damage || 0);
     if (hpLeft <= 1) return true;
     const profile = getCpuPolicyProfile();
-    return profile.key === 'normal' && hpLeft <= 2;
+    return (profile.key === 'normal' || profile.key === 'hard') && hpLeft <= 2;
   }
 
   function cpuShouldUsePrompt(prompt) {
     if (!prompt) return false;
     const profile = getCpuPolicyProfile();
     if (prompt.type === 'unmakerSelfCaptureConfirm') return false;
-    if (prompt.type === 'ardanVeilstep') return profile.key === 'normal' && Math.random() < 0.5;
+    if (prompt.type === 'ardanVeilstep') return (profile.key === 'normal' || profile.key === 'hard') && Math.random() < 0.5;
     if (prompt.type === 'tivalRetry') return true;
     if (prompt.type === 'cassaTwinArc') return true;
     if (prompt.type === 'harlundOnHitSingle' || prompt.type === 'harlundOnHitArchmage') return true;

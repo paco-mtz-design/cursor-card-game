@@ -2661,6 +2661,10 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   font-weight: 400;
   opacity: 0.85;
 }
+.segmented__btn--soon {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .segmented--compact .segmented__btn {
   padding: 7px 10px 6px;
   font-size: 11px;

@@ -1,23 +1,11 @@
 /**
  * Tacticlash CPU policy helpers.
- * Shared scoring primitives keep Easy/Normal/Hard on one extensible pipeline.
+ * Shared scoring primitives keep Normal/Hard on one extensible pipeline.
+ * Hard difficulty uses the same backbone as Normal for v1; lookahead foresight
+ * (2-turn depth) is the planned v2 differentiator and is not yet active.
  */
 (function () {
   const PROFILE_PRESETS = {
-    easy: {
-      key: 'easy',
-      maxItemActions: 2,
-      randomTopN: 2,
-      weights: {
-        threatReduction: 2.1,
-        selfSurvivability: 1.4,
-        boardControl: 1.1,
-        itemValue: 1.1,
-        terrainValue: 1.2,
-        counterRisk: -1.4,
-        tempo: 0.8,
-      },
-    },
     normal: {
       key: 'normal',
       maxItemActions: 3,
@@ -28,19 +16,33 @@
         boardControl: 1.5,
         itemValue: 1.8,
         terrainValue: 1.5,
-        counterRisk: -1.8,
+        counterRisk: -2.2,
         tempo: 1.1,
+      },
+    },
+    hard: {
+      key: 'hard',
+      maxItemActions: 4,
+      randomTopN: 1,
+      weights: {
+        threatReduction: 2.6,
+        selfSurvivability: 1.9,
+        boardControl: 1.7,
+        itemValue: 2.0,
+        terrainValue: 1.7,
+        counterRisk: -2.5,
+        tempo: 1.2,
       },
     },
   };
 
   function getProfile(difficulty) {
     if (difficulty && PROFILE_PRESETS[difficulty]) return PROFILE_PRESETS[difficulty];
-    return PROFILE_PRESETS.easy;
+    return PROFILE_PRESETS.normal;
   }
 
   function scoreCandidate(candidate, profile) {
-    const p = profile || getProfile('easy');
+    const p = profile || getProfile('normal');
     const dims = candidate.dimensions || {};
     const weights = p.weights || {};
     let score = 0;
@@ -54,7 +56,7 @@
 
   function chooseBestCandidate(candidates, profile) {
     if (!candidates || candidates.length === 0) return null;
-    const p = profile || getProfile('easy');
+    const p = profile || getProfile('normal');
     const ranked = candidates
       .map(function (candidate) {
         return {
