@@ -14,6 +14,109 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## CPU fog-of-war fix — face-down enemy units
+
+**Status:** Shipped on `bug-fixes` branch. Behaviour fix for the CPU opponent. No new player-visible features; the player experience change is purely "the CPU stops cheating."
+
+### Problem
+
+During a match against the CPU, Paco noticed the CPU repeatedly picking high-value face-down enemy units as attack targets — preferentially hunting hidden Veteran Casters and gear-equipped units even before they had been revealed. The suspicion was that the CPU was reading through the fog of war.
+
+The game manual (`game documentation/Tacticlash Gameplay Manual 2.1.md`) states the canonical rule explicitly, twice (under Armor and under Weapons & Accessories):
+
+> "If the unit equipped is face-down, so is their gear."
+
+So both the unit's identity *and* its equipped gear should be hidden until the unit flips face-up.
+
+### Diagnosis
+
+Two leaks confirmed in `game.js`, both inside the CPU scoring path:
+
+1. **Unit identity leak.** `getUnitThreatScore(cell, col)` (previously at ~line 5102) read `cell.unit.class`, `cell.unit.level`, and `cell.unit.veteranBuff` unconditionally. A face-down Veteran Caster scored ~3.9 while a face-down rookie Brawler scored ~2.6, so the CPU's attack-target picker consistently chose the higher-value hidden unit.
+2. **Gear identity leak.** The same function added `+1.2 × getCellGearCards(cell).length` regardless of `faceUp`, so the CPU could "see" any equipped gear (Heavy Armor, Promotions, accessories) and add its full threat weight to its target evaluation.
+
+That score then fed **eight** CPU decision sites:
+
+| Call site | Purpose | Targets |
+|---|---|---|
+| ~5249 | Attack target picker | Enemy |
+| ~5341 | Vorpal Honing Amulet "use yes/no" threshold | Enemy |
+| ~5369 | Tangle-Vine Bola targeting | Enemy |
+| ~5382 | All revealing lantern-jar targeting | Enemy (face-down only) |
+| ~5390 | Corrosive Phial targeting | Both (already gated on `faceUp`) |
+| ~5412 | Magic Grenade ally selection | Ally |
+| ~5536 | Cassa Twin Arc second-target picker | Enemy |
+| ~5549 | Chronir paralyze-target picker | Enemy |
+
+Notably, the codebase already enforced the correct pattern in two places — `getCounterRiskScore` (`game.js:5118`) and the Corrosive Phial CPU path (`game.js:5389`) both gate on `!cell.faceUp`. The fog-of-war pattern was a known idiom; it just wasn't applied consistently to the threat scorer. `redactHiddenCpuInfo()` (`game.js:982–999`) only redacted the on-screen game log; it never gated the CPU's actual decision input.
+
+### Design decision
+
+After discussion (see `~/.claude/plans/i-have-a-question-merry-snowflake.md`), the chosen model is a **fog-aware baseline** with a small gear-presence premium:
+
+| Face-down enemy state | New threat score |
+|---|---|
+| no gear | 3.0 |
+| 1 gear card visible | 3.4 |
+| 2 gear cards visible | 3.8 |
+
+For context against current face-up baselines: rookie Brawler ≈ 2.6, rookie Lancer ≈ 3.0, rookie Caster ≈ 3.5, Veteran Caster + Tome + Armor ≈ 6.3.
+
+**Why this shape:**
+
+- **Baseline of 3.0** sits at "rookie Lancer equivalence." The CPU treats face-down enemies as a typical mid-tier threat. It will poke them when face-up options are weak rookies (mirroring how a human plays the matchup: "their face-up Brawler is unimpressive — I'd rather force a reveal"). It defers to face-up Veterans or geared face-up targets that score higher.
+- **+0.4 per gear card** (about one-third of the face-up gear weight of +1.2) captures "this unit is invested in" without overcommitting to the value of an unknown gear effect. A face-down + 2 gear at 3.8 reads as "worth exposing for board control."
+- **Shielding-by-flipping-down doesn't work.** A bare face-down unit (3.0) still scores above a bare rookie Brawler (2.6). The player can't hide weak units behind fog and assume the CPU will leave them alone forever.
+- **No paranoid hunting.** A high-value face-up target (Veteran Caster at 6.3) still outranks any face-down unit, so the CPU doesn't artificially favour the unknown.
+
+**Deliberate departure from the strict manual rule.** The strictest reading of "face-down hides gear" is that the CPU shouldn't even know whether gear is equipped. We made an explicit call to allow the CPU to *count* face-down gear (presence: 0 / 1 / 2) but not *read* its identity. Justification: in tabletop play, gear-presence is naturally observable — the equip is a public action the opponent witnesses, and the physical card occupies a board slot even after the unit flips face-down. Human players use this signal; allowing the CPU the same signal preserves parity without leaking identity. This is documented in a code comment at the function head so a future contributor doesn't "fix" the gate away.
+
+**Rendering deliberately unchanged.** The board still renders face-down units' identity and gear visually (with the dark overlay convention). This is a solo-vs-CPU UX affordance — the human player needs to read their own board to play. The fog of war is enforced as a *data-read* rule against the CPU, not a DOM rule. If hot-seat or 2-human local play is later added, the visual layer would need a separate "pass-the-device" mode where face-down units actually mask their identity on screen. Out of scope for this fix.
+
+### Code changes
+
+All edits in `game.js`. No changes to `cpu.js`, `data.js`, the DOM, or `style.css`.
+
+1. **`getUnitThreatScore` signature change:** added a third parameter, `isEnemy`. When `isEnemy === true && !cell.faceUp`, the function returns `3.0 + 0.4 × getCellGearCards(cell).length` and short-circuits — no reads of `unit.class`, `unit.level`, or `unit.veteranBuff`. Allied face-down cells (`isEnemy === false`) continue to score with full data, so the CPU's reasoning about its own units is unchanged.
+2. **All 8 call sites updated** to pass the correct `isEnemy` value:
+   - 7 enemy call sites pass `true`.
+   - Magic Grenade ally scoring (`~5412`) passes `false`.
+   - Corrosive Phial (`~5390`) passes `pl === 1` because it iterates both sides of the board (the function exits early on face-up cells, so fog branch never fires here — but the parameter is set correctly for future-proofing if the gate is ever loosened).
+3. **Documentation comment** at the function head explicitly cites the manual rule, the gear-presence-but-not-identity nuance, and a "do not undo this" warning pointing to this log entry.
+
+### What this doesn't touch (intentional)
+
+- `getCounterRiskScore` (`game.js:5118`) — already gates on `faceUp`. Left alone.
+- Corrosive Phial CPU targeting (`game.js:5389`) — already filters out face-down units. Left alone.
+- All of `cpu.js`. Easy and Normal both benefit automatically because both feed through the same scoring path.
+- `redactHiddenCpuInfo()` — already correctly scoped to log display.
+- Board rendering, `style.css`, the DOM unit-tile stack.
+
+### Verification approach
+
+Manual play test using the existing debug placement tools (Filter hand + Replace selected with pick) to set deterministic positions, then watching CPU action announcements:
+
+1. **Shielding doesn't work.** P1 places a face-down rookie Caster (no gear) + a face-up rookie Brawler (no gear). On CPU's turn, confirm CPU pokes the face-down Caster (3.0 > 2.6). Pre-fix, the CPU would have picked it for the wrong reason (knowing the class).
+2. **High-value face-up still wins.** P1 places a face-up Veteran Lancer + Vanguard Glaive (~5.4) next to a face-down Veteran Caster (3.0). Confirm CPU prefers the face-up Veteran Lancer.
+3. **Gear-presence bump works.** P1 places two face-down rookie Brawlers — one with Heavy Armor, one bare. Confirm CPU prefers the geared one (3.4 vs 3.0).
+4. **CPU's own face-down units unaffected.** Set up CPU-side with a face-down high-value ally and a Magic Grenade in hand; confirm CPU still values its own ally correctly (no friendly-side blindness regression).
+5. **Log spot-check.** Confirm the CPU announcement text and exported game log don't leak the face-down unit's class, level, veteran buff, or gear identity.
+
+### Files touched
+
+- **Modified:** `game.js` (function signature + 8 call sites + a documentation comment).
+- **Modified:** `DEV_LOG.md` (this entry).
+- **Untouched:** `cpu.js`, `data.js`, `index.html`, `style.css`, `RULES.md`, `ROADMAP.md`, all of `assets/`.
+
+### Notes for future work
+
+- **Difficulty differentiation.** The fix benefits both Easy and Normal equally. If a future "Hard" tier is added, it could trade some of the strict fog for *inference from visible signals* (column position, terrain investment near the face-down unit, time-on-board, items the player has spent recently). That's a different feature, not a regression of this fix.
+- **Explicit reveal-value dimension.** The current baseline of 3.0 passively encourages the CPU to poke face-down enemies when face-up options are weak, but there's no explicit "value of revealing" weight in `cpu.js`. If playtesting shows the CPU is still too passive about revealing hidden threats, add a `revealValue` dimension to the candidate scoring rather than re-tuning the baseline upward.
+- **Documentation drift.** `RULES.md`, `ROADMAP.md`, `EFFECTS_TECHNICAL_REFERENCE.md`, and other long-form docs don't currently state the CPU fog-of-war rule. They were intentionally left alone for this fix. If a future doc pass formalises CPU behaviour expectations, cite this entry as the canonical source for the gear-presence-but-not-identity design call.
+- **The eight call sites are a frozen list as of this commit.** If new CPU scoring paths are added later (new items, new veteran abilities, new chooser flows), they must explicitly pass `isEnemy`. The parameter has no default — passing nothing yields `undefined` which is falsy, so unmodified call sites fail *open* (no fog, full data leak). This was a conscious trade-off: defaulting to `true` (fog on) would risk blinding the CPU to its own units if an ally call site was missed. Adding a new enemy call site without `isEnemy = true` is the failure mode that matters; reviewers should look for that pattern.
+
+---
+
 ## Interactive Manual + start-screen and header entry points
 
 **Status:** Shipped. Branch `game-manual` (now deleted), merged via PR #11, single commit `d88228b`. Out-of-roadmap polish prioritised after the `card-index` merge and before Phase 17.
@@ -467,9 +570,9 @@ Five single-use items disappeared from the hand without animation:
 
 **Order (early → late):**
 
-1. **True strike** (`trueStrike` in code): Vorpal Honing Amulet, True-Strike Lens (Shooter/Caster), Sharpshooter’s Scope (Shooter). Skips **entire** Lancer counter block (and attacker Unstable Ground, defender terrain per existing true-strike rules). Veteran “guaranteed counter” effects do **not** apply because no counter step runs — matches QA expectation.
+1. **True strike** (`trueStrike` in code): Vorpal Honing Amulet, True-Strike Lens (Shooter/Caster), Recurve Master Bow (Shooter). Skips **entire** Lancer counter block (and attacker Unstable Ground, defender terrain per existing true-strike rules). Veteran “guaranteed counter” effects do **not** apply because no counter step runs — matches QA expectation.
 2. **Braskin (Uncanny Block):** If the **attacker** is **adjacent** (same row, `|Δcol| === 1`) to an allied Braskin (Veteran), **no** enemy Lancer counter is attempted for that attack. Checked **before** any defending Lancer is selected. This **short-circuits** Rowka’s Twin Guard and Nyss’s Phantom Posture for that attack: no counter candidate, so no guaranteed counter. Intentional: Braskin is a hard “no counter” gate for qualifying attacks.
-3. **Otherwise:** Build all defending Lancers in counter range (respecting Vanguard Lance distance 1–2 vs 1), excluding Lancers with `cannotAttackNextTurn` (e.g. Tangle-Vine Bola).
+3. **Otherwise:** Build all defending Lancers in counter range (respecting Vanguard Glaive distance 1–2 vs 1), excluding Lancers with `cannotAttackNextTurn` (e.g. Tangle-Vine Bola).
 4. **Candidate selection:** If any candidate has a **guaranteed** counter (Rowka + adjacent ally Lancer, or Nyss face-down), that Lancer is chosen first; else **lowest column index** (left-to-right scan behavior).
 5. **Unstable Ground (Lancer’s tile):** Coin **before** the counter success coin. On **tails**, the counter attempt is canceled entirely — Rowka/Nyss “force heads” does **not** apply, because the attempt never reaches the counter flip. On **heads**, proceed to counter resolution.
 6. **Counter coin:** Rowka (Twin Guard) and Nyss (face-down) force **heads** on this flip (log lines distinguish). Nyss flips face-up when revealed for counter; if already face-up, Phantom Posture does not apply.
@@ -514,7 +617,7 @@ These run only when the attack **actually hits** the defender (not canceled by t
 
 - **Scope completed:** Senya (Hex Haze), Iktha (Magma Skin), Mivara (False Self) in `resolveCombat`, Harlund single-hit resolution, and `continueArchmageMulti` packet loop.
 - **Shared defender-passive resolver:** Added `resolveDefenderVeteranPacket(...)` so defender-passive behavior is consistent across normal single hits and Archmage packet hits.
-- **Vorpal gating (confirmed rule):** Only `Vorpal Honing Amulet` bypasses these defender passives; True-Strike Lens and Sharpshooter's Scope do not.
+- **Vorpal gating (confirmed rule):** Only `Vorpal Honing Amulet` bypasses these defender passives; True-Strike Lens and Recurve Master Bow do not.
 - **Iktha:** Destroys attacker gear before damage; logs both "gear destroyed" and "no gear to destroy" branches.
 - **Senya:** Coin flip on incoming hit; heads negates packet and reflects 1 damage to attacker. Added per-unit cooldown state (`senyaBlockNextTurn` / `senyaBlockedThisTurn`) refreshed at turn start via `refreshSenyaCooldownForTurn`.
 - **Mivara:** Coin flip on incoming hit; heads redirects packet to front enemy (same column, opposite row). If no front enemy exists, packet is fully voided (no damage to Mivara, no redirected damage).
@@ -525,7 +628,7 @@ These run only when the attack **actually hits** the defender (not canceled by t
 
 - **Current status:** QA intentionally paused to continue feature implementation; keep R2 QA open.
 - **Verified so far:** Senya core behavior/cooldown/Tival retry, Iktha geared+ungeared branches, Mivara heads/tails behavior + Tival retry, plus true-strike split **A1** (Vorpal ignore) and **A2** (True-Strike Lens does not ignore).
-- **Still pending:** Remaining R2 matrix, especially Wardstone ordering, Archmage multi-packet defender-passive interactions, A3 (`Sharpshooter's Scope` does not ignore), and quick counter/terrain ordering regression checks.
+- **Still pending:** Remaining R2 matrix, especially Wardstone ordering, Archmage multi-packet defender-passive interactions, A3 (`Recurve Master Bow` does not ignore), and quick counter/terrain ordering regression checks.
 - **Tracking doc:** [`QA_PHASE15_R2_LOG_TEMPLATE.md`](QA_PHASE15_R2_LOG_TEMPLATE.md).
 
 ### R3 Ardan (Veilstep) implementation (ready for QA)
@@ -574,23 +677,23 @@ These run only when the attack **actually hits** the defender (not canceled by t
 
 ## Phase 13 — Promotions
 
-**Scope:** Four promotion items (Champion's Crest, Vanguard Lance, Sharpshooter's Scope, Archmage's Tome). Equipped like other gear (one gear per unit; equipping replaces current gear). Each is class-specific, grants +1 HP, and modifies range or combat behavior.
+**Scope:** Four promotion items (Champion's Gauntlets, Vanguard Glaive, Recurve Master Bow, Archmage's Tome). Equipped like other gear (one gear per unit; equipping replaces current gear). Each is class-specific, grants +1 HP, and modifies range or combat behavior.
 
 **Implementations:**
 - **Data:** In `ITEM_SPECS`, each promotion has `type: 'promotion'`, `allowedClasses: [class]`, and `hpBonus: 1`. `getArmorHPBonus` and `getGearAllowedClasses` extended to support `type === 'promotion'`. Promotions added to `GEAR_EQUIP_ITEM_NAMES` (via `PROMOTION_ITEM_NAMES`). **Use button:** `buildItemCard` and `handleItemHandClick` include `spec.type === 'promotion'` so promotion cards show "Use" and enter targeting when `canPlayGear` is true.
-- **Champion's Crest (Brawler):** +1 HP. Attack range: same column and both adjacent (distance ≤ 1). Implemented via `isInRangeWithCell`: when Brawler has Crest, `d <= 1`.
-- **Vanguard Lance (Lancer):** +1 HP. Attack range: diagonal/sideways only — distance **1 or 2** (not 0). "Applies to counters, too": defender Lancer with Vanguard Lance can counter when attacker is at distance 1 or 2; normal Lancer counter range remains distance === 1. Lancer counter block loops all defender columns and uses `inCounterRange`: Vanguard ⇒ `dist >= 1 && dist <= 2`, else `dist === 1`.
-- **Sharpshooter's Scope (Shooter):** +1 HP. All attacks become true strikes: skip attacker Unstable Ground, Lancer counter block, defender Elevated/Reinforced terrain. Added to `trueStrike` in `resolveCombat`. Wardstone not bypassed. Barbed Gauntlets only on Brawler/Lancer hits.
+- **Champion's Gauntlets (Brawler):** +1 HP. Attack range: same column and both adjacent (distance ≤ 1). Implemented via `isInRangeWithCell`: when Brawler has Gauntlets, `d <= 1`.
+- **Vanguard Glaive (Lancer):** +1 HP. Attack range: diagonal/sideways only — distance **1 or 2** (not 0). "Applies to counters, too": defender Lancer with Vanguard Glaive can counter when attacker is at distance 1 or 2; normal Lancer counter range remains distance === 1. Lancer counter block loops all defender columns and uses `inCounterRange`: Vanguard ⇒ `dist >= 1 && dist <= 2`, else `dist === 1`.
+- **Recurve Master Bow (Shooter):** +1 HP. All attacks become true strikes: skip attacker Unstable Ground, Lancer counter block, defender Elevated/Reinforced terrain. Added to `trueStrike` in `resolveCombat`. Wardstone not bypassed. Barbed Gauntlets only on Brawler/Lancer hits.
 - **Archmage's Tome (Caster):** +1 HP. Attacks affect primary target and both adjacent enemy units (1 damage + paralyze each). **Per-target defenses:** Each of the three columns is resolved in sequence via `state.archmageMultiResolving` and `continueArchmageMulti()`. For each target: Reinforced Barricade (Caster) is checked per tile (coin flip; heads = that unit not hit). If the unit has Wardstone Bracelet, defender gets Use/No; Use negates that unit's hit only. `doWardstoneUse` / `doWardstoneNo` detect archmage multi and advance to the next target or call `finishArchmageMulti()`. **Rest:** Attacker gets `mustRestNextTurn = true` (separate from `cannotAttackNextTurn` so Tangle-Vine Bola is unchanged). `mustRestNextTurn` is cleared at **start** of that player's next turn (`startOfTurn`); unit is non-selectable and shows "Can't attack" until then. Magic Grenade (nextAttackAsCaster) stays single-target Caster; no Tome multi-target or rest.
 - **Range:** `isInRangeWithCell(attackerCol, defenderCol, attCell)` used in `canAttack`, attack-step highlighting, and attack target click; respects promotions and Magic Grenade.
 
 **Bug fixes (same phase):**
 - Promotion cards did not show "Use" button; added `spec.type === 'promotion'` to gear Use-button condition in `buildItemCard` and to `gearPlayable` in `handleItemHandClick`.
-- Vanguard Lance allowed attack/counter on the tile directly in front (distance 0); range restricted to `d >= 1 && d <= 2` for attack and counter.
+- Vanguard Glaive allowed attack/counter on the tile directly in front (distance 0); range restricted to `d >= 1 && d <= 2` for attack and counter.
 - Archmage's Tome rest was cleared at end of turn so the Caster could attack again next turn; introduced `mustRestNextTurn` (cleared at start of turn) and use it for Archmage rest; "Can't attack" badge and selectability check both flags.
 - Archmage's Tome multi-target did not trigger Wardstone or Reinforced Barricade for adjacent targets; implemented per-target resolution with Wardstone prompt and per-tile Reinforced Barricade check.
 
-**Files touched:** `data.js` (promotion `allowedClasses`, `hpBonus`), `game.js` (gear helpers, `PROMOTION_ITEM_NAMES`, `isInRangeWithCell`, Vanguard range, Lancer counter range, trueStrike Scope, Archmage multi-target, `continueArchmageMulti` / `finishArchmageMulti`, `mustRestNextTurn`, Wardstone handlers, Use button for promotion), `ROADMAP.md`, `DEV_LOG.md`.
+**Files touched:** `data.js` (promotion `allowedClasses`, `hpBonus`), `game.js` (gear helpers, `PROMOTION_ITEM_NAMES`, `isInRangeWithCell`, Vanguard Glaive range, Lancer counter range, Recurve Master Bow true-strike, Archmage multi-target, `continueArchmageMulti` / `finishArchmageMulti`, `mustRestNextTurn`, Wardstone handlers, Use button for promotion), `ROADMAP.md`, `DEV_LOG.md`.
 
 ---
 
