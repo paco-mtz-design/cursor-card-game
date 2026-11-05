@@ -103,6 +103,7 @@ The Beat Sheet lives in the repo and is published to a fixed link: https://claud
 - `docs/beat-sheet/index.html` — **design**: layout, styles, filters, rendering. Loads `data.js`; opens directly in a browser with no server.
 - To update: edit the files, then publish with the Artifact tool — `file_path` = `docs/beat-sheet/index.html`, `url` = the link above, `files` = `{"data.js": "docs/beat-sheet/data.js"}`. Always pass `url` so the link stays the same.
 - When an animation or interaction changes in `game.js` / `style.css` / `index.html`, update the matching entry (including its line refs) and bump `AUDIT`.
+- **Redesign waves:** entries carry an optional `wave` (keys from `WAVES` in `data.js`; untagged = Unassigned). Each wave has a hand-off brief for the separate design session, e.g. `docs/beat-sheet/wave-1-brief.md`. Briefs are implementation-agnostic on purpose: no code, timings, colors or current visuals — only what effects do, why, and the rule constraints.
 
 ## Development conventions
 

@@ -211,6 +211,7 @@
     background:var(--surface-2); color:var(--ink-soft); border:1px solid var(--line-soft);
   }
   .tag.phase-tag{color:var(--accent-ink); background:var(--accent-soft); border-color:transparent}
+  .tag.wave-tag{color:var(--gold); background:var(--gold-soft); border-color:transparent; font-weight:600}
 
   .behavior{color:var(--ink-soft); font-size:13.5px; margin:0}
 
@@ -279,6 +280,7 @@
       <div class="groupby" role="group" aria-label="Group by">
         <button type="button" data-group="phase" aria-pressed="true">By phase</button>
         <button type="button" data-group="pattern" aria-pressed="false">By pattern</button>
+        <button type="button" data-group="wave" aria-pressed="false">By wave</button>
       </div>
       <button class="filters-toggle" id="filters-toggle" type="button" aria-expanded="false" aria-controls="filters-drawer">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M7 12h10M10 19h4"/></svg>
@@ -292,6 +294,7 @@
 
   <div class="drawer-wrap" id="filters-drawer" hidden>
     <div class="drawer-inner">
+      <div class="row chipset" id="wave-chips"><span class="label">Wave</span></div>
       <div class="row chipset" id="phase-chips"><span class="label">Phase</span></div>
       <div class="row chipset" id="pattern-chips"><span class="label">Pattern</span></div>
       <div class="row chipset" id="status-chips"><span class="label">Status</span></div>
@@ -322,8 +325,11 @@
 <script src="data.js"></script>
 <script>
 // ---------- state ----------
-const state = { group:'phase', phase:new Set(), pattern:new Set(), status:new Set(), q:'' };
+const state = { group:'phase', wave:new Set(), phase:new Set(), pattern:new Set(), status:new Set(), q:'' };
 const byId = Object.fromEntries(ENTRIES.map(e => [e.id, e]));
+// Entries without a wave fall into an 'Unassigned' bucket (key 0)
+const WAVE_GROUPS = [...WAVES, {key:0, label:'Unassigned'}];
+const waveOf = e => e.wave || 0;
 
 // ---------- build filter chips ----------
 function buildChips(container, list, setKey){
@@ -340,6 +346,7 @@ function buildChips(container, list, setKey){
     container.appendChild(b);
   });
 }
+buildChips(document.getElementById('wave-chips'), WAVE_GROUPS, 'wave');
 buildChips(document.getElementById('phase-chips'), PHASES, 'phase');
 buildChips(document.getElementById('pattern-chips'), PATTERNS, 'pattern');
 
@@ -376,7 +383,7 @@ filtersToggle.addEventListener('click', () => {
 });
 
 document.getElementById('clear-filters').addEventListener('click', () => {
-  state.phase.clear(); state.pattern.clear(); state.status.clear(); state.q = '';
+  state.wave.clear(); state.phase.clear(); state.pattern.clear(); state.status.clear(); state.q = '';
   document.getElementById('search').value = '';
   document.querySelectorAll('.chip[aria-pressed="true"]').forEach(b => b.setAttribute('aria-pressed','false'));
   render();
@@ -384,6 +391,7 @@ document.getElementById('clear-filters').addEventListener('click', () => {
 
 // ---------- matching ----------
 function matches(e){
+  if (state.wave.size && !state.wave.has(waveOf(e))) return false;
   if (state.phase.size && !e.phase.some(p => state.phase.has(p))) return false;
   if (state.pattern.size && !e.pattern.some(p => state.pattern.has(p))) return false;
   if (state.status.size && !state.status.has(e.status)) return false;
@@ -397,11 +405,13 @@ function matches(e){
 // ---------- render ----------
 const phaseLabel = k => PHASES.find(p=>p.key===k)?.label || k;
 const patternLabel = k => PATTERNS.find(p=>p.key===k)?.label || k;
+const waveLabel = k => WAVES.find(w=>w.key===k)?.label.split(' — ')[0] || ('Wave '+k);
 
 function entryCard(e){
   const div = document.createElement('div');
   div.className = 'entry'; div.id = 'entry-'+e.id;
   const tags = [
+    ...(e.wave ? [`<span class="tag wave-tag">${waveLabel(e.wave)}</span>`] : []),
     ...e.phase.map(p => `<span class="tag phase-tag">${phaseLabel(p)}</span>`),
     ...e.pattern.map(p => `<span class="tag">${patternLabel(p)}</span>`),
   ].join('');
@@ -425,13 +435,16 @@ function render(){
   const visible = ENTRIES.filter(matches);
   document.getElementById('visible-count').textContent = visible.length;
 
-  const activeCount = state.phase.size + state.pattern.size + state.status.size;
+  const activeCount = state.wave.size + state.phase.size + state.pattern.size + state.status.size;
   const countBadge = document.getElementById('filters-count');
   countBadge.textContent = activeCount;
   countBadge.hidden = activeCount === 0;
   document.getElementById('clear-filters').hidden = activeCount === 0 && !state.q;
 
-  const groups = state.group === 'phase' ? PHASES : PATTERNS;
+  const groups = { phase:PHASES, pattern:PATTERNS, wave:WAVE_GROUPS }[state.group];
+  const inGroupOf = g => state.group === 'wave'
+    ? visible.filter(e => waveOf(e) === g.key)
+    : visible.filter(e => e[state.group].includes(g.key));
   const wrap = document.getElementById('sections');
   wrap.innerHTML = '';
 
@@ -442,7 +455,7 @@ function render(){
     wrap.appendChild(empty);
   } else {
     groups.forEach(g => {
-      const inGroup = visible.filter(e => e[state.group].includes(g.key));
+      const inGroup = inGroupOf(g);
       if (!inGroup.length) return;
       const section = document.createElement('section');
       section.className = 'section';
