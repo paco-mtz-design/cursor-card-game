@@ -80,11 +80,12 @@
           </div>
           <div class="setup-row__control">
             <div class="segmented segmented--blue" role="radiogroup" aria-label="CPU difficulty" data-control="cpu-difficulty">
-              <button type="button" class="segmented__btn segmented__btn--selected" data-value="easy" role="radio" aria-checked="true">
-                <span class="segmented__main">Easy</span>
-              </button>
-              <button type="button" class="segmented__btn" data-value="normal" role="radio" aria-checked="false">
+              <button type="button" class="segmented__btn segmented__btn--selected" data-value="normal" role="radio" aria-checked="true">
                 <span class="segmented__main">Normal</span>
+              </button>
+              <button type="button" class="segmented__btn segmented__btn--soon" data-value="hard" role="radio" aria-checked="false" disabled aria-disabled="true">
+                <span class="segmented__main">Hard</span>
+                <span class="segmented__sub">Coming Soon</span>
               </button>
             </div>
           </div>
@@ -160,7 +161,7 @@
           <span class="begin-duel-btn__label">Begin Duel</span>
           <svg class="begin-duel-btn__swords" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 17.5 4 7l3-3 10.5 10.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/><path d="M9.5 17.5 20 7l-3-3L6.5 14.5"/><path d="m11 19-6-6"/><path d="m8 16-4 4"/><path d="m5 21-2-2"/></svg>
         </div>
-        <div class="begin-duel-btn__summary" id="begin-duel-summary">15 captures · seer's bestiary on · cpu: easy</div>
+        <div class="begin-duel-btn__summary" id="begin-duel-summary">15 captures · seer's bestiary on · cpu: normal</div>
       </button>
 
       <!-- Lore -->
@@ -191,8 +192,8 @@
       </select>
       <input type="checkbox" id="setup-cpu-custom-placement">
       <select id="setup-cpu-difficulty">
-        <option value="easy" selected>Easy (rookie)</option>
-        <option value="normal">Normal (intermediate)</option>
+        <option value="normal" selected>Normal</option>
+        <option value="hard" disabled>Hard (Coming Soon)</option>
       </select>
       <input type="checkbox" id="setup-debug-enabled" checked>
     </form>
