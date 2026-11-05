@@ -14,6 +14,70 @@ Granular trace of work for planning and debugging. Newest entries at the top.
 
 ---
 
+## CPU intelligence v1 — blunder-proofing and playbook encoding
+
+**Status:** Shipped on `cpu-intelligence` branch (`66e1e8d`). Behaviour change for the CPU opponent plus a small start-screen change to the difficulty picker. Player-facing summary lives in [CPU_INTELLIGENCE_V1.md](CPU_INTELLIGENCE_V1.md); the pre-work briefing (log analysis + code map) is [CPU_INTELLIGENCE_CONTEXT.md](CPU_INTELLIGENCE_CONTEXT.md).
+
+### Problem
+
+Game-log analysis (~13 complete matches, Apr–May 2026) showed the CPU's weakness was not that it was too easy but that it made *unbelievable* mistakes — moves a first-time human would not make. The combat engine was sound; the gaps were in what the CPU valued. The four headline blunders:
+
+1. Attacking into **guaranteed** Lancer counters (Rowka Twin Guard) and losing the attacker for nothing — the single most exploitable behaviour.
+2. Moving onto its own hostile terrain (Unstable Ground, Paralyzing Vines) before attacking, and never leaving hostile terrain it already stood on.
+3. Wasting premium items: Vorpal Honing Amulet on 1-HP targets a normal hit would capture, Magic Grenade when a Caster was already available, Tangle-Vine Bola on face-down or about-to-die targets.
+4. Placing Divine Light on its own side — revealing its own face-down units.
+
+Separately, "Normal" behaved like "greedy Easy": the difficulty tiers differed only in weights, not awareness, so Easy offered no meaningfully different experience.
+
+### Diagnosis
+
+All gaps live in `game.js` candidate building, not in `cpu.js` (whose linear scorer is generic and correct):
+
+- `getCounterRiskScore` only flagged a face-up Lancer at distance 1 with a flat `1.6`, routinely outweighed by high-threat targets. It never consulted whether the counter was guaranteed.
+- `chooseCpuMoveAction` ignored terrain on both the origin and destination cell.
+- `chooseCpuItemAction` gated items on generic thresholds (e.g. Vorpal fired whenever the strongest enemy scored > 3.4) with no "would a free attack already do this?" check.
+- `terrainValueFor` scored Divine Light as positive regardless of which side it landed on.
+
+### Design
+
+The guiding principle agreed in the design phase: **believable, not unbeatable**. Every rule reads only information the CPU legitimately has (respecting the fog-of-war fix below) — e.g. guaranteed-counter detection uses only *visible* Rowka veterans; a hidden Nyss remains a risk the CPU must accept, just as a human would.
+
+| Behaviour | Rule encoded |
+|---|---|
+| Guaranteed counters | New `cpuIsGuaranteedCounter`: visible Rowka + adjacent Lancer → counter risk `6.0` (vs `1.6` coin-flip). Effectively takes the attack off the table. |
+| Vanguard Glaive | `getCounterRiskScore` accounts for the ±2 range of an equipped Glaive. |
+| Brawler probing | Attacks on face-down targets get `+1.2` when the attacker is a Brawler (2 HP survives a surprise). |
+| Terrain-aware movement | Landing on own Unstable Ground / Paralyzing Vines penalised; escaping hostile terrain `+2.0`. |
+| Divine Light | Own side `-1.5` (was `+1.2`); enemy side `+1.0`. Tectonic Spike removing enemy protective terrain scored as beneficial. |
+| Vorpal | Only for targets with HP remaining > 1, or when a guaranteed counter blocks the target. |
+| Bola | Skips face-down and near-death targets. New Bola-then-strike combo: bola a coin-flip Lancer shielding a high-value target (up to `+0.7 ×` the unlocked target's threat). Not used against guaranteed counters, which the Bola does not override. |
+| Magic Grenade | Only when no face-up own Caster exists. |
+| Obscuring Bomb | New behaviour — considered when 2+ own units are revealed. |
+| Legendary Weapons | Prefer units on protective terrain (`+0.6`) or next to an own Lancer (`+0.5`); veterans still prioritised. |
+| Weights | Normal profile `counterRisk` tightened from `-1.8` to `-2.2`. |
+
+**Difficulty picker (start screen):** Easy is retired; Normal is the default and only active tier. Hard appears as a visually disabled "Coming Soon" option (new `.segmented__btn--soon` class), reserving the slot for v2 lookahead without promising it today.
+
+### Trade-offs
+
+- **Removing Easy** narrows the choice for brand-new players, accepted because Easy and Normal were not meaningfully different and a blunder-prone CPU taught bad lessons.
+- **Showing Hard as disabled** sets an expectation; the alternative (hiding it) was judged less honest about where the CPU is heading.
+- **Hand-tuned constants** (`6.0`, `+1.2`, `+2.0`, …) remain embedded in the candidate builders rather than externalised into `cpu.js` profiles. Fine for one active tier; worth extracting when Hard lands and needs different values.
+
+### Verification
+
+- `node --check` passes on `game.js` and `cpu.js`.
+- No dedicated regression pass is recorded for this commit — playtest against each blunder scenario above (Rowka pair, own hostile terrain, Vorpal on a 1-HP target, Divine Light placement) before treating the tuning as final.
+
+### Deferred (v2)
+
+- Multi-turn lookahead (the planned Hard tier).
+- Strategic veteran-ability sequencing across turns.
+- Positional ideals (Shooters toward edges, Lancers toward centre).
+- Terrain-probability weighting on attacks: the CPU still re-attacks targets protected by coin-flip terrain (Elevated Ground, Reinforced Barricade) instead of relocating — weakness (b) in the context brief.
+
+---
+
 ## CPU fog-of-war fix — face-down enemy units
 
 **Status:** Shipped on `bug-fixes` branch. Behaviour fix for the CPU opponent. No new player-visible features; the player experience change is purely "the CPU stops cheating."
