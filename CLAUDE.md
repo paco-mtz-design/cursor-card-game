@@ -93,6 +93,16 @@ The turn-step flow in `runCpuTurnStep()`:
 | `DEV_LOG.md` | Shipped milestones and known deferred issues. Newest entries first. |
 | `RULES.md` | Player-facing rulings for edge cases (counter order, veteran stacking, terrain interactions). Update here when prototype behavior is agreed. |
 | `game documentation/` | Original design sheets for items, bestiary, and gameplay manual. Source of truth for intended rules before prototype encoding. |
+| `docs/beat-sheet/` | **The Beat Sheet** — audit of every interaction and animation in the game. Published as a claude.ai artifact (see below). |
+
+### Beat Sheet workflow
+
+The Beat Sheet lives in the repo and is published to a fixed link: https://claude.ai/artifact/UgmywpU8ZfEotStjG11z3p
+
+- `docs/beat-sheet/data.js` — **content**: `ENTRIES` (one per interaction), `GAPS`, the `PHASES` / `PATTERNS` / `STATUS` taxonomies, and `AUDIT` (branch + commit + date the audit was read from, shown in the footer).
+- `docs/beat-sheet/index.html` — **design**: layout, styles, filters, rendering. Loads `data.js`; opens directly in a browser with no server.
+- To update: edit the files, then publish with the Artifact tool — `file_path` = `docs/beat-sheet/index.html`, `url` = the link above, `files` = `{"data.js": "docs/beat-sheet/data.js"}`. Always pass `url` so the link stays the same.
+- When an animation or interaction changes in `game.js` / `style.css` / `index.html`, update the matching entry (including its line refs) and bump `AUDIT`.
 
 ## Development conventions
 

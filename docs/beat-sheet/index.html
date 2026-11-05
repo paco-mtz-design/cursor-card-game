@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tacticlash Beat Sheet</title>
+<meta name="description" content="Every interaction and animation in Tacticlash today, audited from the live codebase and filterable by game phase, motion pattern, and implementation status.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  [hidden]:not([hidden=until-found]){display:none!important}
+  img{max-width:100%}
+  :root{
+    --paper:#eef1f7;
+    --surface:#ffffff;
+    --surface-2:#f5f7fc;
+    --ink:#1c2033;
+    --ink-soft:#5a5f7a;
+    --ink-faint:#8488a3;
+    --line:#dadee9;
+    --line-soft:#e6e9f1;
+    --accent:#423f9e;
+    --accent-ink:#2f2c78;
+    --accent-soft:#ece9fb;
+    --gold:#9a6a24;
+    --gold-soft:#f4e9d6;
+    --gsap:#177a5e;
+    --gsap-soft:#dff2ea;
+    --css:#a06b16;
+    --css-soft:#f6ead2;
+    --static:#a3402a;
+    --static-soft:#f7e2db;
+    --shadow: 0 1px 2px rgba(28,32,51,.06), 0 8px 24px -12px rgba(28,32,51,.18);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#12131c;
+      --surface:#191b28;
+      --surface-2:#1e2032;
+      --ink:#e9eaf6;
+      --ink-soft:#a9adc6;
+      --ink-faint:#767b98;
+      --line:#2c2f45;
+      --line-soft:#242739;
+      --accent:#8e8bf0;
+      --accent-ink:#c7c5fb;
+      --accent-soft:#262449;
+      --gold:#d6a552;
+      --gold-soft:#332818;
+      --gsap:#4fcba0;
+      --gsap-soft:#123027;
+      --css:#e0ac52;
+      --css-soft:#332715;
+      --static:#e78065;
+      --static-soft:#3a2018;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 28px -14px rgba(0,0,0,.6);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#12131c;
+    --surface:#191b28;
+    --surface-2:#1e2032;
+    --ink:#e9eaf6;
+    --ink-soft:#a9adc6;
+    --ink-faint:#767b98;
+    --line:#2c2f45;
+    --line-soft:#242739;
+    --accent:#8e8bf0;
+    --accent-ink:#c7c5fb;
+    --accent-soft:#262449;
+    --gold:#d6a552;
+    --gold-soft:#332818;
+    --gsap:#4fcba0;
+    --gsap-soft:#123027;
+    --css:#e0ac52;
+    --css-soft:#332715;
+    --static:#e78065;
+    --static-soft:#3a2018;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 28px -14px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+  html{background:var(--paper)}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+    font-size:14px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{font-family:'Fraunces',Georgia,'Times New Roman',serif; text-wrap:balance; margin:0}
+  code,.mono{font-family:'IBM Plex Mono',ui-monospace,'SF Mono',Consolas,monospace}
+  a{color:inherit}
+  ::selection{background:var(--accent-soft); color:var(--accent-ink)}
+
+  .skiplink{position:absolute; left:-9999px}
+  .skiplink:focus{left:12px; top:12px; z-index:100; background:var(--surface); padding:8px 12px; border-radius:6px; box-shadow:var(--shadow)}
+
+  /* ---------- intro (non-sticky, scrolls away) ---------- */
+  .intro{background:var(--surface); border-bottom:1px solid var(--line-soft)}
+  .intro-inner{max-width:1180px; margin:0 auto; padding:20px clamp(16px,3vw,32px) 16px}
+  .masthead{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+  .eyebrow{
+    font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--gold); border:1px solid var(--gold); border-radius:999px; padding:3px 9px;
+  }
+  h1{font-size:clamp(22px,3vw,28px); font-weight:700; color:var(--ink)}
+  .lede{margin:6px 0 0; max-width:74ch; color:var(--ink-soft); font-size:13.5px}
+  .lede strong{color:var(--ink); font-weight:600}
+
+  /* ---------- sticky toolbar ---------- */
+  header.top{
+    position:sticky; top:0; z-index:20;
+    background:var(--surface);
+    border-bottom:1px solid var(--line);
+    box-shadow:var(--shadow);
+  }
+  .toolbar{max-width:1180px; margin:0 auto; padding:9px clamp(16px,3vw,32px)}
+  .row{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+
+  .filters-toggle{
+    display:inline-flex; align-items:center; gap:6px; font:inherit; font-size:12.5px; font-weight:600;
+    padding:7px 12px; border-radius:8px; border:1px solid var(--line); background:var(--surface-2);
+    color:var(--ink-soft); cursor:pointer;
+  }
+  .filters-toggle:hover{border-color:var(--accent)}
+  .filters-toggle[aria-expanded="true"]{background:var(--accent-soft); color:var(--accent-ink); border-color:var(--accent)}
+  .filters-toggle svg{opacity:.75}
+  .filters-count{
+    display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; padding:0 4px;
+    border-radius:999px; background:var(--accent); color:#fff; font-size:10px; font-weight:700;
+  }
+
+  .drawer-wrap{border-top:1px solid var(--line-soft); background:var(--surface-2)}
+  .drawer-inner{max-width:1180px; margin:0 auto; padding:12px clamp(16px,3vw,32px) 14px; display:flex; flex-direction:column; gap:9px}
+
+  .search-wrap{position:relative; flex:1 1 240px; min-width:200px}
+  .search-wrap svg{position:absolute; left:10px; top:50%; transform:translateY(-50%); opacity:.55}
+  #search{
+    width:100%; padding:9px 12px 9px 32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--surface-2); color:var(--ink); font:inherit; font-size:13.5px;
+  }
+  #search:focus{outline:2px solid var(--accent); outline-offset:1px}
+  #search::placeholder{color:var(--ink-faint)}
+
+  .groupby{display:inline-flex; border:1px solid var(--line); border-radius:8px; background:var(--surface-2); padding:2px}
+  .groupby button{
+    font:inherit; font-size:12.5px; font-weight:600; padding:6px 12px; border:0; border-radius:6px;
+    background:transparent; color:var(--ink-soft); cursor:pointer;
+  }
+  .groupby button[aria-pressed="true"]{background:var(--accent); color:#fff}
+
+  .count{font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink-faint); white-space:nowrap; margin-left:auto}
+
+  .chipset{display:flex; flex-wrap:wrap; gap:6px; align-items:center}
+  .chipset .label{font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); margin-right:2px}
+  .chip{
+    font:inherit; font-size:12px; font-weight:600; padding:5px 10px; border-radius:999px;
+    border:1px solid var(--line); background:var(--surface-2); color:var(--ink-soft); cursor:pointer;
+    transition:background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .chip:hover{border-color:var(--accent)}
+  .chip[aria-pressed="true"]{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .chip.status[aria-pressed="true"]{color:#fff}
+  .chip.status.gsap[aria-pressed="true"]{background:var(--gsap); border-color:var(--gsap)}
+  .chip.status.css[aria-pressed="true"]{background:var(--css); border-color:var(--css)}
+  .chip.status.static[aria-pressed="true"]{background:var(--static); border-color:var(--static)}
+  .chip .dot{display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle}
+  .clear-btn{
+    font:inherit; font-size:12px; font-weight:600; color:var(--accent); background:none; border:0; cursor:pointer;
+    padding:5px 6px; text-decoration:underline; text-underline-offset:2px;
+  }
+
+  /* ---------- legend (inside drawer) ---------- */
+  .legend{display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--ink-soft); padding-top:7px; border-top:1px dashed var(--line)}
+  .legend .item{display:flex; align-items:center; gap:6px}
+  .legend .dot{width:9px; height:9px; border-radius:50%}
+
+  /* ---------- main ---------- */
+  main{max-width:1180px; margin:0 auto; padding:24px clamp(16px,3vw,32px) 60px}
+
+  .section{margin-bottom:34px}
+  .section-head{display:flex; align-items:baseline; gap:10px; margin-bottom:10px; border-bottom:2px solid var(--ink); padding-bottom:6px}
+  .section-head h2{font-size:19px; font-weight:600}
+  .section-head .n{font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink-faint)}
+
+  .entries{display:flex; flex-direction:column; gap:8px}
+  .entry{
+    background:var(--surface); border:1px solid var(--line-soft); border-radius:10px;
+    padding:13px 16px; box-shadow:var(--shadow);
+  }
+  .entry-top{display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; justify-content:space-between}
+  .entry-name{font-weight:700; font-size:14.5px; color:var(--ink); flex:1 1 260px}
+  .status-pill{
+    flex:0 0 auto; font-family:'IBM Plex Mono'; font-size:10.5px; font-weight:600; letter-spacing:.03em;
+    padding:3px 8px; border-radius:6px; white-space:nowrap;
+  }
+  .status-pill.gsap{background:var(--gsap-soft); color:var(--gsap)}
+  .status-pill.css{background:var(--css-soft); color:var(--css)}
+  .status-pill.static{background:var(--static-soft); color:var(--static)}
+
+  .tag-row{display:flex; flex-wrap:wrap; gap:5px; margin:7px 0 9px}
+  .tag{
+    font-family:'IBM Plex Mono'; font-size:10.5px; padding:2px 7px; border-radius:5px;
+    background:var(--surface-2); color:var(--ink-soft); border:1px solid var(--line-soft);
+  }
+  .tag.phase-tag{color:var(--accent-ink); background:var(--accent-soft); border-color:transparent}
+
+  .behavior{color:var(--ink-soft); font-size:13.5px; margin:0}
+
+  .meta-row{
+    display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; padding-top:9px; border-top:1px dashed var(--line-soft);
+    font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--ink-faint);
+  }
+  .meta-row .k{color:var(--ink-faint); margin-right:6px}
+  .meta-row .v{color:var(--ink-soft)}
+
+  .note{
+    margin-top:9px; padding:8px 10px; border-radius:7px; background:var(--gold-soft); color:var(--ink);
+    font-size:12.5px; border-left:3px solid var(--gold);
+  }
+  .note b{color:var(--gold); font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; display:block; margin-bottom:2px}
+
+  .empty{padding:40px 10px; text-align:center; color:var(--ink-faint); font-size:14px}
+
+  /* ---------- gaps ---------- */
+  .gaps-wrap{margin-top:52px}
+  .gaps-head{display:flex; align-items:baseline; gap:10px; margin-bottom:6px}
+  .gaps-head h2{font-size:20px}
+  .gaps-sub{color:var(--ink-soft); font-size:13px; max-width:62ch; margin:0 0 16px}
+  .gaps-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:10px}
+  .gap-card{
+    background:var(--surface); border:1px solid var(--line-soft); border-left:3px solid var(--static);
+    border-radius:8px; padding:12px 14px; box-shadow:var(--shadow);
+  }
+  .gap-card h3{font-size:13.5px; font-weight:700; margin-bottom:5px}
+  .gap-card p{margin:0 0 8px; color:var(--ink-soft); font-size:12.8px}
+  .relates{display:flex; flex-wrap:wrap; gap:5px}
+  .relates .tag{font-size:10px}
+
+  footer.page{max-width:1180px; margin:0 auto; padding:0 clamp(16px,3vw,32px) 50px; color:var(--ink-faint); font-size:12px}
+
+  @media (max-width: 640px){
+    .count{margin-left:0; width:100%}
+    .entry-top{flex-direction:column; align-items:flex-start}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{transition-duration:.001ms !important}
+  }
+</style>
+</head>
+<body>
+
+<a class="skiplink" href="#main">Skip to catalogue</a>
+
+<div class="intro">
+  <div class="intro-inner">
+    <div class="masthead">
+      <span class="eyebrow">Tacticlash · UI audit</span>
+      <h1>The Beat Sheet</h1>
+    </div>
+    <p class="lede">Every interactive and animated moment in the game today — <strong id="total-count">73</strong> entries, read straight out of <code>game.js</code>, <code>style.css</code> and <code>index.html</code>. Pure inventory, no redesign opinions.</p>
+  </div>
+</div>
+
+<header class="top">
+  <div class="toolbar">
+    <div class="row">
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="search" type="text" placeholder="Search by name, function, class…" autocomplete="off">
+      </div>
+      <div class="groupby" role="group" aria-label="Group by">
+        <button type="button" data-group="phase" aria-pressed="true">By phase</button>
+        <button type="button" data-group="pattern" aria-pressed="false">By pattern</button>
+      </div>
+      <button class="filters-toggle" id="filters-toggle" type="button" aria-expanded="false" aria-controls="filters-drawer">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M7 12h10M10 19h4"/></svg>
+        Filters
+        <span class="filters-count" id="filters-count" hidden>0</span>
+      </button>
+      <button class="clear-btn" id="clear-filters" type="button" hidden>Clear</button>
+      <span class="count"><span id="visible-count">73</span> shown</span>
+    </div>
+  </div>
+
+  <div class="drawer-wrap" id="filters-drawer" hidden>
+    <div class="drawer-inner">
+      <div class="row chipset" id="phase-chips"><span class="label">Phase</span></div>
+      <div class="row chipset" id="pattern-chips"><span class="label">Pattern</span></div>
+      <div class="row chipset" id="status-chips"><span class="label">Status</span></div>
+      <div class="legend">
+        <span class="item"><span class="dot" style="background:var(--gsap)"></span>GSAP animation — driven by the JS <code>Anim</code> module</span>
+        <span class="item"><span class="dot" style="background:var(--css)"></span>CSS transition — declarative motion, no JS</span>
+        <span class="item"><span class="dot" style="background:var(--static)"></span>Instant / no motion — a class or <code>hidden</code> toggle only</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div id="sections"></div>
+
+  <div class="gaps-wrap">
+    <div class="gaps-head">
+      <h2>Known gaps &amp; dead code</h2>
+    </div>
+    <p class="gaps-sub">Loose ends the audit turned up along the way — stale docs, dead CSS, and moments with no motion design at all. Factual notes only, worth a look before scoping the redesign brief.</p>
+    <div class="gaps-grid" id="gaps-grid"></div>
+  </div>
+</main>
+
+<footer class="page" id="audit-footer"></footer>
+
+<!-- All content (entries, gaps, categories) lives in data.js -->
+<script src="data.js"></script>
+<script>
+// ---------- state ----------
+const state = { group:'phase', phase:new Set(), pattern:new Set(), status:new Set(), q:'' };
+const byId = Object.fromEntries(ENTRIES.map(e => [e.id, e]));
+
+// ---------- build filter chips ----------
+function buildChips(container, list, setKey){
+  list.forEach(({key,label}) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.textContent = label;
+    b.setAttribute('aria-pressed','false');
+    b.addEventListener('click', () => {
+      if (state[setKey].has(key)) state[setKey].delete(key); else state[setKey].add(key);
+      b.setAttribute('aria-pressed', state[setKey].has(key) ? 'true':'false');
+      render();
+    });
+    b.dataset.key = key;
+    container.appendChild(b);
+  });
+}
+buildChips(document.getElementById('phase-chips'), PHASES, 'phase');
+buildChips(document.getElementById('pattern-chips'), PATTERNS, 'pattern');
+
+const statusContainer = document.getElementById('status-chips');
+Object.entries(STATUS).forEach(([key,label]) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = `chip status ${key}`;
+  b.innerHTML = `<span class="dot" style="background:var(--${key})"></span>${label}`;
+  b.setAttribute('aria-pressed','false');
+  b.addEventListener('click', () => {
+    if (state.status.has(key)) state.status.delete(key); else state.status.add(key);
+    b.setAttribute('aria-pressed', state.status.has(key) ? 'true':'false');
+    render();
+  });
+  statusContainer.appendChild(b);
+});
+
+document.getElementById('search').addEventListener('input', (e) => { state.q = e.target.value.trim().toLowerCase(); render(); });
+
+document.querySelectorAll('.groupby button').forEach(b => {
+  b.addEventListener('click', () => {
+    state.group = b.dataset.group;
+    document.querySelectorAll('.groupby button').forEach(x => x.setAttribute('aria-pressed', x===b ? 'true':'false'));
+    render();
+  });
+});
+
+const filtersToggle = document.getElementById('filters-toggle');
+const filtersDrawer = document.getElementById('filters-drawer');
+filtersToggle.addEventListener('click', () => {
+  const open = filtersDrawer.hasAttribute('hidden');
+  if (open) filtersDrawer.removeAttribute('hidden'); else filtersDrawer.setAttribute('hidden','');
+  filtersToggle.setAttribute('aria-expanded', open ? 'true':'false');
+});
+
+document.getElementById('clear-filters').addEventListener('click', () => {
+  state.phase.clear(); state.pattern.clear(); state.status.clear(); state.q = '';
+  document.getElementById('search').value = '';
+  document.querySelectorAll('.chip[aria-pressed="true"]').forEach(b => b.setAttribute('aria-pressed','false'));
+  render();
+});
+
+// ---------- matching ----------
+function matches(e){
+  if (state.phase.size && !e.phase.some(p => state.phase.has(p))) return false;
+  if (state.pattern.size && !e.pattern.some(p => state.pattern.has(p))) return false;
+  if (state.status.size && !state.status.has(e.status)) return false;
+  if (state.q){
+    const hay = [e.name, e.behavior, e.impl, e.dom, e.note||''].join(' ').toLowerCase();
+    if (!hay.includes(state.q)) return false;
+  }
+  return true;
+}
+
+// ---------- render ----------
+const phaseLabel = k => PHASES.find(p=>p.key===k)?.label || k;
+const patternLabel = k => PATTERNS.find(p=>p.key===k)?.label || k;
+
+function entryCard(e){
+  const div = document.createElement('div');
+  div.className = 'entry'; div.id = 'entry-'+e.id;
+  const tags = [
+    ...e.phase.map(p => `<span class="tag phase-tag">${phaseLabel(p)}</span>`),
+    ...e.pattern.map(p => `<span class="tag">${patternLabel(p)}</span>`),
+  ].join('');
+  div.innerHTML = `
+    <div class="entry-top">
+      <div class="entry-name">${e.name}</div>
+      <span class="status-pill ${e.status}">${STATUS[e.status]}</span>
+    </div>
+    <div class="tag-row">${tags}</div>
+    <p class="behavior">${e.behavior}</p>
+    <div class="meta-row">
+      <span><span class="k">fn</span><span class="v">${e.impl}</span></span>
+      <span><span class="k">dom</span><span class="v">${e.dom}</span></span>
+    </div>
+    ${e.note ? `<div class="note"><b>Note</b>${e.note}</div>` : ''}
+  `;
+  return div;
+}
+
+function render(){
+  const visible = ENTRIES.filter(matches);
+  document.getElementById('visible-count').textContent = visible.length;
+
+  const activeCount = state.phase.size + state.pattern.size + state.status.size;
+  const countBadge = document.getElementById('filters-count');
+  countBadge.textContent = activeCount;
+  countBadge.hidden = activeCount === 0;
+  document.getElementById('clear-filters').hidden = activeCount === 0 && !state.q;
+
+  const groups = state.group === 'phase' ? PHASES : PATTERNS;
+  const wrap = document.getElementById('sections');
+  wrap.innerHTML = '';
+
+  if (!visible.length){
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No interactions match these filters.';
+    wrap.appendChild(empty);
+  } else {
+    groups.forEach(g => {
+      const inGroup = visible.filter(e => e[state.group].includes(g.key));
+      if (!inGroup.length) return;
+      const section = document.createElement('section');
+      section.className = 'section';
+      const head = document.createElement('div');
+      head.className = 'section-head';
+      head.innerHTML = `<h2>${g.label}</h2><span class="n">${inGroup.length}</span>`;
+      section.appendChild(head);
+      const list = document.createElement('div');
+      list.className = 'entries';
+      inGroup.forEach(e => list.appendChild(entryCard(e)));
+      section.appendChild(list);
+      wrap.appendChild(section);
+    });
+  }
+}
+
+// ---------- gaps ----------
+const gapsGrid = document.getElementById('gaps-grid');
+GAPS.forEach(g => {
+  const card = document.createElement('div');
+  card.className = 'gap-card';
+  const rel = g.relates.map(id => byId[id] ? `<span class="tag">${byId[id].name}</span>` : '').join('');
+  card.innerHTML = `<h3>${g.title}</h3><p>${g.body}</p><div class="relates">${rel}</div>`;
+  gapsGrid.appendChild(card);
+});
+
+// ---------- footer ----------
+document.getElementById('audit-footer').innerHTML =
+  `Compiled from a static read of <code>${AUDIT.branch}</code> @ <code>${AUDIT.commit}</code> (${AUDIT.date}) — line references may drift as the code changes. Pure inventory, no design recommendations included.`;
+
+document.getElementById('total-count').textContent = ENTRIES.length;
+render();
+</script>
+
+</body>
+</html>
